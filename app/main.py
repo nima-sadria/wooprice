@@ -1,13 +1,14 @@
+import json
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .database import Base, engine, get_db
+from .database import Base, SessionLocal, engine, get_db
 from .models import ItemStatus, JobStatus, SyncItem, SyncJob
 from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet
 from .services.woocommerce import batch_update_prices, fetch_product_prices
@@ -225,7 +226,170 @@ async def get_job(job_id: int, db: Session = Depends(get_db)):
     return {**_job_out(job), "items": [_item_out(i) for i in items]}
 
 
-# ── 6. write back to sheet ────────────────────────────────────────────────────
+# ── 6. preview stream (SSE) ───────────────────────────────────────────────────
+
+@app.get("/api/preview/stream")
+async def preview_stream():
+    async def generate():
+        db = SessionLocal()
+        try:
+            def ev(data: dict) -> str:
+                return f"data: {json.dumps(data)}\n\n"
+
+            yield ev({"step": "excel", "status": "running", "msg": "Downloading price list from Nextcloud…"})
+            try:
+                xlsx = await download_xlsx()
+            except Exception as exc:
+                yield ev({"step": "excel", "status": "error", "msg": str(exc)})
+                return
+
+            sheet_items = parse_price_list(xlsx)
+            if not sheet_items:
+                yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (expected product IDs in col A, prices in col B from row 3)"})
+                return
+            yield ev({"step": "excel", "status": "done", "msg": f"Found {len(sheet_items)} products in price list"})
+
+            yield ev({"step": "wc", "status": "running", "msg": f"Fetching current prices from WooCommerce for {len(sheet_items)} products…"})
+            product_ids = [i["product_id"] for i in sheet_items]
+            try:
+                wc_data = await fetch_product_prices(product_ids)
+            except Exception as exc:
+                yield ev({"step": "wc", "status": "error", "msg": str(exc)})
+                return
+            yield ev({"step": "wc", "status": "done", "msg": f"Fetched prices for {len(wc_data)} products from WooCommerce"})
+
+            yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
+
+            job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items))
+            db.add(job)
+            db.flush()
+
+            preview_rows = []
+            for row in sheet_items:
+                pid = row["product_id"]
+                wc = wc_data.get(pid, {})
+                old_price = wc.get("price") or None
+                item = SyncItem(
+                    job_id=job.id,
+                    product_id=pid,
+                    product_name=wc.get("name") or None,
+                    old_price=old_price,
+                    new_price=row["new_price"],
+                )
+                db.add(item)
+                preview_rows.append({
+                    "product_id": pid,
+                    "product_name": wc.get("name", ""),
+                    "old_price": old_price or "",
+                    "new_price": row["new_price"],
+                    "changed": _price_differs(old_price, row["new_price"]),
+                    "found_in_wc": pid in wc_data,
+                })
+            db.commit()
+
+            changed = sum(1 for r in preview_rows if r["changed"])
+            yield ev({"step": "calc", "status": "done", "msg": f"{changed} prices will change, {len(preview_rows) - changed} are unchanged"})
+
+            yield ev({
+                "step": "preview", "status": "done",
+                "job_id": job.id,
+                "total": len(preview_rows),
+                "changed_count": changed,
+                "unchanged_count": len(preview_rows) - changed,
+                "items": preview_rows,
+            })
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── 7. apply stream (SSE) ─────────────────────────────────────────────────────
+
+@app.get("/api/sync/{job_id}/apply-stream")
+async def apply_stream(job_id: int):
+    async def generate():
+        db = SessionLocal()
+        try:
+            def ev(data: dict) -> str:
+                return f"data: {json.dumps(data)}\n\n"
+
+            job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
+            if not job:
+                yield ev({"type": "error", "msg": "Job not found"})
+                return
+            if job.status != JobStatus.preview:
+                yield ev({"type": "error", "msg": f"Job is '{job.status}', expected 'preview'"})
+                return
+
+            job.status = JobStatus.running
+            db.commit()
+
+            items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
+            to_update = [i for i in items if _price_differs(i.old_price, i.new_price)]
+            to_skip = [i for i in items if not _price_differs(i.old_price, i.new_price)]
+
+            yield ev({"type": "start", "total": len(to_update), "skipped": len(to_skip)})
+
+            for item in to_skip:
+                item.status = ItemStatus.skipped
+                item.synced_at = datetime.utcnow()
+
+            if to_update:
+                updates = [{"product_id": i.product_id, "new_price": i.new_price} for i in to_update]
+                try:
+                    wc_results = await batch_update_prices(updates)
+                except Exception as exc:
+                    job.status = JobStatus.failed
+                    db.commit()
+                    yield ev({"type": "error", "msg": f"WooCommerce batch update failed: {exc}"})
+                    return
+
+                result_map = {r["product_id"]: r for r in wc_results}
+                for item in to_update:
+                    r = result_map.get(item.product_id, {})
+                    item.status = ItemStatus.updated if r.get("success") else ItemStatus.failed
+                    item.error_message = r.get("error_message")
+                    item.synced_at = datetime.utcnow()
+                    yield ev({
+                        "type": "item",
+                        "product_id": item.product_id,
+                        "product_name": item.product_name or "",
+                        "status": item.status.value,
+                        "old_price": item.old_price or "",
+                        "new_price": item.new_price,
+                        "error": item.error_message or "",
+                    })
+
+            job.updated_count = sum(1 for i in items if i.status == ItemStatus.updated)
+            job.failed_count = sum(1 for i in items if i.status == ItemStatus.failed)
+            job.skipped_count = sum(1 for i in items if i.status == ItemStatus.skipped)
+            job.status = JobStatus.completed
+            job.completed_at = datetime.utcnow()
+            db.commit()
+
+            yield ev({
+                "type": "done",
+                "job_id": job_id,
+                "updated": job.updated_count,
+                "failed": job.failed_count,
+                "skipped": job.skipped_count,
+            })
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── 8. write back to sheet ────────────────────────────────────────────────────
 
 @app.post("/api/jobs/{job_id}/writeback")
 async def writeback(job_id: int, db: Session = Depends(get_db)):
