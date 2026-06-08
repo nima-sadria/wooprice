@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WooPrice Sync</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --gray: #64748b;
+      --radius: 8px;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    #conn-status { margin-left: auto; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+    #conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
+    #conn-dot.ok { background: var(--green); }
+    #conn-dot.err { background: var(--red); }
+
+    main { max-width: 1100px; margin: 32px auto; padding: 0 24px; display: flex; flex-direction: column; gap: 24px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; }
+    .card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 16px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 18px; border-radius: var(--radius);
+      border: none; cursor: pointer; font-size: 14px; font-weight: 500;
+      transition: background .15s, opacity .15s;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:not(:disabled):hover { background: var(--accent-hover); }
+    .btn-success { background: var(--green); color: #fff; }
+    .btn-success:not(:disabled):hover { background: #16a34a; }
+    .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+    .btn-danger:not(:disabled):hover { background: rgba(239,68,68,.08); }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 20px; min-width: 120px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+
+    .filter-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .filter-row label { font-size: 13px; color: var(--muted); }
+    .toggle-group { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .toggle-group button {
+      background: none; border: none; color: var(--muted); padding: 5px 14px;
+      font-size: 13px; cursor: pointer; transition: background .12s, color .12s;
+    }
+    .toggle-group button.active { background: var(--accent); color: #fff; }
+
+    .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 14px; text-align: left; white-space: nowrap; }
+    th { background: var(--bg); color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
+    tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,.025); }
+
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .badge-updated { background: rgba(34,197,94,.15); color: var(--green); }
+    .badge-failed { background: rgba(239,68,68,.15); color: var(--red); }
+    .badge-skipped { background: rgba(100,116,139,.15); color: var(--gray); }
+    .badge-pending { background: rgba(59,130,246,.15); color: var(--accent); }
+    .badge-preview { background: rgba(59,130,246,.15); color: var(--accent); }
+    .badge-running { background: rgba(245,158,11,.15); color: var(--yellow); }
+    .badge-completed { background: rgba(34,197,94,.15); color: var(--green); }
+    .badge-cancelled { background: rgba(100,116,139,.15); color: var(--gray); }
+
+    .price-up { color: var(--red); }
+    .price-down { color: var(--green); }
+    .price-same { color: var(--muted); }
+
+    .action-row { display: flex; gap: 12px; align-items: center; padding-top: 16px; border-top: 1px solid var(--border); margin-top: 4px; }
+
+    .alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; margin-bottom: 16px; }
+    .alert-error { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
+    .alert-success { background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); color: #86efac; }
+    .alert-info { background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3); color: #93c5fd; }
+
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #preview-section, #result-section { display: none; }
+
+    .empty { text-align: center; padding: 40px; color: var(--muted); }
+
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10"/></svg>
+  <h1>WooPrice Sync</h1>
+  <div id="conn-status">
+    <div id="conn-dot"></div>
+    <span id="conn-label">Checking…</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- Action card -->
+  <div class="card">
+    <div class="card-title">Sync Price List</div>
+    <p style="color:var(--muted);margin-bottom:16px;">Fetches the latest <code>price-list.xlsx</code> from Nextcloud, compares each product's price with WooCommerce, and shows a diff before applying any changes.</p>
+    <div id="action-msg"></div>
+    <button class="btn btn-primary" id="btn-fetch" onclick="fetchPreview()">
+      <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1M8 12l4 4 4-4M12 4v12"/></svg>
+      Fetch Preview
+    </button>
+  </div>
+
+  <!-- Preview section -->
+  <div class="card" id="preview-section">
+    <div class="card-title">Preview Changes — Job <span id="preview-job-id"></span></div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Total products</div>
+        <div class="stat-value" id="stat-total">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value price-up" id="stat-changed">—</div>
+        <div class="stat-label">Will change</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value price-same" id="stat-same">—</div>
+        <div class="stat-label">Unchanged</div>
+      </div>
+    </div>
+
+    <div class="filter-row">
+      <span class="toggle-group">
+        <button class="active" id="filter-changed" onclick="setFilter('changed')">Changed only</button>
+        <button id="filter-all" onclick="setFilter('all')">Show all</button>
+      </span>
+    </div>
+
+    <div class="table-wrap" id="preview-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Product ID</th>
+            <th>Name</th>
+            <th>Current Price</th>
+            <th>New Price</th>
+            <th>Change</th>
+          </tr>
+        </thead>
+        <tbody id="preview-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="preview-result-msg"></div>
+
+    <div class="action-row">
+      <button class="btn btn-success" id="btn-confirm" onclick="confirmSync()">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        Update WooCommerce
+      </button>
+      <button class="btn btn-danger" id="btn-cancel" onclick="cancelSync()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Result summary -->
+  <div class="card" id="result-section">
+    <div class="card-title">Sync Result</div>
+    <div id="result-msg"></div>
+    <div class="stats" id="result-stats"></div>
+    <button class="btn btn-ghost btn-sm" id="btn-writeback" onclick="writeBack()" style="margin-top:8px;">
+      Write status back to sheet (columns E–G)
+    </button>
+  </div>
+
+  <!-- History -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <div class="card-title" style="margin:0">Sync History</div>
+      <button class="btn btn-ghost btn-sm" onclick="loadLogs()">Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Started</th>
+            <th>Status</th>
+            <th>Updated</th>
+            <th>Failed</th>
+            <th>Skipped</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="logs-tbody">
+          <tr><td colspan="7" class="empty">No sync history yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  let currentJobId = null;
+  let previewItems = [];
+  let currentFilter = 'changed';
+
+  // ── utilities ──────────────────────────────────────────────────────────────
+
+  function fmt(dt) {
+    if (!dt) return '—';
+    return new Date(dt).toLocaleString();
+  }
+
+  function fmtPrice(p) {
+    if (p === null || p === undefined || p === '') return '<span style="color:var(--muted)">—</span>';
+    return parseFloat(p).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function priceArrow(oldP, newP, changed) {
+    if (!changed) return '<span class="price-same">= same</span>';
+    const o = parseFloat(oldP || 0);
+    const n = parseFloat(newP || 0);
+    if (n > o) return `<span class="price-up">▲ +${(n - o).toFixed(2)}</span>`;
+    return `<span class="price-down">▼ −${(o - n).toFixed(2)}</span>`;
+  }
+
+  function badge(status) {
+    return `<span class="badge badge-${status}">${status}</span>`;
+  }
+
+  function setMsg(el, html, type = '') {
+    el.innerHTML = html ? `<div class="alert alert-${type}">${html}</div>` : '';
+  }
+
+  // ── connection check ───────────────────────────────────────────────────────
+
+  async function checkHealth() {
+    try {
+      const r = await fetch('/api/health');
+      const d = await r.json();
+      document.getElementById('conn-dot').className = 'ok';
+      document.getElementById('conn-label').textContent = d.wc_url;
+    } catch {
+      document.getElementById('conn-dot').className = 'err';
+      document.getElementById('conn-label').textContent = 'API unreachable';
+    }
+  }
+
+  // ── fetch preview ──────────────────────────────────────────────────────────
+
+  async function fetchPreview() {
+    const btn = document.getElementById('btn-fetch');
+    const msg = document.getElementById('action-msg');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Fetching…';
+    setMsg(msg, '');
+
+    document.getElementById('preview-section').style.display = 'none';
+    document.getElementById('result-section').style.display = 'none';
+
+    try {
+      const resp = await fetch('/api/preview', { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok) { setMsg(msg, data.detail || 'Unknown error', 'error'); return; }
+
+      currentJobId = data.job_id;
+      previewItems = data.items;
+
+      document.getElementById('preview-job-id').textContent = `#${data.job_id}`;
+      document.getElementById('stat-total').textContent = data.total;
+      document.getElementById('stat-changed').textContent = data.changed_count;
+      document.getElementById('stat-same').textContent = data.unchanged_count;
+
+      setFilter('changed');
+      setMsg(document.getElementById('preview-result-msg'), '');
+      document.getElementById('btn-confirm').disabled = false;
+      document.getElementById('btn-cancel').disabled = false;
+      document.getElementById('preview-section').style.display = '';
+
+      if (data.changed_count === 0) {
+        setMsg(document.getElementById('preview-result-msg'), 'All prices are already up-to-date. Nothing to update.', 'info');
+        document.getElementById('btn-confirm').disabled = true;
+      }
+    } catch (e) {
+      setMsg(msg, `Request failed: ${e}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1M8 12l4 4 4-4M12 4v12"/></svg> Fetch Preview`;
+    }
+  }
+
+  // ── render preview table ───────────────────────────────────────────────────
+
+  function setFilter(f) {
+    currentFilter = f;
+    document.getElementById('filter-changed').className = f === 'changed' ? 'active' : '';
+    document.getElementById('filter-all').className = f === 'all' ? 'active' : '';
+    renderPreviewTable();
+  }
+
+  function renderPreviewTable() {
+    const rows = currentFilter === 'changed' ? previewItems.filter(i => i.changed) : previewItems;
+    const tbody = document.getElementById('preview-tbody');
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">No rows to display.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td><code>${r.product_id}</code></td>
+        <td>${r.product_name || '<span style="color:var(--muted)">—</span>'}</td>
+        <td>${fmtPrice(r.old_price)}</td>
+        <td><strong>${fmtPrice(r.new_price)}</strong></td>
+        <td>${priceArrow(r.old_price, r.new_price, r.changed)}</td>
+      </tr>
+    `).join('');
+  }
+
+  // ── confirm sync ───────────────────────────────────────────────────────────
+
+  async function confirmSync() {
+    if (!currentJobId) return;
+    const btn = document.getElementById('btn-confirm');
+    const cancelBtn = document.getElementById('btn-cancel');
+    const msg = document.getElementById('preview-result-msg');
+
+    btn.disabled = true;
+    cancelBtn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Updating WooCommerce…';
+
+    try {
+      const resp = await fetch(`/api/sync/${currentJobId}/confirm`, { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok) { setMsg(msg, data.detail || 'Sync failed', 'error'); return; }
+
+      document.getElementById('preview-section').style.display = 'none';
+      showResult(data);
+      loadLogs();
+    } catch (e) {
+      setMsg(msg, `Request failed: ${e}`, 'error');
+    } finally {
+      btn.disabled = false;
+      cancelBtn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Update WooCommerce`;
+    }
+  }
+
+  function showResult(data) {
+    const section = document.getElementById('result-section');
+    const msg = document.getElementById('result-msg');
+    const stats = document.getElementById('result-stats');
+
+    const hasErrors = data.failed > 0;
+    setMsg(msg,
+      hasErrors
+        ? `Sync completed with ${data.failed} error(s). Check the details below.`
+        : `All done! ${data.updated} product${data.updated !== 1 ? 's' : ''} updated successfully.`,
+      hasErrors ? 'error' : 'success'
+    );
+
+    stats.innerHTML = `
+      <div class="stat"><div class="stat-label">Updated</div><div class="stat-value price-down">${data.updated}</div></div>
+      <div class="stat"><div class="stat-label">Failed</div><div class="stat-value price-up">${data.failed}</div></div>
+      <div class="stat"><div class="stat-label">Skipped</div><div class="stat-value price-same">${data.skipped}</div></div>
+    `;
+
+    section.style.display = '';
+  }
+
+  // ── cancel ─────────────────────────────────────────────────────────────────
+
+  async function cancelSync() {
+    if (!currentJobId) return;
+    try {
+      await fetch(`/api/sync/${currentJobId}`, { method: 'DELETE' });
+    } catch {}
+    document.getElementById('preview-section').style.display = 'none';
+    currentJobId = null;
+    loadLogs();
+  }
+
+  // ── write back ─────────────────────────────────────────────────────────────
+
+  async function writeBack(jobId) {
+    const id = jobId || currentJobId;
+    if (!id) return;
+    const btn = document.getElementById('btn-writeback');
+    if (btn) { btn.disabled = true; btn.textContent = 'Writing…'; }
+
+    try {
+      const resp = await fetch(`/api/jobs/${id}/writeback`, { method: 'POST' });
+      const data = await resp.json();
+      const msg = document.getElementById('result-msg');
+      if (!resp.ok) { setMsg(msg, data.detail || 'Write-back failed', 'error'); }
+      else { setMsg(msg, data.message, 'success'); }
+    } catch (e) {
+      alert(`Write-back failed: ${e}`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Write status back to sheet (columns E–G)'; }
+    }
+  }
+
+  // ── logs ───────────────────────────────────────────────────────────────────
+
+  async function loadLogs() {
+    try {
+      const resp = await fetch('/api/jobs');
+      const jobs = await resp.json();
+      const tbody = document.getElementById('logs-tbody');
+      if (!jobs.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty">No sync history yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = jobs.map(j => `
+        <tr>
+          <td><code>#${j.id}</code></td>
+          <td>${fmt(j.created_at)}</td>
+          <td>${badge(j.status)}</td>
+          <td>${j.updated_count}</td>
+          <td>${j.failed_count > 0 ? `<span class="price-up">${j.failed_count}</span>` : j.failed_count}</td>
+          <td>${j.skipped_count}</td>
+          <td>
+            ${j.status === 'completed'
+              ? `<button class="btn btn-ghost btn-sm" onclick="writeBack(${j.id})">Write back</button>`
+              : '—'}
+          </td>
+        </tr>
+      `).join('');
+    } catch {}
+  }
+
+  // ── init ───────────────────────────────────────────────────────────────────
+
+  checkHealth();
+  loadLogs();
+</script>
+</body>
+</html>
