@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -51,9 +51,30 @@ class SyncItem(Base):
     sale_price = Column(String, nullable=True)
     stock_status = Column(String, nullable=True)
     stock_quantity = Column(Integer, nullable=True)
-    categories = Column(String, nullable=True)  # JSON array: [{"id":1,"name":"..."}]
+    categories = Column(String, nullable=True)  # JSON: [{"id":1,"name":"..."}]
     status = Column(SAEnum(ItemStatus), default=ItemStatus.pending)
     error_message = Column(String, nullable=True)
     synced_at = Column(DateTime, nullable=True)
 
     job = relationship("SyncJob", back_populates="items")
+
+
+class AlarmThreshold(Base):
+    """Price-change alarm thresholds. category_id=None means global default."""
+    __tablename__ = "alarm_thresholds"
+
+    id = Column(Integer, primary_key=True)
+    category_id = Column(Integer, nullable=True, index=True)  # None = global
+    threshold_percent = Column(Float, nullable=False)
+
+
+class AuditLog(Base):
+    """Records every login, fetch preview, and apply action with user + timestamp."""
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, nullable=False, index=True)
+    action = Column(String, nullable=False)  # "login" | "fetch" | "apply"
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    ip_address = Column(String, nullable=True)
+    job_id = Column(Integer, nullable=True)

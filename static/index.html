@@ -8,216 +8,169 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0f172a;
-      --surface: #1e293b;
-      --surface2: #263045;
-      --border: #334155;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --green: #22c55e;
-      --red: #ef4444;
-      --yellow: #f59e0b;
-      --gray: #64748b;
+      --bg: #0f172a; --surface: #1e293b; --surface2: #263045;
+      --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
+      --accent: #3b82f6; --accent-hover: #2563eb;
+      --green: #22c55e; --red: #ef4444; --yellow: #f59e0b; --gray: #64748b;
       --radius: 8px;
     }
-
     body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.5; }
 
-    /* ── Login overlay ─────────────────────────────────────────────────── */
-    #login-overlay {
-      position: fixed; inset: 0; background: var(--bg);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 100;
+    /* ── Login ── */
+    #login-overlay { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:100; }
+    .login-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:40px 36px; width:100%; max-width:380px; }
+    .login-logo { display:flex; align-items:center; gap:10px; margin-bottom:28px; }
+    .login-logo h1 { font-size:20px; font-weight:700; }
+    .login-subtitle { color:var(--muted); font-size:13px; margin-bottom:28px; }
+    .form-group { margin-bottom:16px; }
+    .form-group label { display:block; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+    .form-group input { width:100%; padding:10px 12px; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; outline:none; transition:border-color .15s; }
+    .form-group input:focus { border-color:var(--accent); }
+    .login-error { color:#fca5a5; font-size:13px; margin-bottom:12px; min-height:20px; }
+    .btn-login { width:100%; padding:11px; background:var(--accent); color:#fff; border:none; border-radius:var(--radius); font-size:14px; font-weight:600; cursor:pointer; transition:background .15s; }
+    .btn-login:hover { background:var(--accent-hover); }
+    .btn-login:disabled { opacity:.5; cursor:not-allowed; }
+    .login-nc-note { margin-top:16px; text-align:center; font-size:12px; color:var(--gray); }
+
+    /* ── Header ── */
+    header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 24px; height:56px; display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:10; }
+    header h1 { font-size:18px; font-weight:600; }
+    .header-nav { display:flex; align-items:center; gap:4px; margin-left:20px; }
+    .nav-tab { background:none; border:none; color:var(--muted); padding:6px 14px; border-radius:var(--radius); font-size:14px; cursor:pointer; transition:background .12s, color .12s; }
+    .nav-tab:hover { background:rgba(255,255,255,.06); color:var(--text); }
+    .nav-tab.active { background:rgba(59,130,246,.15); color:var(--accent); font-weight:600; }
+    .header-right { margin-left:auto; display:flex; align-items:center; gap:12px; }
+    #conn-status { font-size:12px; display:flex; align-items:center; gap:6px; }
+    #conn-dot { width:8px; height:8px; border-radius:50%; background:var(--gray); }
+    #conn-dot.ok { background:var(--green); } #conn-dot.err { background:var(--red); }
+    .user-chip { display:flex; align-items:center; gap:8px; padding:4px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:20px; font-size:12px; }
+    .role-badge { padding:1px 6px; border-radius:3px; font-size:10px; font-weight:700; text-transform:uppercase; }
+    .role-badge.admin { background:rgba(245,158,11,.2); color:var(--yellow); }
+    .role-badge.user  { background:rgba(100,116,139,.2); color:var(--muted); }
+    .btn-logout { background:none; border:1px solid var(--border); color:var(--muted); padding:4px 10px; border-radius:var(--radius); font-size:12px; cursor:pointer; }
+    .btn-logout:hover { border-color:var(--red); color:var(--red); }
+
+    /* ── Layout ── */
+    main { max-width:1280px; margin:32px auto; padding:0 24px; display:flex; flex-direction:column; gap:24px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px 24px; }
+    .card-title { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:16px; }
+
+    /* ── Buttons ── */
+    .btn { display:inline-flex; align-items:center; gap:8px; padding:8px 18px; border-radius:var(--radius); border:none; cursor:pointer; font-size:14px; font-weight:500; transition:background .15s, opacity .15s; }
+    .btn:disabled { opacity:.45; cursor:not-allowed; }
+    .btn-primary { background:var(--accent); color:#fff; }
+    .btn-primary:not(:disabled):hover { background:var(--accent-hover); }
+    .btn-success { background:#16a34a; color:#fff; }
+    .btn-success:not(:disabled):hover { background:#15803d; }
+    .btn-danger  { background:transparent; color:var(--red); border:1px solid var(--red); }
+    .btn-danger:not(:disabled):hover  { background:rgba(239,68,68,.08); }
+    .btn-ghost   { background:transparent; color:var(--muted); border:1px solid var(--border); }
+    .btn-ghost:not(:disabled):hover  { border-color:var(--accent); color:var(--accent); }
+    .btn-sm { padding:4px 10px; font-size:12px; }
+
+    /* ── Steps ── */
+    .steps { display:flex; flex-direction:column; gap:10px; }
+    .step { display:flex; align-items:center; gap:14px; padding:14px 18px; border-radius:var(--radius); background:var(--bg); border:1px solid var(--border); transition:border-color .25s; }
+    .step.running { border-color:var(--yellow); } .step.done { border-color:var(--green); } .step.error { border-color:var(--red); }
+    .step-icon { width:22px; text-align:center; font-size:16px; flex-shrink:0; }
+    .step-body { flex:1; }
+    .step-label { font-weight:600; font-size:13px; }
+    .step.running .step-label { color:var(--yellow); } .step.done .step-label { color:var(--green); } .step.error .step-label { color:var(--red); }
+    .step-msg { font-size:12px; color:var(--muted); margin-top:2px; }
+
+    /* ── Stats ── */
+    .stats { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+    .stat { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:12px 20px; min-width:120px; }
+    .stat-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    .stat-value { font-size:24px; font-weight:700; margin-top:2px; }
+
+    /* ── Toolbar ── */
+    .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+    .toggle-group { display:flex; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+    .toggle-group button { background:none; border:none; color:var(--muted); padding:5px 14px; font-size:13px; cursor:pointer; transition:background .12s, color .12s; }
+    .toggle-group button.active { background:var(--accent); color:#fff; }
+    .search-input, .cat-select, .num-input {
+      padding:5px 10px; border-radius:var(--radius); border:1px solid var(--border);
+      background:var(--bg); color:var(--text); font-size:13px; outline:none;
     }
-    .login-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 40px 36px; width: 100%; max-width: 380px;
-    }
-    .login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
-    .login-logo h1 { font-size: 20px; font-weight: 700; }
-    .login-subtitle { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
-    .form-group { margin-bottom: 16px; }
-    .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
-    .form-group input {
-      width: 100%; padding: 10px 12px; border-radius: var(--radius);
-      border: 1px solid var(--border); background: var(--bg); color: var(--text);
-      font-size: 14px; outline: none; transition: border-color .15s;
-    }
-    .form-group input:focus { border-color: var(--accent); }
-    .login-error { color: #fca5a5; font-size: 13px; margin-bottom: 12px; min-height: 20px; }
-    .btn-login {
-      width: 100%; padding: 11px; background: var(--accent); color: #fff;
-      border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600;
-      cursor: pointer; transition: background .15s;
-    }
-    .btn-login:hover { background: var(--accent-hover); }
-    .btn-login:disabled { opacity: .5; cursor: not-allowed; }
-    .login-nc-note { margin-top: 16px; text-align: center; font-size: 12px; color: var(--gray); }
+    .search-input { flex:1; min-width:160px; max-width:260px; }
+    .search-input:focus, .cat-select:focus, .num-input:focus { border-color:var(--accent); }
+    .cat-select { cursor:pointer; }
 
-    /* ── Header ────────────────────────────────────────────────────────── */
-    header {
-      background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 0 24px; height: 56px;
-      display: flex; align-items: center; gap: 12px;
-      position: sticky; top: 0; z-index: 10;
-    }
-    header h1 { font-size: 18px; font-weight: 600; }
-    .header-nav { display: flex; align-items: center; gap: 4px; margin-left: 20px; }
-    .nav-tab {
-      background: none; border: none; color: var(--muted); padding: 6px 14px;
-      border-radius: var(--radius); font-size: 14px; cursor: pointer;
-      transition: background .12s, color .12s;
-    }
-    .nav-tab:hover { background: rgba(255,255,255,.06); color: var(--text); }
-    .nav-tab.active { background: rgba(59,130,246,.15); color: var(--accent); font-weight: 600; }
-    .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-    #conn-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
-    #conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); }
-    #conn-dot.ok { background: var(--green); }
-    #conn-dot.err { background: var(--red); }
-    .user-chip {
-      display: flex; align-items: center; gap: 8px; padding: 4px 10px;
-      background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; font-size: 12px;
-    }
-    .user-chip .role-badge {
-      padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase;
-    }
-    .role-badge.admin { background: rgba(245,158,11,.2); color: var(--yellow); }
-    .role-badge.user  { background: rgba(100,116,139,.2); color: var(--muted); }
-    .btn-logout {
-      background: none; border: 1px solid var(--border); color: var(--muted);
-      padding: 4px 10px; border-radius: var(--radius); font-size: 12px; cursor: pointer;
-    }
-    .btn-logout:hover { border-color: var(--red); color: var(--red); }
+    /* ── Tables ── */
+    .table-wrap { overflow-x:auto; border-radius:var(--radius); border:1px solid var(--border); }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:9px 11px; text-align:left; white-space:nowrap; }
+    th { background:var(--bg); color:var(--muted); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid var(--border); }
+    tr:not(:last-child) td { border-bottom:1px solid var(--border); }
+    tr:hover td { background:rgba(255,255,255,.025); }
+    input[type=checkbox] { cursor:pointer; width:14px; height:14px; accent-color:var(--accent); }
 
-    /* ── Layout ────────────────────────────────────────────────────────── */
-    main { max-width: 1200px; margin: 32px auto; padding: 0 24px; display: flex; flex-direction: column; gap: 24px; }
+    /* ── Badges ── */
+    .badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+    .badge-updated   { background:rgba(34,197,94,.15);  color:var(--green); }
+    .badge-failed    { background:rgba(239,68,68,.15);  color:var(--red); }
+    .badge-skipped   { background:rgba(100,116,139,.15);color:var(--gray); }
+    .badge-pending   { background:rgba(59,130,246,.15); color:var(--accent); }
+    .badge-preview   { background:rgba(59,130,246,.15); color:var(--accent); }
+    .badge-running   { background:rgba(245,158,11,.15); color:var(--yellow); }
+    .badge-completed { background:rgba(34,197,94,.15);  color:var(--green); }
+    .badge-cancelled { background:rgba(100,116,139,.15);color:var(--gray); }
+    .badge-instock   { background:rgba(34,197,94,.12);  color:var(--green);  font-size:10px; }
+    .badge-outofstock{ background:rgba(239,68,68,.12);  color:var(--red);    font-size:10px; }
+    .badge-login  { background:rgba(59,130,246,.12);  color:var(--accent); }
+    .badge-fetch  { background:rgba(245,158,11,.12);  color:var(--yellow); }
+    .badge-apply  { background:rgba(34,197,94,.12);   color:var(--green); }
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; }
-    .card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 16px; }
+    /* ── Price colors ── */
+    .price-up { color:var(--red); } .price-down { color:var(--green); } .price-same { color:var(--muted); }
+    td.price-cell { cursor:default; position:relative; }
 
-    .btn {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 8px 18px; border-radius: var(--radius);
-      border: none; cursor: pointer; font-size: 14px; font-weight: 500;
-      transition: background .15s, opacity .15s;
-    }
-    .btn:disabled { opacity: .45; cursor: not-allowed; }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-primary:not(:disabled):hover { background: var(--accent-hover); }
-    .btn-success { background: #16a34a; color: #fff; }
-    .btn-success:not(:disabled):hover { background: #15803d; }
-    .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
-    .btn-danger:not(:disabled):hover { background: rgba(239,68,68,.08); }
-    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
-    .btn-ghost:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .action-row { display:flex; gap:12px; align-items:center; padding-top:16px; border-top:1px solid var(--border); margin-top:16px; flex-wrap:wrap; }
 
-    /* ── Steps ─────────────────────────────────────────────────────────── */
-    .steps { display: flex; flex-direction: column; gap: 10px; }
-    .step { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: var(--radius); background: var(--bg); border: 1px solid var(--border); transition: border-color .25s; }
-    .step.running { border-color: var(--yellow); }
-    .step.done    { border-color: var(--green); }
-    .step.error   { border-color: var(--red); }
-    .step-icon { width: 22px; text-align: center; font-size: 16px; flex-shrink: 0; }
-    .step-body { flex: 1; }
-    .step-label { font-weight: 600; font-size: 13px; }
-    .step.running .step-label { color: var(--yellow); }
-    .step.done    .step-label { color: var(--green); }
-    .step.error   .step-label { color: var(--red); }
-    .step-msg { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    /* ── Alerts ── */
+    .alert { padding:12px 16px; border-radius:var(--radius); font-size:13px; margin-top:16px; }
+    .alert-error   { background:rgba(239,68,68,.1);  border:1px solid rgba(239,68,68,.3);  color:#fca5a5; }
+    .alert-success { background:rgba(34,197,94,.1);  border:1px solid rgba(34,197,94,.3);  color:#86efac; }
+    .alert-info    { background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.3); color:#93c5fd; }
 
-    /* ── Stats ─────────────────────────────────────────────────────────── */
-    .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
-    .stat { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 20px; min-width: 120px; }
-    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-    .stat-value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+    /* ── Spinners ── */
+    .spinner    { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.2);   border-top-color:#fff;          border-radius:50%; animation:spin .7s linear infinite; }
+    .spinner-sm { display:inline-block; width:16px; height:16px; border:2px solid rgba(245,158,11,.3);   border-top-color:var(--yellow); border-radius:50%; animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
 
-    /* ── Toolbar ────────────────────────────────────────────────────────── */
-    .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-    .toggle-group { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-    .toggle-group button { background: none; border: none; color: var(--muted); padding: 5px 14px; font-size: 13px; cursor: pointer; transition: background .12s, color .12s; }
-    .toggle-group button.active { background: var(--accent); color: #fff; }
-    .search-input {
-      flex: 1; min-width: 160px; max-width: 260px;
-      padding: 5px 10px; border-radius: var(--radius);
-      border: 1px solid var(--border); background: var(--bg); color: var(--text);
-      font-size: 13px; outline: none;
-    }
-    .search-input:focus { border-color: var(--accent); }
-    .cat-select {
-      padding: 5px 10px; border-radius: var(--radius);
-      border: 1px solid var(--border); background: var(--bg); color: var(--text);
-      font-size: 13px; outline: none; cursor: pointer;
-    }
-    .cat-select:focus { border-color: var(--accent); }
+    /* ── Log ── */
+    .log-panel { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; max-height:220px; overflow-y:auto; font-family:'Courier New',monospace; font-size:12px; }
+    .log-entry { display:flex; gap:14px; padding:2px 0; }
+    .log-time  { color:var(--gray); flex-shrink:0; user-select:none; }
+    .log-msg   { color:var(--muted); word-break:break-all; }
+    .log-msg.ok   { color:var(--green); } .log-msg.err { color:var(--red); }
+    .log-msg.warn { color:var(--yellow); } .log-msg.info { color:var(--accent); }
 
-    /* ── Tables ─────────────────────────────────────────────────────────── */
-    .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 10px 12px; text-align: left; white-space: nowrap; }
-    th { background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); }
-    tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
-    tr:hover td { background: rgba(255,255,255,.025); }
+    .empty { text-align:center; padding:40px; color:var(--muted); }
+    .result-summary { display:flex; gap:20px; flex-wrap:wrap; font-size:14px; font-weight:500; }
 
-    /* ── Badges ─────────────────────────────────────────────────────────── */
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-    .badge-updated   { background: rgba(34,197,94,.15);  color: var(--green); }
-    .badge-failed    { background: rgba(239,68,68,.15);  color: var(--red); }
-    .badge-skipped   { background: rgba(100,116,139,.15);color: var(--gray); }
-    .badge-pending   { background: rgba(59,130,246,.15); color: var(--accent); }
-    .badge-preview   { background: rgba(59,130,246,.15); color: var(--accent); }
-    .badge-running   { background: rgba(245,158,11,.15); color: var(--yellow); }
-    .badge-completed { background: rgba(34,197,94,.15);  color: var(--green); }
-    .badge-cancelled { background: rgba(100,116,139,.15);color: var(--gray); }
-    .badge-instock   { background: rgba(34,197,94,.12);  color: var(--green); font-size: 10px; }
-    .badge-outofstock{ background: rgba(239,68,68,.12);  color: var(--red);   font-size: 10px; }
+    /* ── Settings ── */
+    .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    @media (max-width:680px) { .settings-grid { grid-template-columns:1fr; } }
+    .setting-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); gap:16px; }
+    .setting-row:last-child { border-bottom:none; }
+    .setting-key { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; min-width:120px; }
+    .setting-val { font-size:13px; font-family:monospace; color:var(--text); word-break:break-all; text-align:right; }
 
-    /* ── Price colors ───────────────────────────────────────────────────── */
-    .price-up   { color: var(--red); }
-    .price-down { color: var(--green); }
-    .price-same { color: var(--muted); }
-
-    .action-row { display: flex; gap: 12px; align-items: center; padding-top: 16px; border-top: 1px solid var(--border); margin-top: 16px; flex-wrap: wrap; }
-
-    /* ── Alerts ─────────────────────────────────────────────────────────── */
-    .alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; margin-top: 16px; }
-    .alert-error   { background: rgba(239,68,68,.1);  border: 1px solid rgba(239,68,68,.3);  color: #fca5a5; }
-    .alert-success { background: rgba(34,197,94,.1);  border: 1px solid rgba(34,197,94,.3);  color: #86efac; }
-    .alert-info    { background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3); color: #93c5fd; }
-
-    /* ── Spinners ───────────────────────────────────────────────────────── */
-    .spinner    { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.2);   border-top-color: #fff;          border-radius: 50%; animation: spin .7s linear infinite; }
-    .spinner-sm { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(245,158,11,.3);   border-top-color: var(--yellow); border-radius: 50%; animation: spin .7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* ── Log panel ──────────────────────────────────────────────────────── */
-    .log-panel { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; max-height: 220px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; }
-    .log-entry { display: flex; gap: 14px; padding: 2px 0; }
-    .log-time  { color: var(--gray); flex-shrink: 0; user-select: none; }
-    .log-msg   { color: var(--muted); word-break: break-all; }
-    .log-msg.ok   { color: var(--green); }
-    .log-msg.err  { color: var(--red); }
-    .log-msg.warn { color: var(--yellow); }
-    .log-msg.info { color: var(--accent); }
-
-    .empty { text-align: center; padding: 40px; color: var(--muted); }
-    .result-summary { display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px; font-weight: 500; }
-
-    /* ── Settings page ──────────────────────────────────────────────────── */
-    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    @media (max-width: 680px) { .settings-grid { grid-template-columns: 1fr; } }
-    .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); gap: 16px; }
-    .setting-row:last-child { border-bottom: none; }
-    .setting-key { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; min-width: 140px; }
-    .setting-val { font-size: 13px; font-family: monospace; color: var(--text); word-break: break-all; text-align: right; }
+    /* ── Alarm modal ── */
+    #alarm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:200; align-items:center; justify-content:center; }
+    #alarm-modal.open { display:flex; }
+    .alarm-modal-card { background:var(--surface); border:1px solid var(--yellow); border-radius:12px; padding:28px 32px; max-width:540px; width:90%; max-height:80vh; display:flex; flex-direction:column; }
+    .alarm-modal-items { overflow-y:auto; max-height:220px; margin:12px 0; }
+    .alarm-item-row { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
+    .alarm-item-row:last-child { border-bottom:none; }
+    .alarm-pct { font-weight:700; color:var(--red); }
   </style>
 </head>
 <body>
 
-<!-- ── Login overlay ───────────────────────────────────────────────────────── -->
+<!-- ── Login ─────────────────────────────────────────────────────────────────── -->
 <div id="login-overlay">
   <div class="login-card">
     <div class="login-logo">
@@ -226,20 +179,30 @@
     </div>
     <p class="login-subtitle">Sign in with your Nextcloud account to continue.</p>
     <div id="login-error" class="login-error"></div>
-    <div class="form-group">
-      <label>Username</label>
-      <input type="text" id="login-username" autocomplete="username" placeholder="nextcloud username" />
-    </div>
-    <div class="form-group">
-      <label>Password</label>
-      <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••" />
-    </div>
+    <div class="form-group"><label>Username</label><input type="text" id="login-username" autocomplete="username" placeholder="nextcloud username" /></div>
+    <div class="form-group"><label>Password</label><input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••" /></div>
     <button class="btn-login" id="btn-login" onclick="doLogin()">Sign in</button>
     <p class="login-nc-note">Credentials are verified against your Nextcloud instance.</p>
   </div>
 </div>
 
-<!-- ── Main app ─────────────────────────────────────────────────────────────── -->
+<!-- ── Alarm modal ────────────────────────────────────────────────────────────── -->
+<div id="alarm-modal">
+  <div class="alarm-modal-card">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:22px;">⚠</span>
+      <h3 style="color:var(--yellow);">Large Price Changes Detected</h3>
+    </div>
+    <p style="color:var(--muted);font-size:13px;margin-top:8px;">These products exceed the configured alarm threshold. Review before continuing:</p>
+    <div class="alarm-modal-items" id="alarm-modal-items"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px;">
+      <button class="btn btn-ghost" onclick="closeAlarmModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="proceedApply()">Apply Anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────────────────────────────── -->
 <div id="app" style="display:none;">
 
   <header>
@@ -248,17 +211,12 @@
     <nav class="header-nav">
       <button class="nav-tab active" id="nav-sync"     onclick="switchTab('sync')">Sync</button>
       <button class="nav-tab"        id="nav-history"  onclick="switchTab('history')">History</button>
+      <button class="nav-tab"        id="nav-audit"    onclick="switchTab('audit')"    style="display:none;">Audit</button>
       <button class="nav-tab"        id="nav-settings" onclick="switchTab('settings')" style="display:none;">Settings</button>
     </nav>
     <div class="header-right">
-      <div id="conn-status">
-        <div id="conn-dot"></div>
-        <span id="conn-label">Checking…</span>
-      </div>
-      <div class="user-chip">
-        <span id="user-name"></span>
-        <span class="role-badge" id="user-role-badge"></span>
-      </div>
+      <div id="conn-status"><div id="conn-dot"></div><span id="conn-label">Checking…</span></div>
+      <div class="user-chip"><span id="user-name"></span><span class="role-badge" id="user-role-badge"></span></div>
       <button class="btn-logout" onclick="doLogout()">Sign out</button>
     </div>
   </header>
@@ -267,14 +225,9 @@
 
     <!-- ── TAB: Sync ──────────────────────────────────────────────────────── -->
     <div id="tab-sync">
-
-      <!-- Action card -->
       <div class="card">
         <div class="card-title">Sync Price List</div>
-        <p style="color:var(--muted);margin-bottom:16px;">
-          Fetches the latest price list from Nextcloud, compares each product's price with
-          WooCommerce, and shows a diff before applying any changes.
-        </p>
+        <p style="color:var(--muted);margin-bottom:16px;">Fetches the latest price list from Nextcloud, compares each product with WooCommerce, and shows a diff before applying.</p>
         <div id="action-alert"></div>
         <button class="btn btn-primary" id="btn-fetch" onclick="startPreview()">
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1M8 12l4 4 4-4M12 4v12"/></svg>
@@ -282,96 +235,56 @@
         </button>
       </div>
 
-      <!-- Steps -->
       <div class="card" id="steps-section" style="display:none;">
         <div class="card-title">Progress</div>
         <div class="steps">
-          <div class="step" id="step-excel">
-            <div class="step-icon" id="icon-excel">○</div>
-            <div class="step-body">
-              <div class="step-label">Get Excel prices</div>
-              <div class="step-msg" id="msg-excel">Waiting…</div>
-            </div>
-          </div>
-          <div class="step" id="step-wc">
-            <div class="step-icon" id="icon-wc">○</div>
-            <div class="step-body">
-              <div class="step-label">Get WooCommerce data</div>
-              <div class="step-msg" id="msg-wc">Waiting…</div>
-            </div>
-          </div>
-          <div class="step" id="step-calc">
-            <div class="step-icon" id="icon-calc">○</div>
-            <div class="step-body">
-              <div class="step-label">Calculate price differences</div>
-              <div class="step-msg" id="msg-calc">Waiting…</div>
-            </div>
-          </div>
+          <div class="step" id="step-excel"><div class="step-icon" id="icon-excel">○</div><div class="step-body"><div class="step-label">Get Excel prices</div><div class="step-msg" id="msg-excel">Waiting…</div></div></div>
+          <div class="step" id="step-wc"   ><div class="step-icon" id="icon-wc"   >○</div><div class="step-body"><div class="step-label">Get WooCommerce data</div><div class="step-msg" id="msg-wc">Waiting…</div></div></div>
+          <div class="step" id="step-calc" ><div class="step-icon" id="icon-calc" >○</div><div class="step-body"><div class="step-label">Calculate differences</div><div class="step-msg" id="msg-calc">Waiting…</div></div></div>
         </div>
       </div>
 
-      <!-- Preview diff table -->
       <div class="card" id="preview-section" style="display:none;">
         <div class="card-title">Preview Changes — Job <span id="preview-job-id"></span></div>
-
         <div class="stats">
-          <div class="stat">
-            <div class="stat-label">Total products</div>
-            <div class="stat-value" id="stat-total">—</div>
-          </div>
-          <div class="stat">
-            <div class="stat-value price-up" id="stat-changed">—</div>
-            <div class="stat-label">Will change</div>
-          </div>
-          <div class="stat">
-            <div class="stat-value price-same" id="stat-same">—</div>
-            <div class="stat-label">Unchanged</div>
-          </div>
+          <div class="stat"><div class="stat-label">Total products</div><div class="stat-value" id="stat-total">—</div></div>
+          <div class="stat"><div class="stat-value price-up" id="stat-changed">—</div><div class="stat-label">Will change</div></div>
+          <div class="stat"><div class="stat-value price-same" id="stat-same">—</div><div class="stat-label">Unchanged</div></div>
+          <div class="stat"><div class="stat-value" id="stat-selected" style="color:var(--accent);">—</div><div class="stat-label">Selected</div></div>
         </div>
-
         <div class="toolbar">
           <span class="toggle-group">
             <button class="active" id="filter-changed" onclick="setFilter('changed')">Changed only</button>
             <button id="filter-all" onclick="setFilter('all')">Show all</button>
           </span>
-          <input class="search-input" id="search-input" type="text" placeholder="Search by name, SKU or ID…" oninput="renderPreviewTable()" />
+          <input class="search-input" id="search-input" type="text" placeholder="Search name, SKU or ID…" oninput="renderPreviewTable()" />
           <select class="cat-select" id="cat-select" onchange="renderPreviewTable()">
             <option value="">All categories</option>
           </select>
         </div>
-
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>SKU</th>
-                <th>Product Name</th>
-                <th>Reg. Price</th>
-                <th>Sale Price</th>
-                <th>New Price</th>
-                <th>Stock</th>
-                <th>Qty</th>
-                <th>Categories</th>
-                <th>Change</th>
+                <th><input type="checkbox" id="check-all" onchange="toggleAllVisible(this.checked)" title="Select / deselect all visible" /></th>
+                <th>ID</th><th>SKU</th><th>Product Name</th>
+                <th>Reg. Price</th><th>Sale Price</th><th>New Price</th>
+                <th>Stock</th><th>Qty</th><th>Categories</th><th>Change</th>
               </tr>
             </thead>
             <tbody id="preview-tbody"></tbody>
           </table>
         </div>
-
         <div id="preview-alert"></div>
-
         <div class="action-row">
-          <button class="btn btn-success" id="btn-apply" onclick="applySync()">
+          <button class="btn btn-success" id="btn-apply" onclick="requestApply()">
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-            Apply from Sheet to WooCommerce
+            Apply Selected
           </button>
           <button class="btn btn-danger" id="btn-cancel" onclick="cancelSync()">Cancel</button>
         </div>
       </div>
 
-      <!-- Apply results -->
       <div class="card" id="apply-section" style="display:none;">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
           <div class="card-title" style="margin:0;">Apply Results — Job <span id="apply-job-id"></span></div>
@@ -380,28 +293,15 @@
         <div id="apply-alert"></div>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>SKU</th>
-                <th>Product Name</th>
-                <th>Old Price</th>
-                <th>New Price</th>
-                <th>Status</th>
-                <th>Note / Error</th>
-              </tr>
-            </thead>
+            <thead><tr><th>ID</th><th>SKU</th><th>Product Name</th><th>Old Price</th><th>New Price</th><th>Status</th><th>Note / Error</th></tr></thead>
             <tbody id="apply-tbody"></tbody>
           </table>
         </div>
         <div style="margin-top:14px;" id="writeback-wrap" style="display:none;">
-          <button class="btn btn-ghost btn-sm" id="btn-writeback" onclick="writeBack()">
-            Write status back to sheet (columns E–G)
-          </button>
+          <button class="btn btn-ghost btn-sm" id="btn-writeback" onclick="writeBack()">Write status back to sheet (columns E–G)</button>
         </div>
       </div>
 
-      <!-- Activity log -->
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <div class="card-title" style="margin:0;">Activity Log</div>
@@ -411,7 +311,6 @@
           <div class="log-entry"><span class="log-msg" style="color:var(--gray);">Session started — ready.</span></div>
         </div>
       </div>
-
     </div><!-- /tab-sync -->
 
     <!-- ── TAB: History ───────────────────────────────────────────────────── -->
@@ -423,27 +322,30 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Started</th>
-                <th>Completed</th>
-                <th>Status</th>
-                <th>Updated</th>
-                <th>Failed</th>
-                <th>Skipped</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="history-tbody">
-              <tr><td colspan="8" class="empty">No sync history yet.</td></tr>
-            </tbody>
+            <thead><tr><th>ID</th><th>Started</th><th>Completed</th><th>Status</th><th>Updated</th><th>Failed</th><th>Skipped</th><th>Actions</th></tr></thead>
+            <tbody id="history-tbody"><tr><td colspan="8" class="empty">No sync history yet.</td></tr></tbody>
           </table>
         </div>
       </div>
-    </div><!-- /tab-history -->
+    </div>
 
-    <!-- ── TAB: Settings (admin only) ────────────────────────────────────── -->
+    <!-- ── TAB: Audit ─────────────────────────────────────────────────────── -->
+    <div id="tab-audit" style="display:none;">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div class="card-title" style="margin:0;">User Activity Log</div>
+          <button class="btn btn-ghost btn-sm" onclick="loadAuditLog()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>User</th><th>Action</th><th>Date &amp; Time</th><th>IP Address</th><th>Job</th></tr></thead>
+            <tbody id="audit-tbody"><tr><td colspan="5" class="empty">No audit records yet.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB: Settings ──────────────────────────────────────────────────── -->
     <div id="tab-settings" style="display:none;">
       <div class="settings-grid">
         <div class="card">
@@ -458,43 +360,54 @@
           <div class="card-title">Access Control</div>
           <div id="settings-auth"><div class="empty" style="padding:20px;">Loading…</div></div>
         </div>
+        <!-- Alarm thresholds — full width -->
+        <div class="card" style="grid-column:1/-1;">
+          <div class="card-title">Price Alarm Thresholds</div>
+          <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+            Warn and ask for re-confirmation before applying if a product's price changes by more than the set percentage.
+            Leave blank to disable. Category thresholds override the global setting.
+          </p>
+          <div class="setting-row">
+            <span class="setting-key">Global default</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="number" id="alarm-global" class="num-input" min="0" max="10000" step="1" placeholder="off" style="width:80px;" />
+              <span style="color:var(--muted);">%</span>
+            </div>
+          </div>
+          <div id="alarm-categories-list"></div>
+          <div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary btn-sm" onclick="saveAlarmSettings()">Save Thresholds</button>
+            <span id="alarm-save-msg" style="font-size:12px;color:var(--green);display:none;">✓ Saved</span>
+          </div>
+        </div>
       </div>
-    </div><!-- /tab-settings -->
+    </div>
 
   </main>
-</div><!-- /app -->
+</div>
 
 <script>
   // ── State ──────────────────────────────────────────────────────────────────
-  let currentJobId   = null;
-  let previewItems   = [];
-  let currentFilter  = 'changed';
-  let sseDone        = false;
-  let allCategories  = [];
+  let currentJobId        = null;
+  let previewItems        = [];
+  let currentFilter       = 'changed';
+  let sseDone             = false;
+  let allCategories       = [];
+  let alarmThresholds     = [];
+  let selectedProductIds  = new Set();
+  let pendingApplySids    = null; // set when alarm modal is bypassed
 
   // ── Auth ───────────────────────────────────────────────────────────────────
-
-  function getToken()  { return localStorage.getItem('wpsync_token'); }
-  function getUser()   { try { return JSON.parse(localStorage.getItem('wpsync_user')); } catch { return null; } }
-  function saveAuth(token, user) {
-    localStorage.setItem('wpsync_token', token);
-    localStorage.setItem('wpsync_user', JSON.stringify(user));
-  }
-  function clearAuth() {
-    localStorage.removeItem('wpsync_token');
-    localStorage.removeItem('wpsync_user');
-  }
+  const getToken = () => localStorage.getItem('wpsync_token');
+  const getUser  = () => { try { return JSON.parse(localStorage.getItem('wpsync_user')); } catch { return null; } };
+  const saveAuth = (token, user) => { localStorage.setItem('wpsync_token', token); localStorage.setItem('wpsync_user', JSON.stringify(user)); };
+  const clearAuth = () => { localStorage.removeItem('wpsync_token'); localStorage.removeItem('wpsync_user'); };
 
   async function api(path, opts = {}) {
-    const token = getToken();
-    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}), 'Authorization': `Bearer ${token}` };
-    const resp = await fetch(path, opts);
-    if (resp.status === 401) {
-      clearAuth();
-      showLogin();
-      throw new Error('Session expired');
-    }
-    return resp;
+    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}), 'Authorization': `Bearer ${getToken()}` };
+    const r = await fetch(path, opts);
+    if (r.status === 401) { clearAuth(); showLogin(); throw new Error('Session expired'); }
+    return r;
   }
 
   async function doLogin() {
@@ -503,36 +416,23 @@
     const errEl    = document.getElementById('login-error');
     const btn      = document.getElementById('btn-login');
     if (!username || !password) { errEl.textContent = 'Enter username and password.'; return; }
-    btn.disabled = true; btn.textContent = 'Signing in…';
-    errEl.textContent = '';
+    btn.disabled = true; btn.textContent = 'Signing in…'; errEl.textContent = '';
     try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) { errEl.textContent = data.detail || 'Login failed'; return; }
-      saveAuth(data.token, { username: data.username, role: data.role });
+      const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
+      const d = await r.json();
+      if (!r.ok) { errEl.textContent = d.detail || 'Login failed'; return; }
+      saveAuth(d.token, { username: d.username, role: d.role });
       document.getElementById('login-password').value = '';
       showApp();
-    } catch (ex) {
-      errEl.textContent = 'Connection error: ' + ex.message;
-    } finally {
-      btn.disabled = false; btn.textContent = 'Sign in';
-    }
+    } catch(ex) { errEl.textContent = 'Connection error: ' + ex.message; }
+    finally { btn.disabled = false; btn.textContent = 'Sign in'; }
   }
 
-  function doLogout() {
-    clearAuth();
-    showLogin();
-  }
-
+  function doLogout() { clearAuth(); showLogin(); }
   function showLogin() {
     document.getElementById('login-overlay').style.display = '';
     document.getElementById('app').style.display = 'none';
   }
-
   function showApp() {
     const user = getUser();
     if (!user) { showLogin(); return; }
@@ -540,47 +440,57 @@
     document.getElementById('app').style.display = '';
     document.getElementById('user-name').textContent = user.username;
     const badge = document.getElementById('user-role-badge');
-    badge.textContent = user.role;
-    badge.className = `role-badge ${user.role}`;
-    document.getElementById('nav-settings').style.display = user.role === 'admin' ? '' : 'none';
-    checkHealth();
-    loadHistory();
-    loadCategories();
+    badge.textContent = user.role; badge.className = `role-badge ${user.role}`;
+    const isAdmin = user.role === 'admin';
+    document.getElementById('nav-audit').style.display    = isAdmin ? '' : 'none';
+    document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
+    checkHealth(); loadHistory(); loadCategories(); loadAlarmThresholds();
   }
 
-  // Login on Enter key
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && document.getElementById('login-overlay').style.display !== 'none') doLogin();
   });
 
-  // ── Tab navigation ─────────────────────────────────────────────────────────
-
+  // ── Tabs ───────────────────────────────────────────────────────────────────
   function switchTab(name) {
-    ['sync', 'history', 'settings'].forEach(t => {
+    ['sync','history','audit','settings'].forEach(t => {
       document.getElementById(`tab-${t}`).style.display    = t === name ? '' : 'none';
       document.getElementById(`nav-${t}`).classList.toggle('active', t === name);
     });
     if (name === 'history')  loadHistory();
+    if (name === 'audit')    loadAuditLog();
     if (name === 'settings') loadSettings();
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────
-
   const fmt = dt => dt ? new Date(dt).toLocaleString() : '—';
 
   function fmtPrice(p) {
     if (p === null || p === undefined || p === '') return '<span style="color:var(--muted)">—</span>';
     const n = parseFloat(p);
-    return isNaN(n) ? p : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (isNaN(n)) return p;
+    // No trailing zeros: 10.00 → "10", 10.50 → "10.5"
+    return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }
+
+  function fmtPriceToman(p) {
+    if (!p || p === '') return '';
+    const n = parseFloat(p);
+    if (isNaN(n)) return '';
+    return n.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' تومان';
   }
 
   function priceArrow(oldP, newP, changed) {
     if (!changed) return '<span class="price-same">= same</span>';
     const o = parseFloat(oldP || 0), n = parseFloat(newP || 0);
+    const diff = Math.abs(n - o);
+    const pct  = o !== 0 ? (Math.abs((n - o) / o) * 100).toFixed(1) : '—';
     return n > o
-      ? `<span class="price-up">▲ +${(n - o).toFixed(2)}</span>`
-      : `<span class="price-down">▼ −${(o - n).toFixed(2)}</span>`;
+      ? `<span class="price-up">▲ +${fmtN(diff)} (${pct}%)</span>`
+      : `<span class="price-down">▼ −${fmtN(diff)} (${pct}%)</span>`;
   }
+
+  function fmtN(n) { return n.toLocaleString('en-US', { maximumFractionDigits: 2 }); }
 
   const badge = s => `<span class="badge badge-${s}">${s}</span>`;
 
@@ -600,64 +510,45 @@
     document.getElementById(id).innerHTML = html ? `<div class="alert alert-${type}">${html}</div>` : '';
   }
 
-  // ── Activity log ───────────────────────────────────────────────────────────
-
+  // ── Log ────────────────────────────────────────────────────────────────────
   function addLog(msg, type = '') {
     const panel = document.getElementById('log-panel');
     const t = new Date().toLocaleTimeString();
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
+    const entry = document.createElement('div'); entry.className = 'log-entry';
     entry.innerHTML = `<span class="log-time">[${t}]</span><span class="log-msg ${type}">${msg}</span>`;
-    panel.appendChild(entry);
-    panel.scrollTop = panel.scrollHeight;
+    panel.appendChild(entry); panel.scrollTop = panel.scrollHeight;
   }
+  function clearLog() { document.getElementById('log-panel').innerHTML = '<div class="log-entry"><span class="log-msg" style="color:var(--gray);">Log cleared.</span></div>'; }
 
-  function clearLog() {
-    document.getElementById('log-panel').innerHTML =
-      '<div class="log-entry"><span class="log-msg" style="color:var(--gray);">Log cleared.</span></div>';
-  }
-
-  // ── Step helpers ───────────────────────────────────────────────────────────
-
+  // ── Steps ──────────────────────────────────────────────────────────────────
   function setStep(name, status, msg) {
-    const el    = document.getElementById(`step-${name}`);
-    const icon  = document.getElementById(`icon-${name}`);
+    const el = document.getElementById(`step-${name}`);
+    const icon = document.getElementById(`icon-${name}`);
     const msgEl = document.getElementById(`msg-${name}`);
-    el.className = `step ${status}`;
-    msgEl.textContent = msg;
-    if (status === 'running') {
-      icon.innerHTML = '<span class="spinner-sm"></span>';
-    } else {
-      icon.textContent = { pending: '○', done: '✓', error: '✗' }[status] || '○';
-    }
+    el.className = `step ${status}`; msgEl.textContent = msg;
+    if (status === 'running') { icon.innerHTML = '<span class="spinner-sm"></span>'; }
+    else { icon.textContent = {pending:'○', done:'✓', error:'✗'}[status] || '○'; }
   }
 
   // ── Btn helpers ────────────────────────────────────────────────────────────
-
   function setBtnFetch(loading) {
     const btn = document.getElementById('btn-fetch');
     btn.disabled = loading;
-    btn.innerHTML = loading
-      ? '<span class="spinner"></span> Fetching…'
+    btn.innerHTML = loading ? '<span class="spinner"></span> Fetching…'
       : `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1M8 12l4 4 4-4M12 4v12"/></svg> Fetch Preview`;
   }
-
   function setBtnApply(loading) {
     const btn = document.getElementById('btn-apply');
     const cancelBtn = document.getElementById('btn-cancel');
-    btn.disabled = loading;
-    cancelBtn.disabled = loading;
-    btn.innerHTML = loading
-      ? '<span class="spinner"></span> Applying…'
-      : `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Apply from Sheet to WooCommerce`;
+    btn.disabled = loading; cancelBtn.disabled = loading;
+    if (loading) { btn.innerHTML = '<span class="spinner"></span> Applying…'; }
+    else { updateApplyButton(); }
   }
 
-  // ── Health check ───────────────────────────────────────────────────────────
-
+  // ── Health ─────────────────────────────────────────────────────────────────
   async function checkHealth() {
     try {
-      const r = await fetch('/api/health');
-      const d = await r.json();
+      const r = await fetch('/api/health'); const d = await r.json();
       document.getElementById('conn-dot').className = 'ok';
       document.getElementById('conn-label').textContent = d.wc_url;
     } catch {
@@ -667,86 +558,98 @@
   }
 
   // ── Categories ─────────────────────────────────────────────────────────────
-
   async function loadCategories() {
     try {
-      const resp = await api('/api/categories');
-      if (!resp.ok) return;
-      allCategories = await resp.json();
+      const r = await api('/api/categories');
+      if (!r.ok) return;
+      allCategories = await r.json();
       const sel = document.getElementById('cat-select');
       sel.innerHTML = '<option value="">All categories</option>' +
         allCategories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     } catch {}
   }
 
-  // ── 1. Fetch Preview via SSE ───────────────────────────────────────────────
+  // ── Alarm thresholds ───────────────────────────────────────────────────────
+  async function loadAlarmThresholds() {
+    try {
+      const r = await api('/api/alarm-settings');
+      if (r.ok) alarmThresholds = await r.json();
+    } catch {}
+  }
 
-  function startPreview() {
-    const token = getToken();
-    if (!token) { showLogin(); return; }
+  function getThresholdFor(item) {
+    for (const cat of (item.categories || [])) {
+      const t = alarmThresholds.find(x => x.category_id === cat.id);
+      if (t) return t.threshold_percent;
+    }
+    const global = alarmThresholds.find(x => x.category_id === null);
+    return global ? global.threshold_percent : null;
+  }
 
-    setBtnFetch(true);
-    setAlert('action-alert', '');
-    sseDone = false;
+  function checkAlarms(items) {
+    const flagged = [];
+    for (const item of items) {
+      if (!item.changed || !item.old_price || !item.new_price) continue;
+      const o = parseFloat(item.old_price), n = parseFloat(item.new_price);
+      if (isNaN(o) || isNaN(n) || o === 0) continue;
+      const pct = Math.abs((n - o) / o * 100);
+      const threshold = getThresholdFor(item);
+      if (threshold !== null && pct > threshold) flagged.push({ ...item, pct: pct.toFixed(1), threshold });
+    }
+    return flagged;
+  }
 
-    document.getElementById('preview-section').style.display = 'none';
-    document.getElementById('apply-section').style.display   = 'none';
-    currentJobId = null;
-    previewItems = [];
+  function closeAlarmModal() {
+    document.getElementById('alarm-modal').classList.remove('open');
+    pendingApplySids = null;
+  }
 
-    document.getElementById('steps-section').style.display = '';
-    setStep('excel', 'pending', 'Waiting…');
-    setStep('wc',    'pending', 'Waiting…');
-    setStep('calc',  'pending', 'Waiting…');
+  function proceedApply() {
+    document.getElementById('alarm-modal').classList.remove('open');
+    if (pendingApplySids !== null) runApplyStream(pendingApplySids);
+    pendingApplySids = null;
+  }
 
-    addLog('Starting fetch…', 'info');
+  // ── Selection ──────────────────────────────────────────────────────────────
+  function toggleItem(pid, checked) {
+    if (checked) selectedProductIds.add(pid);
+    else selectedProductIds.delete(pid);
+    updateApplyButton();
+    updateCheckAll();
+  }
 
-    const es = new EventSource(`/api/preview/stream?token=${encodeURIComponent(token)}`);
+  function toggleAllVisible(checked) {
+    getFilteredRows().forEach(r => { if (checked) selectedProductIds.add(r.product_id); else selectedProductIds.delete(r.product_id); });
+    renderPreviewTable();
+    updateApplyButton();
+  }
 
-    es.onmessage = (e) => {
-      const d = JSON.parse(e.data);
+  function updateApplyButton() {
+    const n = selectedProductIds.size;
+    const btn = document.getElementById('btn-apply');
+    document.getElementById('stat-selected').textContent = n;
+    if (btn) {
+      btn.disabled = n === 0;
+      btn.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Apply Selected (${n})`;
+    }
+  }
 
-      if (d.step === 'excel' || d.step === 'wc' || d.step === 'calc') {
-        setStep(d.step, d.status, d.msg);
-        addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'done' ? 'ok' : 'warn');
-        if (d.status === 'error') { sseDone = true; es.close(); setBtnFetch(false); }
-      }
-      else if (d.step === 'preview' && d.status === 'done') {
-        sseDone = true;
-        es.close();
-
-        currentJobId = d.job_id;
-        previewItems = d.items;
-
-        document.getElementById('preview-job-id').textContent = `#${d.job_id}`;
-        document.getElementById('stat-total').textContent   = d.total;
-        document.getElementById('stat-changed').textContent = d.changed_count;
-        document.getElementById('stat-same').textContent    = d.unchanged_count;
-
-        setAlert('preview-alert', '');
-        const noChanges = d.changed_count === 0;
-        document.getElementById('btn-apply').disabled = noChanges;
-        if (noChanges) setAlert('preview-alert', 'All prices are already up-to-date. Nothing to apply.', 'info');
-
-        setFilter('changed');
-        document.getElementById('preview-section').style.display = '';
-        addLog(`Preview ready — Job #${d.job_id}: ${d.changed_count} to update, ${d.unchanged_count} unchanged.`, 'ok');
-        loadHistory();
-        setBtnFetch(false);
-      }
-    };
-
-    es.onerror = () => {
-      es.close();
-      if (!sseDone) {
-        addLog('Connection lost during fetch — please try again.', 'err');
-        setAlert('action-alert', 'Connection error. Please try again.', 'error');
-        setBtnFetch(false);
-      }
-    };
+  function updateCheckAll() {
+    const visible = getFilteredRows();
+    const allSel = visible.length > 0 && visible.every(r => selectedProductIds.has(r.product_id));
+    const ca = document.getElementById('check-all');
+    if (ca) { ca.checked = allSel; ca.indeterminate = !allSel && visible.some(r => selectedProductIds.has(r.product_id)); }
   }
 
   // ── Preview table ──────────────────────────────────────────────────────────
+  function getFilteredRows() {
+    const q    = (document.getElementById('search-input').value || '').toLowerCase();
+    const catId = parseInt(document.getElementById('cat-select').value) || 0;
+    let rows = currentFilter === 'changed' ? previewItems.filter(i => i.changed) : [...previewItems];
+    if (q) rows = rows.filter(r => String(r.product_id).includes(q) || (r.product_name || '').toLowerCase().includes(q) || (r.sku || '').toLowerCase().includes(q));
+    if (catId) rows = rows.filter(r => (r.categories || []).some(c => c.id === catId));
+    return rows;
+  }
 
   function setFilter(f) {
     currentFilter = f;
@@ -756,243 +659,276 @@
   }
 
   function renderPreviewTable() {
-    const query    = (document.getElementById('search-input').value || '').toLowerCase();
-    const catId    = parseInt(document.getElementById('cat-select').value) || 0;
-
-    let rows = currentFilter === 'changed' ? previewItems.filter(i => i.changed) : [...previewItems];
-
-    if (query) {
-      rows = rows.filter(r =>
-        String(r.product_id).includes(query) ||
-        (r.product_name || '').toLowerCase().includes(query) ||
-        (r.sku || '').toLowerCase().includes(query)
-      );
-    }
-    if (catId) {
-      rows = rows.filter(r => (r.categories || []).some(c => c.id === catId));
-    }
-
+    const rows  = getFilteredRows();
     const tbody = document.getElementById('preview-tbody');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="empty">No rows match the current filters.</td></tr>';
-      return;
+      tbody.innerHTML = '<tr><td colspan="11" class="empty">No rows match the current filters.</td></tr>';
+      updateCheckAll(); return;
     }
-    tbody.innerHTML = rows.map(r => `
-      <tr>
+    tbody.innerHTML = rows.map(r => {
+      const sel = selectedProductIds.has(r.product_id);
+      const alarmHit = (() => {
+        if (!r.changed || !r.old_price || !r.new_price) return false;
+        const o = parseFloat(r.old_price), n = parseFloat(r.new_price);
+        if (isNaN(o) || isNaN(n) || o === 0) return false;
+        const pct = Math.abs((n - o) / o * 100);
+        const threshold = getThresholdFor(r);
+        return threshold !== null && pct > threshold;
+      })();
+      return `<tr style="${alarmHit ? 'background:rgba(245,158,11,.06);' : ''}">
+        <td><input type="checkbox" ${sel ? 'checked' : ''} onchange="toggleItem(${r.product_id}, this.checked)" /></td>
         <td><code>${r.product_id}</code></td>
         <td><code style="color:var(--muted)">${r.sku || '—'}</code></td>
-        <td>
-          ${r.product_name || '<span style="color:var(--muted)">—</span>'}
-          ${!r.found_in_wc ? ' <span style="color:var(--red);font-size:11px;">(not in WC)</span>' : ''}
-        </td>
-        <td>${fmtPrice(r.old_price)}</td>
-        <td>${fmtPrice(r.sale_price)}</td>
-        <td><strong>${fmtPrice(r.new_price)}</strong></td>
+        <td>${r.product_name || '<span style="color:var(--muted)">—</span>'}${!r.found_in_wc ? ' <span style="color:var(--red);font-size:11px;">(not in WC)</span>' : ''}${alarmHit ? ' <span style="color:var(--yellow);font-size:11px;">⚠</span>' : ''}</td>
+        <td class="price-cell" title="${fmtPriceToman(r.old_price)}">${fmtPrice(r.old_price)}</td>
+        <td class="price-cell" title="${fmtPriceToman(r.sale_price)}">${fmtPrice(r.sale_price)}</td>
+        <td class="price-cell" title="${fmtPriceToman(r.new_price)}"><strong>${fmtPrice(r.new_price)}</strong></td>
         <td>${stockBadge(r.stock_status)}</td>
         <td>${r.stock_quantity !== null && r.stock_quantity !== undefined ? r.stock_quantity : '<span style="color:var(--muted)">—</span>'}</td>
         <td>${catsHtml(r.categories)}</td>
         <td>${priceArrow(r.old_price, r.new_price, r.changed)}</td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
+    updateCheckAll();
   }
 
-  // ── 2. Apply via SSE ───────────────────────────────────────────────────────
+  // ── Fetch Preview via SSE ──────────────────────────────────────────────────
+  function startPreview() {
+    const token = getToken(); if (!token) { showLogin(); return; }
+    setBtnFetch(true); setAlert('action-alert', ''); sseDone = false;
+    document.getElementById('preview-section').style.display = 'none';
+    document.getElementById('apply-section').style.display   = 'none';
+    currentJobId = null; previewItems = []; selectedProductIds.clear();
+    document.getElementById('steps-section').style.display = '';
+    setStep('excel','pending','Waiting…'); setStep('wc','pending','Waiting…'); setStep('calc','pending','Waiting…');
+    addLog('Starting fetch…','info');
 
-  function applySync() {
-    if (!currentJobId) return;
-    const token = getToken();
-    if (!token) { showLogin(); return; }
+    const es = new EventSource(`/api/preview/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = (e) => {
+      const d = JSON.parse(e.data);
+      if (['excel','wc','calc'].includes(d.step)) {
+        setStep(d.step, d.status, d.msg);
+        addLog(d.msg, d.status==='error'?'err':d.status==='done'?'ok':'warn');
+        if (d.status === 'error') { sseDone=true; es.close(); setBtnFetch(false); }
+      } else if (d.step === 'preview' && d.status === 'done') {
+        sseDone=true; es.close();
+        currentJobId = d.job_id; previewItems = d.items;
+        // Auto-select all changed items
+        selectedProductIds = new Set(d.items.filter(i => i.changed).map(i => i.product_id));
+        document.getElementById('preview-job-id').textContent = `#${d.job_id}`;
+        document.getElementById('stat-total').textContent   = d.total;
+        document.getElementById('stat-changed').textContent = d.changed_count;
+        document.getElementById('stat-same').textContent    = d.unchanged_count;
+        setAlert('preview-alert','');
+        if (d.changed_count === 0) setAlert('preview-alert','All prices are already up-to-date. Nothing to apply.','info');
+        setFilter('changed');
+        document.getElementById('preview-section').style.display = '';
+        updateApplyButton();
+        addLog(`Preview ready — Job #${d.job_id}: ${d.changed_count} to update, ${d.unchanged_count} unchanged.`,'ok');
+        loadHistory(); setBtnFetch(false);
+      }
+    };
+    es.onerror = () => { es.close(); if (!sseDone) { addLog('Connection lost — please try again.','err'); setAlert('action-alert','Connection error. Please try again.','error'); setBtnFetch(false); } };
+  }
 
-    setBtnApply(true);
-    sseDone = false;
+  // ── Apply (with alarm check) ───────────────────────────────────────────────
+  function requestApply() {
+    if (!currentJobId || selectedProductIds.size === 0) return;
+    const sids = [...selectedProductIds];
+    const selectedItems = previewItems.filter(i => sids.includes(i.product_id));
+    const flagged = checkAlarms(selectedItems);
+    if (flagged.length > 0) {
+      pendingApplySids = sids;
+      const listEl = document.getElementById('alarm-modal-items');
+      listEl.innerHTML = flagged.map(f => `
+        <div class="alarm-item-row">
+          <span><code>${f.product_id}</code> ${f.product_name || ''}</span>
+          <span class="alarm-pct">${f.pct}% change (threshold: ${f.threshold}%)</span>
+        </div>`).join('');
+      document.getElementById('alarm-modal').classList.add('open');
+    } else {
+      runApplyStream(sids);
+    }
+  }
 
+  function runApplyStream(sids) {
+    const token = getToken(); if (!token) { showLogin(); return; }
+    setBtnApply(true); sseDone = false;
     document.getElementById('apply-job-id').textContent     = `#${currentJobId}`;
     document.getElementById('apply-tbody').innerHTML        = '';
     document.getElementById('apply-summary').innerHTML      = '';
     document.getElementById('writeback-wrap').style.display = 'none';
-    setAlert('apply-alert', '');
+    setAlert('apply-alert','');
     document.getElementById('apply-section').style.display  = '';
+    addLog(`Applying ${sids.length} selected product(s) — Job #${currentJobId}…`,'info');
 
-    addLog(`Applying job #${currentJobId} to WooCommerce…`, 'info');
-
-    const es = new EventSource(`/api/sync/${currentJobId}/apply-stream?token=${encodeURIComponent(token)}`);
-
+    const sidParams = sids.map(id => `sid=${id}`).join('&');
+    const es = new EventSource(`/api/sync/${currentJobId}/apply-stream?token=${encodeURIComponent(token)}&${sidParams}`);
     es.onmessage = (e) => {
       const d = JSON.parse(e.data);
       const tbody = document.getElementById('apply-tbody');
-
       if (d.type === 'start') {
-        addLog(`Sending ${d.total} price updates (${d.skipped} unchanged — skipped)…`, 'warn');
-      }
-      else if (d.type === 'item') {
-        const ok  = d.status === 'updated';
+        addLog(`Sending ${d.total} price updates (${d.skipped} skipped)…`,'warn');
+      } else if (d.type === 'item') {
+        const ok = d.status === 'updated';
         const row = document.createElement('tr');
         row.innerHTML = `
           <td><code>${d.product_id}</code></td>
-          <td><code style="color:var(--muted)">${d.sku || '—'}</code></td>
-          <td>${d.product_name || '<span style="color:var(--muted)">—</span>'}</td>
-          <td>${fmtPrice(d.old_price)}</td>
-          <td><strong>${fmtPrice(d.new_price)}</strong></td>
+          <td><code style="color:var(--muted)">${d.sku||'—'}</code></td>
+          <td>${d.product_name||'<span style="color:var(--muted)">—</span>'}</td>
+          <td class="price-cell" title="${fmtPriceToman(d.old_price)}">${fmtPrice(d.old_price)}</td>
+          <td class="price-cell" title="${fmtPriceToman(d.new_price)}"><strong>${fmtPrice(d.new_price)}</strong></td>
           <td>${badge(d.status)}</td>
-          <td style="color:${ok ? 'var(--muted)' : 'var(--red)'}; max-width:300px; white-space:normal;">
-            ${d.error || (ok ? '—' : '')}
-          </td>
-        `;
+          <td style="color:${ok?'var(--muted)':'var(--red)'};max-width:280px;white-space:normal;">${d.error||(ok?'—':'')}</td>`;
         tbody.appendChild(row);
-        if (ok) addLog(`✓ Updated [${d.product_id}] ${d.product_name}: ${d.old_price} → ${d.new_price}`, 'ok');
-        else    addLog(`✗ Failed  [${d.product_id}] ${d.product_name}: ${d.error}`, 'err');
-      }
-      else if (d.type === 'error') {
-        sseDone = true; es.close();
-        setAlert('apply-alert', d.msg, 'error');
-        addLog(`Apply error: ${d.msg}`, 'err');
-        setBtnApply(false);
-        loadHistory();
-      }
-      else if (d.type === 'done') {
-        sseDone = true; es.close();
-        const hasErrors = d.failed > 0;
+        if (ok) addLog(`✓ [${d.product_id}] ${d.product_name}: ${d.old_price} → ${d.new_price}`,'ok');
+        else    addLog(`✗ [${d.product_id}] ${d.product_name}: ${d.error}`,'err');
+      } else if (d.type === 'error') {
+        sseDone=true; es.close();
+        setAlert('apply-alert', d.msg, 'error'); addLog(`Apply error: ${d.msg}`,'err');
+        setBtnApply(false); loadHistory();
+      } else if (d.type === 'done') {
+        sseDone=true; es.close();
+        const hasErr = d.failed > 0;
         document.getElementById('apply-summary').innerHTML = `
           <span style="color:var(--green);">✓ ${d.updated} updated</span>
-          ${d.failed > 0 ? `<span style="color:var(--red);">✗ ${d.failed} failed</span>` : ''}
-          <span style="color:var(--muted);">${d.skipped} skipped</span>
-        `;
+          ${d.failed>0?`<span style="color:var(--red);">✗ ${d.failed} failed</span>`:''}
+          <span style="color:var(--muted);">${d.skipped} skipped</span>`;
         setAlert('apply-alert',
-          hasErrors
-            ? `Completed with ${d.failed} error(s). See the table above for details.`
-            : `All done! ${d.updated} product${d.updated !== 1 ? 's' : ''} updated successfully.`,
-          hasErrors ? 'error' : 'success'
-        );
+          hasErr ? `Completed with ${d.failed} error(s).` : `All done! ${d.updated} product${d.updated!==1?'s':''} updated successfully.`,
+          hasErr ? 'error' : 'success');
         document.getElementById('writeback-wrap').style.display = '';
         document.getElementById('preview-section').style.display = 'none';
-        addLog(`Job #${d.job_id} complete — ${d.updated} updated, ${d.failed} failed, ${d.skipped} skipped.`, hasErrors ? 'warn' : 'ok');
-        loadHistory();
-        setBtnApply(false);
+        addLog(`Job #${d.job_id} complete — ${d.updated} updated, ${d.failed} failed, ${d.skipped} skipped.`, hasErr?'warn':'ok');
+        loadHistory(); setBtnApply(false);
       }
     };
-
-    es.onerror = () => {
-      es.close();
-      if (!sseDone) {
-        addLog('Connection lost during apply — check sync history for results.', 'err');
-        setAlert('apply-alert', 'Connection error during apply. Check sync history.', 'error');
-        setBtnApply(false);
-        loadHistory();
-      }
-    };
+    es.onerror = () => { es.close(); if (!sseDone) { addLog('Connection lost during apply — check sync history.','err'); setAlert('apply-alert','Connection error. Check sync history.','error'); setBtnApply(false); loadHistory(); } };
   }
 
   // ── Cancel ─────────────────────────────────────────────────────────────────
-
   async function cancelSync() {
     if (!currentJobId) return;
-    try { await api(`/api/sync/${currentJobId}`, { method: 'DELETE' }); } catch {}
-    addLog(`Job #${currentJobId} cancelled.`, 'warn');
+    try { await api(`/api/sync/${currentJobId}`, { method:'DELETE' }); } catch {}
+    addLog(`Job #${currentJobId} cancelled.`,'warn');
     document.getElementById('preview-section').style.display = 'none';
-    currentJobId = null;
-    loadHistory();
+    currentJobId = null; loadHistory();
   }
 
   // ── Write back ─────────────────────────────────────────────────────────────
-
   async function writeBack(jobId) {
-    const id  = jobId || currentJobId;
-    if (!id) return;
+    const id = jobId || currentJobId; if (!id) return;
     const btn = document.getElementById('btn-writeback');
-    if (btn) { btn.disabled = true; btn.textContent = 'Writing…'; }
-    addLog('Writing results back to spreadsheet…', 'info');
+    if (btn) { btn.disabled=true; btn.textContent='Writing…'; }
+    addLog('Writing results back to spreadsheet…','info');
     try {
-      const resp = await api(`/api/jobs/${id}/writeback`, { method: 'POST' });
-      const data = await resp.json();
-      if (!resp.ok) {
-        setAlert('apply-alert', data.detail || 'Write-back failed', 'error');
-        addLog(`Write-back failed: ${data.detail}`, 'err');
-      } else {
-        setAlert('apply-alert', data.message, 'success');
-        addLog('Results written back to spreadsheet (columns E–G).', 'ok');
-      }
-    } catch (ex) {
-      addLog(`Write-back error: ${ex}`, 'err');
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Write status back to sheet (columns E–G)'; }
-    }
+      const r = await api(`/api/jobs/${id}/writeback`, { method:'POST' });
+      const d = await r.json();
+      if (!r.ok) { setAlert('apply-alert', d.detail||'Write-back failed','error'); addLog(`Write-back failed: ${d.detail}`,'err'); }
+      else { setAlert('apply-alert', d.message, 'success'); addLog('Results written back to spreadsheet (columns E–G).','ok'); }
+    } catch(ex) { addLog(`Write-back error: ${ex}`,'err'); }
+    finally { if (btn) { btn.disabled=false; btn.textContent='Write status back to sheet (columns E–G)'; } }
   }
 
   // ── History ────────────────────────────────────────────────────────────────
-
   async function loadHistory() {
     try {
-      const resp = await api('/api/jobs');
-      if (!resp.ok) return;
-      const jobs = await resp.json();
+      const r = await api('/api/jobs'); if (!r.ok) return;
+      const jobs = await r.json();
       const tbody = document.getElementById('history-tbody');
-      if (!jobs.length) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty">No sync history yet.</td></tr>';
-        return;
-      }
+      if (!jobs.length) { tbody.innerHTML='<tr><td colspan="8" class="empty">No sync history yet.</td></tr>'; return; }
       tbody.innerHTML = jobs.map(j => `
         <tr>
-          <td><code>#${j.id}</code></td>
-          <td>${fmt(j.created_at)}</td>
-          <td>${fmt(j.completed_at)}</td>
-          <td>${badge(j.status)}</td>
-          <td>${j.updated_count}</td>
-          <td>${j.failed_count > 0 ? `<span class="price-up">${j.failed_count}</span>` : j.failed_count}</td>
+          <td><code>#${j.id}</code></td><td>${fmt(j.created_at)}</td><td>${fmt(j.completed_at)}</td>
+          <td>${badge(j.status)}</td><td>${j.updated_count}</td>
+          <td>${j.failed_count>0?`<span class="price-up">${j.failed_count}</span>`:j.failed_count}</td>
           <td>${j.skipped_count}</td>
-          <td>
-            ${j.status === 'completed'
-              ? `<button class="btn btn-ghost btn-sm" onclick="writeBack(${j.id})">Write back</button>`
-              : '—'}
-          </td>
-        </tr>
-      `).join('');
+          <td>${j.status==='completed'?`<button class="btn btn-ghost btn-sm" onclick="writeBack(${j.id})">Write back</button>`:'—'}</td>
+        </tr>`).join('');
     } catch {}
   }
 
-  // ── Settings (admin) ───────────────────────────────────────────────────────
-
-  async function loadSettings() {
-    const user = getUser();
-    if (!user || user.role !== 'admin') return;
+  // ── Audit log ──────────────────────────────────────────────────────────────
+  async function loadAuditLog() {
     try {
-      const resp = await api('/api/settings');
-      if (!resp.ok) return;
-      const s = await resp.json();
+      const r = await api('/api/audit-logs'); if (!r.ok) return;
+      const logs = await r.json();
+      const tbody = document.getElementById('audit-tbody');
+      if (!logs.length) { tbody.innerHTML='<tr><td colspan="5" class="empty">No audit records yet.</td></tr>'; return; }
+      tbody.innerHTML = logs.map(l => `
+        <tr>
+          <td><strong>${l.username}</strong></td>
+          <td><span class="badge badge-${l.action}">${l.action}</span></td>
+          <td>${fmt(l.timestamp)}</td>
+          <td><code style="color:var(--muted)">${l.ip_address||'—'}</code></td>
+          <td>${l.job_id ? `<code>#${l.job_id}</code>` : '—'}</td>
+        </tr>`).join('');
+    } catch {}
+  }
 
+  // ── Settings ───────────────────────────────────────────────────────────────
+  async function loadSettings() {
+    const user = getUser(); if (!user || user.role !== 'admin') return;
+    try {
+      const r = await api('/api/settings'); if (!r.ok) return;
+      const s = await r.json();
       function rows(fields) {
-        return fields.map(([k, v]) => `
-          <div class="setting-row">
-            <span class="setting-key">${k}</span>
-            <span class="setting-val">${v}</span>
-          </div>`).join('');
+        return fields.map(([k,v]) => `<div class="setting-row"><span class="setting-key">${k}</span><span class="setting-val">${v}</span></div>`).join('');
       }
+      document.getElementById('settings-wc').innerHTML   = rows([['URL',s.wc_url],['API Key',s.wc_key],['API Secret',s.wc_secret]]);
+      document.getElementById('settings-nc').innerHTML   = rows([['URL',s.nextcloud_url],['User',s.nextcloud_user],['File Path',s.nextcloud_file_path]]);
+      document.getElementById('settings-auth').innerHTML = rows([['Super Admins',s.super_admin_users||'<em style="color:var(--muted)">none set</em>']]);
+    } catch {}
 
-      document.getElementById('settings-wc').innerHTML = rows([
-        ['URL', s.wc_url],
-        ['API Key', s.wc_key],
-        ['API Secret', s.wc_secret],
-      ]);
-      document.getElementById('settings-nc').innerHTML = rows([
-        ['URL', s.nextcloud_url],
-        ['User', s.nextcloud_user],
-        ['File Path', s.nextcloud_file_path],
-      ]);
-      document.getElementById('settings-auth').innerHTML = rows([
-        ['Super Admins', s.super_admin_users || '<em style="color:var(--muted)">none set</em>'],
-      ]);
+    // Load alarm thresholds into form
+    await loadAlarmThresholds();
+    const global = alarmThresholds.find(t => t.category_id === null);
+    document.getElementById('alarm-global').value = global ? global.threshold_percent : '';
+
+    const catList = document.getElementById('alarm-categories-list');
+    if (allCategories.length) {
+      catList.innerHTML = allCategories.map(c => {
+        const ct = alarmThresholds.find(t => t.category_id === c.id);
+        return `<div class="setting-row">
+          <span class="setting-key">${c.name}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="number" id="alarm-cat-${c.id}" class="num-input" min="0" max="10000" step="1"
+                   placeholder="use global" style="width:100px;" value="${ct ? ct.threshold_percent : ''}" />
+            <span style="color:var(--muted);">%</span>
+          </div>
+        </div>`;
+      }).join('');
+    } else {
+      catList.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 0;">No categories loaded — fetch a preview first to populate categories.</p>';
+    }
+  }
+
+  async function saveAlarmSettings() {
+    const thresholds = [];
+    const gv = parseFloat(document.getElementById('alarm-global').value);
+    if (!isNaN(gv) && gv > 0) thresholds.push({ category_id: null, threshold_percent: gv });
+
+    for (const c of allCategories) {
+      const el = document.getElementById(`alarm-cat-${c.id}`);
+      if (!el) continue;
+      const v = parseFloat(el.value);
+      if (!isNaN(v) && v > 0) thresholds.push({ category_id: c.id, threshold_percent: v });
+    }
+
+    try {
+      const r = await api('/api/alarm-settings', { method:'PUT', body:JSON.stringify(thresholds) });
+      if (r.ok) {
+        alarmThresholds = thresholds;
+        const msg = document.getElementById('alarm-save-msg');
+        msg.style.display = '';
+        setTimeout(() => { msg.style.display = 'none'; }, 2000);
+      }
     } catch {}
   }
 
   // ── Init ───────────────────────────────────────────────────────────────────
-
   (function init() {
-    const user = getUser();
-    const token = getToken();
-    if (user && token) {
-      showApp();
-    } else {
-      showLogin();
-    }
+    if (getUser() && getToken()) showApp(); else showLogin();
     setInterval(checkHealth, 30000);
   })();
 </script>
