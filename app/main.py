@@ -24,7 +24,11 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _price_differs(old: str | None, new: str) -> bool:
-    if not old:
+    old_empty = not old or old == ""
+    new_empty = not new or new == ""
+    if old_empty and new_empty:
+        return False
+    if old_empty or new_empty:
         return True
     try:
         return abs(float(old) - float(new)) > 0.001

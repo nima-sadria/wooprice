@@ -37,6 +37,7 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
         except (ValueError, TypeError):
             continue
         if price_raw is None:
+            items.append({"product_id": pid, "new_price": ""})
             continue
         try:
             price = float(price_raw)
