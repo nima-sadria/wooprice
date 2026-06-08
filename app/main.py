@@ -2,23 +2,80 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Header, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import ItemStatus, JobStatus, SyncItem, SyncJob
+from .services.auth import create_token, decode_token, is_super_admin, verify_nextcloud_credentials
 from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet
-from .services.woocommerce import batch_update_prices, fetch_product_prices
+from .services.woocommerce import batch_update_prices, fetch_categories, fetch_product_prices
 
 Base.metadata.create_all(bind=engine)
+
+
+def _run_column_migrations():
+    """Add new columns to sync_items for existing databases."""
+    with engine.connect() as conn:
+        inspector = sa_inspect(engine)
+        if "sync_items" not in inspector.get_table_names():
+            return
+        existing = {c["name"] for c in inspector.get_columns("sync_items")}
+        new_cols = [
+            ("sku", "TEXT"),
+            ("sale_price", "TEXT"),
+            ("stock_status", "TEXT"),
+            ("stock_quantity", "INTEGER"),
+            ("categories", "TEXT"),
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in existing:
+                conn.execute(text(f"ALTER TABLE sync_items ADD COLUMN {col_name} {col_type}"))
+        conn.commit()
+
+
+_run_column_migrations()
 
 app = FastAPI(title="WooPrice Sync", docs_url="/docs")
 
 static_dir = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+# ── auth ──────────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+async def get_current_user(
+    authorization: str | None = Header(None),
+    token: str | None = Query(None),
+) -> dict:
+    """Accept JWT from Authorization header or ?token= query param (for SSE)."""
+    raw = None
+    if authorization and authorization.startswith("Bearer "):
+        raw = authorization.removeprefix("Bearer ")
+    elif token:
+        raw = token
+    if not raw:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        return decode_token(raw)
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token")
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin access required")
+    return user
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -50,15 +107,40 @@ def _job_out(job: SyncJob) -> dict:
 
 
 def _item_out(item: SyncItem) -> dict:
+    try:
+        cats = json.loads(item.categories) if item.categories else []
+    except Exception:
+        cats = []
     return {
         "product_id": item.product_id,
         "product_name": item.product_name,
+        "sku": item.sku or "",
         "old_price": item.old_price,
         "new_price": item.new_price,
+        "sale_price": item.sale_price or "",
+        "stock_status": item.stock_status or "",
+        "stock_quantity": item.stock_quantity,
+        "categories": cats,
         "status": item.status,
         "error_message": item.error_message,
         "synced_at": item.synced_at,
         "changed": _price_differs(item.old_price, item.new_price),
+    }
+
+
+def _build_preview_row(pid: int, wc: dict, new_price: str) -> dict:
+    return {
+        "product_id": pid,
+        "product_name": wc.get("name", ""),
+        "sku": wc.get("sku", ""),
+        "old_price": wc.get("price") or "",
+        "new_price": new_price,
+        "sale_price": wc.get("sale_price", ""),
+        "stock_status": wc.get("stock_status", ""),
+        "stock_quantity": wc.get("stock_quantity"),
+        "categories": wc.get("categories", []),
+        "changed": _price_differs(wc.get("price") or None, new_price),
+        "found_in_wc": bool(wc),
     }
 
 
@@ -77,10 +159,60 @@ async def health():
     return {"status": "ok", "wc_url": s.wc_url, "nextcloud_url": s.nextcloud_url}
 
 
+# ── auth endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/login")
+async def login(body: LoginRequest):
+    if not body.username or not body.password:
+        raise HTTPException(400, "Username and password required")
+    try:
+        valid = await verify_nextcloud_credentials(body.username, body.password)
+    except Exception as exc:
+        raise HTTPException(503, f"Nextcloud unreachable: {exc}")
+    if not valid:
+        raise HTTPException(401, "Invalid Nextcloud credentials")
+    token = create_token(body.username)
+    role = "admin" if is_super_admin(body.username) else "user"
+    return {"token": token, "username": body.username, "role": role}
+
+
+@app.get("/api/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    return {"username": user["sub"], "role": user["role"]}
+
+
+# ── settings (admin only) ─────────────────────────────────────────────────────
+
+@app.get("/api/settings")
+async def get_app_settings(user: dict = Depends(require_admin)):
+    s = get_settings()
+    def mask(v: str) -> str:
+        return v[:4] + "****" if len(v) > 4 else "****"
+    return {
+        "wc_url": s.wc_url,
+        "wc_key": mask(s.wc_key),
+        "wc_secret": mask(s.wc_secret),
+        "nextcloud_url": s.nextcloud_url,
+        "nextcloud_user": s.nextcloud_user,
+        "nextcloud_file_path": s.nextcloud_file_path,
+        "super_admin_users": s.super_admin_users,
+    }
+
+
+# ── categories ────────────────────────────────────────────────────────────────
+
+@app.get("/api/categories")
+async def get_categories(user: dict = Depends(get_current_user)):
+    try:
+        return await fetch_categories()
+    except Exception as exc:
+        raise HTTPException(502, f"Cannot fetch categories from WooCommerce: {exc}")
+
+
 # ── 1. create preview ─────────────────────────────────────────────────────────
 
 @app.post("/api/preview")
-async def create_preview(db: Session = Depends(get_db)):
+async def create_preview(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         xlsx = await download_xlsx()
     except Exception as exc:
@@ -88,14 +220,9 @@ async def create_preview(db: Session = Depends(get_db)):
 
     sheet_items = parse_price_list(xlsx)
     if not sheet_items:
-        raise HTTPException(
-            400,
-            "No valid rows found. Expected product IDs in column A and prices in "
-            "column B, starting from row 3.",
-        )
+        raise HTTPException(400, "No valid rows found. Expected product IDs in column A and prices in column B, starting from row 3.")
 
     product_ids = [i["product_id"] for i in sheet_items]
-
     try:
         wc_data = await fetch_product_prices(product_ids)
     except Exception as exc:
@@ -115,20 +242,16 @@ async def create_preview(db: Session = Depends(get_db)):
             product_id=pid,
             parent_id=wc.get("parent_id") or 0,
             product_name=wc.get("name") or None,
+            sku=wc.get("sku") or None,
             old_price=old_price,
             new_price=row["new_price"],
+            sale_price=wc.get("sale_price") or None,
+            stock_status=wc.get("stock_status") or None,
+            stock_quantity=wc.get("stock_quantity"),
+            categories=json.dumps(wc.get("categories", [])),
         )
         db.add(item)
-        preview_rows.append(
-            {
-                "product_id": pid,
-                "product_name": wc.get("name", ""),
-                "old_price": old_price or "",
-                "new_price": row["new_price"],
-                "changed": _price_differs(old_price, row["new_price"]),
-                "found_in_wc": pid in wc_data,
-            }
-        )
+        preview_rows.append(_build_preview_row(pid, wc, row["new_price"]))
 
     db.commit()
 
@@ -145,7 +268,7 @@ async def create_preview(db: Session = Depends(get_db)):
 # ── 2. confirm → execute sync ─────────────────────────────────────────────────
 
 @app.post("/api/sync/{job_id}/confirm")
-async def confirm_sync(job_id: int, db: Session = Depends(get_db)):
+async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -156,7 +279,6 @@ async def confirm_sync(job_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
-
     to_update = [i for i in items if _price_differs(i.old_price, i.new_price)]
     to_skip = [i for i in items if not _price_differs(i.old_price, i.new_price)]
 
@@ -199,7 +321,7 @@ async def confirm_sync(job_id: int, db: Session = Depends(get_db)):
 # ── 3. cancel preview ─────────────────────────────────────────────────────────
 
 @app.delete("/api/sync/{job_id}")
-async def cancel_sync(job_id: int, db: Session = Depends(get_db)):
+async def cancel_sync(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -213,17 +335,15 @@ async def cancel_sync(job_id: int, db: Session = Depends(get_db)):
 # ── 4. list jobs ──────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs")
-async def list_jobs(limit: int = 30, db: Session = Depends(get_db)):
-    jobs = (
-        db.query(SyncJob).order_by(SyncJob.created_at.desc()).limit(limit).all()
-    )
+async def list_jobs(limit: int = 30, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    jobs = db.query(SyncJob).order_by(SyncJob.created_at.desc()).limit(limit).all()
     return [_job_out(j) for j in jobs]
 
 
 # ── 5. job detail ─────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs/{job_id}")
-async def get_job(job_id: int, db: Session = Depends(get_db)):
+async def get_job(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -234,12 +354,22 @@ async def get_job(job_id: int, db: Session = Depends(get_db)):
 # ── 6. preview stream (SSE) ───────────────────────────────────────────────────
 
 @app.get("/api/preview/stream")
-async def preview_stream():
+async def preview_stream(token: str | None = Query(None)):
     async def generate():
         db = SessionLocal()
         try:
             def ev(data: dict) -> str:
                 return f"data: {json.dumps(data)}\n\n"
+
+            # Auth check inside the generator
+            if not token:
+                yield ev({"step": "excel", "status": "error", "msg": "Not authenticated"})
+                return
+            try:
+                decode_token(token)
+            except Exception:
+                yield ev({"step": "excel", "status": "error", "msg": "Invalid or expired token"})
+                return
 
             yield ev({"step": "excel", "status": "running", "msg": "Downloading price list from Nextcloud…"})
             try:
@@ -261,7 +391,7 @@ async def preview_stream():
             except Exception as exc:
                 yield ev({"step": "wc", "status": "error", "msg": str(exc)})
                 return
-            yield ev({"step": "wc", "status": "done", "msg": f"Fetched prices for {len(wc_data)} products from WooCommerce"})
+            yield ev({"step": "wc", "status": "done", "msg": f"Fetched data for {len(wc_data)} products from WooCommerce"})
 
             yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
 
@@ -279,18 +409,16 @@ async def preview_stream():
                     product_id=pid,
                     parent_id=wc.get("parent_id") or 0,
                     product_name=wc.get("name") or None,
+                    sku=wc.get("sku") or None,
                     old_price=old_price,
                     new_price=row["new_price"],
+                    sale_price=wc.get("sale_price") or None,
+                    stock_status=wc.get("stock_status") or None,
+                    stock_quantity=wc.get("stock_quantity"),
+                    categories=json.dumps(wc.get("categories", [])),
                 )
                 db.add(item)
-                preview_rows.append({
-                    "product_id": pid,
-                    "product_name": wc.get("name", ""),
-                    "old_price": old_price or "",
-                    "new_price": row["new_price"],
-                    "changed": _price_differs(old_price, row["new_price"]),
-                    "found_in_wc": pid in wc_data,
-                })
+                preview_rows.append(_build_preview_row(pid, wc, row["new_price"]))
             db.commit()
 
             changed = sum(1 for r in preview_rows if r["changed"])
@@ -317,12 +445,21 @@ async def preview_stream():
 # ── 7. apply stream (SSE) ─────────────────────────────────────────────────────
 
 @app.get("/api/sync/{job_id}/apply-stream")
-async def apply_stream(job_id: int):
+async def apply_stream(job_id: int, token: str | None = Query(None)):
     async def generate():
         db = SessionLocal()
         try:
             def ev(data: dict) -> str:
                 return f"data: {json.dumps(data)}\n\n"
+
+            if not token:
+                yield ev({"type": "error", "msg": "Not authenticated"})
+                return
+            try:
+                decode_token(token)
+            except Exception:
+                yield ev({"type": "error", "msg": "Invalid or expired token"})
+                return
 
             job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
             if not job:
@@ -365,6 +502,7 @@ async def apply_stream(job_id: int):
                         "type": "item",
                         "product_id": item.product_id,
                         "product_name": item.product_name or "",
+                        "sku": item.sku or "",
                         "status": item.status.value,
                         "old_price": item.old_price or "",
                         "new_price": item.new_price,
@@ -398,7 +536,7 @@ async def apply_stream(job_id: int):
 # ── 8. write back to sheet ────────────────────────────────────────────────────
 
 @app.post("/api/jobs/{job_id}/writeback")
-async def writeback(job_id: int, db: Session = Depends(get_db)):
+async def writeback(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")

@@ -45,8 +45,13 @@ class SyncItem(Base):
     product_id = Column(Integer, index=True)
     parent_id = Column(Integer, default=0, nullable=True)
     product_name = Column(String, nullable=True)
+    sku = Column(String, nullable=True)
     old_price = Column(String, nullable=True)
     new_price = Column(String)
+    sale_price = Column(String, nullable=True)
+    stock_status = Column(String, nullable=True)
+    stock_quantity = Column(Integer, nullable=True)
+    categories = Column(String, nullable=True)  # JSON array: [{"id":1,"name":"..."}]
     status = Column(SAEnum(ItemStatus), default=ItemStatus.pending)
     error_message = Column(String, nullable=True)
     synced_at = Column(DateTime, nullable=True)

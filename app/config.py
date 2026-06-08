@@ -14,6 +14,11 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./wooprice.db"
 
+    # Auth — set JWT_SECRET to a long random string in production
+    jwt_secret: str = "change-me-in-production"
+    # Comma-separated Nextcloud usernames that get the "admin" role, e.g. "alice,bob"
+    super_admin_users: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
