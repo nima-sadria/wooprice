@@ -43,6 +43,7 @@ class SyncItem(Base):
     id = Column(Integer, primary_key=True)
     job_id = Column(Integer, ForeignKey("sync_jobs.id"))
     product_id = Column(Integer, index=True)
+    parent_id = Column(Integer, default=0, nullable=True)
     product_name = Column(String, nullable=True)
     old_price = Column(String, nullable=True)
     new_price = Column(String)

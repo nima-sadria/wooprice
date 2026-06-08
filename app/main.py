@@ -109,6 +109,7 @@ async def create_preview(db: Session = Depends(get_db)):
         item = SyncItem(
             job_id=job.id,
             product_id=pid,
+            parent_id=wc.get("parent_id") or 0,
             product_name=wc.get("name") or None,
             old_price=old_price,
             new_price=row["new_price"],
@@ -160,7 +161,7 @@ async def confirm_sync(job_id: int, db: Session = Depends(get_db)):
         item.synced_at = datetime.utcnow()
 
     if to_update:
-        updates = [{"product_id": i.product_id, "new_price": i.new_price} for i in to_update]
+        updates = [{"product_id": i.product_id, "new_price": i.new_price, "parent_id": i.parent_id or 0} for i in to_update]
         try:
             wc_results = await batch_update_prices(updates)
         except Exception as exc:
@@ -272,6 +273,7 @@ async def preview_stream():
                 item = SyncItem(
                     job_id=job.id,
                     product_id=pid,
+                    parent_id=wc.get("parent_id") or 0,
                     product_name=wc.get("name") or None,
                     old_price=old_price,
                     new_price=row["new_price"],
@@ -340,7 +342,7 @@ async def apply_stream(job_id: int):
                 item.synced_at = datetime.utcnow()
 
             if to_update:
-                updates = [{"product_id": i.product_id, "new_price": i.new_price} for i in to_update]
+                updates = [{"product_id": i.product_id, "new_price": i.new_price, "parent_id": i.parent_id or 0} for i in to_update]
                 try:
                     wc_results = await batch_update_prices(updates)
                 except Exception as exc:
