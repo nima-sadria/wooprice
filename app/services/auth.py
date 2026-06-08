@@ -12,7 +12,7 @@ async def verify_nextcloud_credentials(username: str, password: str) -> bool:
     url = s.nextcloud_url.rstrip("/") + "/ocs/v2.php/cloud/user?format=json"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, auth=(username, password))
+            resp = await client.get(url, auth=(username, password), headers={"OCS-APIRequest": "true"})
             if resp.status_code == 200:
                 data = resp.json()
                 statuscode = data.get("ocs", {}).get("meta", {}).get("statuscode")
