@@ -21,14 +21,13 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
     async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
         for i in range(0, len(product_ids), 100):
             chunk = product_ids[i : i + 100]
-            resp = await client.get(
-                f"{_base()}/products",
-                params={
-                    "include": ",".join(str(x) for x in chunk),
-                    "per_page": 100,
-                    "_fields": "id,name,regular_price,price",
-                },
-            )
+            # Use include[] array-style params — WooCommerce REST API expects arrays, not comma-separated strings
+            params = [("include[]", str(pid)) for pid in chunk] + [
+                ("per_page", "100"),
+                ("_fields", "id,name,regular_price,price"),
+                ("status", "any"),
+            ]
+            resp = await client.get(f"{_base()}/products", params=params)
             resp.raise_for_status()
             for p in resp.json():
                 result[p["id"]] = {
