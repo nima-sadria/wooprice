@@ -82,6 +82,18 @@ async def fetch_categories() -> list[dict]:
     return categories
 
 
+async def update_single_product(product_id: int, updates: dict, parent_id: int = 0) -> dict:
+    """PUT a single product or variation with arbitrary field updates."""
+    async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+        if parent_id and parent_id > 0:
+            url = f"{_base()}/products/{parent_id}/variations/{product_id}"
+        else:
+            url = f"{_base()}/products/{product_id}"
+        resp = await client.put(url, json=updates)
+        resp.raise_for_status()
+        return _parse_product(resp.json())
+
+
 async def batch_update_prices(updates: list[dict]) -> list[dict]:
     """
     updates: [{product_id, new_price, parent_id}, ...]

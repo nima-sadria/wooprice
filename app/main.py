@@ -1,26 +1,31 @@
 import json
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy import func, inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import AlarmThreshold, AuditLog, ItemStatus, JobStatus, SyncItem, SyncJob
 from .services.auth import create_token, decode_token, is_super_admin, verify_nextcloud_credentials
-from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet
-from .services.woocommerce import batch_update_prices, fetch_categories, fetch_product_prices
+from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet, write_price_to_sheet
+from .services.woocommerce import (
+    batch_update_prices,
+    fetch_categories,
+    fetch_product_prices,
+    update_single_product,
+)
 
 Base.metadata.create_all(bind=engine)
 
 
 def _run_column_migrations():
-    """Add new columns / tables to existing databases."""
     with engine.connect() as conn:
         inspector = sa_inspect(engine)
         existing_tables = inspector.get_table_names()
@@ -28,8 +33,13 @@ def _run_column_migrations():
         if "sync_items" in existing_tables:
             existing_cols = {c["name"] for c in inspector.get_columns("sync_items")}
             for col_name, col_type in [
-                ("sku", "TEXT"), ("sale_price", "TEXT"), ("stock_status", "TEXT"),
-                ("stock_quantity", "INTEGER"), ("categories", "TEXT"),
+                ("sku", "TEXT"),
+                ("sale_price", "TEXT"),
+                ("stock_status", "TEXT"),
+                ("stock_quantity", "INTEGER"),
+                ("categories", "TEXT"),
+                ("row_color", "TEXT"),
+                ("last_price_updated", "TIMESTAMP"),
             ]:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_items ADD COLUMN {col_name} {col_type}"))
@@ -55,6 +65,19 @@ class LoginRequest(BaseModel):
 class AlarmThresholdItem(BaseModel):
     category_id: int | None = None
     threshold_percent: float
+
+
+class PriceUpdateRequest(BaseModel):
+    new_price: str
+    parent_id: int = 0
+    job_id: int | None = None
+
+
+class StockUpdateRequest(BaseModel):
+    stock_status: str
+    stock_quantity: int | None = None
+    parent_id: int = 0
+    job_id: int | None = None
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -141,15 +164,26 @@ def _item_out(item: SyncItem) -> dict:
         "stock_status": item.stock_status or "",
         "stock_quantity": item.stock_quantity,
         "categories": cats,
+        "row_color": item.row_color,
         "status": item.status,
         "error_message": item.error_message,
         "synced_at": item.synced_at,
+        "last_price_updated": item.last_price_updated,
         "changed": _price_differs(item.old_price, item.new_price),
     }
 
 
-def _build_preview_row(pid: int, wc: dict, new_price: str) -> dict:
+def _build_preview_row(
+    pid: int,
+    wc: dict,
+    new_price: str,
+    row_color: str | None = None,
+    last_price_updated=None,
+) -> dict:
     old_price = wc.get("price") or None
+    lpu = last_price_updated
+    if isinstance(lpu, datetime):
+        lpu = lpu.isoformat()
     return {
         "product_id": pid,
         "product_name": wc.get("name", ""),
@@ -160,9 +194,25 @@ def _build_preview_row(pid: int, wc: dict, new_price: str) -> dict:
         "stock_status": wc.get("stock_status", ""),
         "stock_quantity": wc.get("stock_quantity"),
         "categories": wc.get("categories", []),
+        "parent_id": wc.get("parent_id", 0),
+        "row_color": row_color,
+        "last_price_updated": lpu,
         "changed": _price_differs(old_price, new_price),
         "found_in_wc": bool(wc),
     }
+
+
+def _get_last_synced(db: Session, product_ids: list[int]) -> dict[int, datetime | None]:
+    """Return {product_id: most_recent_synced_at} for successfully updated items."""
+    if not product_ids:
+        return {}
+    rows = (
+        db.query(SyncItem.product_id, func.max(SyncItem.synced_at).label("last_synced"))
+        .filter(SyncItem.product_id.in_(product_ids), SyncItem.status == ItemStatus.updated)
+        .group_by(SyncItem.product_id)
+        .all()
+    )
+    return {r.product_id: r.last_synced for r in rows}
 
 
 # ── Static dashboard ──────────────────────────────────────────────────────────
@@ -275,6 +325,168 @@ async def get_categories(user: dict = Depends(get_current_user)):
         raise HTTPException(502, f"Cannot fetch categories from WooCommerce: {exc}")
 
 
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/dashboard")
+async def get_dashboard(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    total_syncs = db.query(SyncJob).filter(SyncJob.status == JobStatus.completed).count()
+
+    latest_job = (
+        db.query(SyncJob)
+        .filter(SyncJob.status == JobStatus.completed)
+        .order_by(SyncJob.created_at.desc())
+        .first()
+    )
+
+    product_stats = {"total": 0, "in_stock": 0, "out_of_stock": 0}
+    if latest_job:
+        items = db.query(SyncItem).filter(SyncItem.job_id == latest_job.id).all()
+        product_stats["total"] = len(items)
+        product_stats["in_stock"] = sum(1 for i in items if i.stock_status == "instock")
+        product_stats["out_of_stock"] = sum(1 for i in items if i.stock_status == "outofstock")
+
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    recent_jobs = (
+        db.query(SyncJob)
+        .filter(SyncJob.status == JobStatus.completed, SyncJob.created_at >= thirty_days_ago)
+        .order_by(SyncJob.created_at.asc())
+        .all()
+    )
+    daily_syncs: dict[str, int] = defaultdict(int)
+    for j in recent_jobs:
+        daily_syncs[j.created_at.date().isoformat()] += 1
+
+    recent_logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(8).all()
+
+    return {
+        "total_syncs": total_syncs,
+        "latest_job": _job_out(latest_job) if latest_job else None,
+        "product_stats": product_stats,
+        "sync_chart": [{"date": k, "count": v} for k, v in sorted(daily_syncs.items())],
+        "recent_logs": [
+            {
+                "username": l.username,
+                "action": l.action,
+                "timestamp": l.timestamp,
+                "ip_address": l.ip_address,
+            }
+            for l in recent_logs
+        ],
+    }
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/analytics")
+async def get_analytics(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Get the most recent SyncItem per product_id (across all completed jobs)
+    latest_id_sq = (
+        db.query(func.max(SyncItem.id).label("max_id"))
+        .join(SyncJob, SyncItem.job_id == SyncJob.id)
+        .filter(SyncJob.status == JobStatus.completed)
+        .group_by(SyncItem.product_id)
+        .subquery()
+    )
+    items = (
+        db.query(SyncItem)
+        .filter(SyncItem.id.in_(latest_id_sq))
+        .all()
+    )
+
+    one_week_ago = datetime.utcnow() - timedelta(days=7)
+
+    in_stock_no_price = []
+    has_price_out_of_stock = []
+    stale_products = []
+
+    for item in items:
+        d = _item_out(item)
+        price_empty = not item.new_price or item.new_price in ("", "0.00")
+        price_set = item.new_price and item.new_price not in ("", "0.00")
+
+        if item.stock_status == "instock" and price_empty:
+            in_stock_no_price.append(d)
+
+        if price_set and item.stock_status == "outofstock":
+            has_price_out_of_stock.append(d)
+
+        last_update = item.last_price_updated or item.synced_at
+        if last_update is None or last_update < one_week_ago:
+            stale_products.append(d)
+
+    return {
+        "in_stock_no_price": in_stock_no_price,
+        "has_price_out_of_stock": has_price_out_of_stock,
+        "stale_products": stale_products,
+    }
+
+
+# ── Live price/stock update ───────────────────────────────────────────────────
+
+@app.put("/api/products/{product_id}/price")
+async def update_price(
+    product_id: int,
+    body: PriceUpdateRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        await update_single_product(product_id, {"regular_price": body.new_price}, body.parent_id)
+    except Exception as exc:
+        raise HTTPException(502, f"WooCommerce update failed: {exc}")
+
+    try:
+        await write_price_to_sheet(product_id, body.new_price)
+    except Exception as exc:
+        raise HTTPException(502, f"Excel writeback failed: {exc}")
+
+    now = datetime.utcnow()
+    if body.job_id:
+        item = (
+            db.query(SyncItem)
+            .filter(SyncItem.job_id == body.job_id, SyncItem.product_id == product_id)
+            .first()
+        )
+        if item:
+            item.new_price = body.new_price
+            item.last_price_updated = now
+            db.commit()
+
+    return {"success": True, "product_id": product_id, "new_price": body.new_price}
+
+
+@app.put("/api/products/{product_id}/stock")
+async def update_stock(
+    product_id: int,
+    body: StockUpdateRequest,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    wc_payload: dict = {"stock_status": body.stock_status}
+    if body.stock_quantity is not None:
+        wc_payload["stock_quantity"] = body.stock_quantity
+        wc_payload["manage_stock"] = True
+
+    try:
+        await update_single_product(product_id, wc_payload, body.parent_id)
+    except Exception as exc:
+        raise HTTPException(502, f"WooCommerce update failed: {exc}")
+
+    if body.job_id:
+        item = (
+            db.query(SyncItem)
+            .filter(SyncItem.job_id == body.job_id, SyncItem.product_id == product_id)
+            .first()
+        )
+        if item:
+            item.stock_status = body.stock_status
+            if body.stock_quantity is not None:
+                item.stock_quantity = body.stock_quantity
+            db.commit()
+
+    return {"success": True, "product_id": product_id}
+
+
 # ── 1. Create preview ─────────────────────────────────────────────────────────
 
 @app.post("/api/preview")
@@ -293,6 +505,8 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
         wc_data = await fetch_product_prices(product_ids)
     except Exception as exc:
         raise HTTPException(502, f"Cannot fetch prices from WooCommerce: {exc}")
+
+    last_synced = _get_last_synced(db, product_ids)
 
     job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items))
     db.add(job)
@@ -313,8 +527,14 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
             stock_status=wc.get("stock_status") or None,
             stock_quantity=wc.get("stock_quantity"),
             categories=json.dumps(wc.get("categories", [])),
+            row_color=row.get("row_color"),
+            last_price_updated=last_synced.get(pid),
         ))
-        preview_rows.append(_build_preview_row(pid, wc, row["new_price"]))
+        preview_rows.append(_build_preview_row(
+            pid, wc, row["new_price"],
+            row_color=row.get("row_color"),
+            last_price_updated=last_synced.get(pid),
+        ))
 
     db.commit()
     changed = sum(1 for r in preview_rows if r["changed"])
@@ -352,12 +572,15 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
             db.commit()
             raise HTTPException(502, f"WooCommerce batch update failed: {exc}")
 
+        now = datetime.utcnow()
         result_map = {r["product_id"]: r for r in wc_results}
         for item in to_update:
             r = result_map.get(item.product_id, {})
             item.status = ItemStatus.updated if r.get("success") else ItemStatus.failed
             item.error_message = r.get("error_message")
-            item.synced_at = datetime.utcnow()
+            item.synced_at = now
+            if r.get("success"):
+                item.last_price_updated = now
 
     job.updated_count = sum(1 for i in items if i.status == ItemStatus.updated)
     job.failed_count  = sum(1 for i in items if i.status == ItemStatus.failed)
@@ -429,7 +652,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
 
             sheet_items = parse_price_list(xlsx)
             if not sheet_items:
-                yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (expected product IDs in col A, prices in col B from row 3)"}); return
+                yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, prices in col C from row 3)"}); return
             yield ev({"step": "excel", "status": "done", "msg": f"Found {len(sheet_items)} products in price list"})
 
             yield ev({"step": "wc", "status": "running", "msg": f"Fetching current data from WooCommerce for {len(sheet_items)} products…"})
@@ -441,6 +664,8 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             yield ev({"step": "wc", "status": "done", "msg": f"Fetched data for {len(wc_data)} products from WooCommerce"})
 
             yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
+
+            last_synced = _get_last_synced(db, product_ids)
 
             job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items))
             db.add(job)
@@ -461,8 +686,14 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                     stock_status=wc.get("stock_status") or None,
                     stock_quantity=wc.get("stock_quantity"),
                     categories=json.dumps(wc.get("categories", [])),
+                    row_color=row.get("row_color"),
+                    last_price_updated=last_synced.get(pid),
                 ))
-                preview_rows.append(_build_preview_row(pid, wc, row["new_price"]))
+                preview_rows.append(_build_preview_row(
+                    pid, wc, row["new_price"],
+                    row_color=row.get("row_color"),
+                    last_price_updated=last_synced.get(pid),
+                ))
             db.commit()
 
             _audit(db, user_data["sub"], "fetch", ip, job.id)
@@ -489,7 +720,7 @@ async def apply_stream(
     job_id: int,
     request: Request,
     token: str | None = Query(None),
-    sid: list[int] | None = Query(None),  # selected product IDs
+    sid: list[int] | None = Query(None),
 ):
     ip = _client_ip(request)
 
@@ -517,7 +748,6 @@ async def apply_stream(
 
             items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
 
-            # Respect selected product IDs if provided
             selected_set = set(sid) if sid else None
             if selected_set:
                 to_update = [i for i in items if _price_differs(i.old_price, i.new_price) and i.product_id in selected_set]
@@ -541,12 +771,15 @@ async def apply_stream(
                     db.commit()
                     yield ev({"type": "error", "msg": f"WooCommerce batch update failed: {exc}"}); return
 
+                now = datetime.utcnow()
                 result_map = {r["product_id"]: r for r in wc_results}
                 for item in to_update:
                     r = result_map.get(item.product_id, {})
                     item.status = ItemStatus.updated if r.get("success") else ItemStatus.failed
                     item.error_message = r.get("error_message")
-                    item.synced_at = datetime.utcnow()
+                    item.synced_at = now
+                    if r.get("success"):
+                        item.last_price_updated = now
                     yield ev({
                         "type": "item",
                         "product_id": item.product_id,

@@ -1,939 +1,1188 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WooPrice Sync</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WooPrice</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f172a;--sidebar:#1a2744;--card:#1e293b;--card2:#263348;
+  --border:#2d3f5e;--text:#e2e8f0;--muted:#64748b;--accent:#3b82f6;
+  --accent2:#2563eb;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+  --orange:#f97316;--purple:#a855f7;
+}
+body{font-family:'Vazirmatn',sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh}
 
-    :root {
-      --bg: #0f172a; --surface: #1e293b; --surface2: #263045;
-      --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
-      --accent: #3b82f6; --accent-hover: #2563eb;
-      --green: #22c55e; --red: #ef4444; --yellow: #f59e0b; --gray: #64748b;
-      --radius: 8px;
-    }
-    body { background: var(--bg); color: var(--text); font-family: 'Vazirmatn', system-ui, sans-serif; font-size: 14px; line-height: 1.6; }
+/* ── Login ── */
+#login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+.login-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:40px;width:360px}
+.login-box h1{font-size:22px;font-weight:600;margin-bottom:4px}
+.login-box p{color:var(--muted);margin-bottom:28px;font-size:13px}
+.login-box label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+.login-box input{width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:14px;margin-bottom:16px;outline:none}
+.login-box input:focus{border-color:var(--accent)}
+.btn-primary{width:100%;padding:10px;background:var(--accent);border:none;border-radius:7px;color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background .15s}
+.btn-primary:hover{background:var(--accent2)}
+#login-error{color:var(--red);font-size:12px;margin-top:10px;text-align:center;min-height:18px}
 
-    /* ── Login ── */
-    #login-overlay { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:100; }
-    .login-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:40px 36px; width:100%; max-width:380px; }
-    .login-logo { display:flex; align-items:center; gap:10px; margin-bottom:28px; }
-    .login-logo h1 { font-size:20px; font-weight:700; }
-    .login-subtitle { color:var(--muted); font-size:13px; margin-bottom:28px; }
-    .form-group { margin-bottom:16px; }
-    .form-group label { display:block; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
-    .form-group input { width:100%; padding:10px 12px; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:14px; outline:none; transition:border-color .15s; }
-    .form-group input:focus { border-color:var(--accent); }
-    .login-error { color:#fca5a5; font-size:13px; margin-bottom:12px; min-height:20px; }
-    .btn-login { width:100%; padding:11px; background:var(--accent); color:#fff; border:none; border-radius:var(--radius); font-size:14px; font-weight:600; cursor:pointer; transition:background .15s; }
-    .btn-login:hover { background:var(--accent-hover); }
-    .btn-login:disabled { opacity:.5; cursor:not-allowed; }
-    .login-nc-note { margin-top:16px; text-align:center; font-size:12px; color:var(--gray); }
+/* ── Layout ── */
+.hidden{display:none!important}
+.layout{display:flex;height:100vh;overflow:hidden}
 
-    /* ── Header ── */
-    header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 24px; height:56px; display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:10; }
-    header h1 { font-size:18px; font-weight:600; }
-    .header-nav { display:flex; align-items:center; gap:4px; margin-left:20px; }
-    .nav-tab { background:none; border:none; color:var(--muted); padding:6px 14px; border-radius:var(--radius); font-size:14px; cursor:pointer; transition:background .12s, color .12s; }
-    .nav-tab:hover { background:rgba(255,255,255,.06); color:var(--text); }
-    .nav-tab.active { background:rgba(59,130,246,.15); color:var(--accent); font-weight:600; }
-    .header-right { margin-left:auto; display:flex; align-items:center; gap:12px; }
-    #conn-status { font-size:12px; display:flex; align-items:center; gap:6px; }
-    #conn-dot { width:8px; height:8px; border-radius:50%; background:var(--gray); }
-    #conn-dot.ok { background:var(--green); } #conn-dot.err { background:var(--red); }
-    .user-chip { display:flex; align-items:center; gap:8px; padding:4px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:20px; font-size:12px; }
-    .role-badge { padding:1px 6px; border-radius:3px; font-size:10px; font-weight:700; text-transform:uppercase; }
-    .role-badge.admin { background:rgba(245,158,11,.2); color:var(--yellow); }
-    .role-badge.user  { background:rgba(100,116,139,.2); color:var(--muted); }
-    .btn-logout { background:none; border:1px solid var(--border); color:var(--muted); padding:4px 10px; border-radius:var(--radius); font-size:12px; cursor:pointer; }
-    .btn-logout:hover { border-color:var(--red); color:var(--red); }
+/* ── Sidebar ── */
+.sidebar{width:220px;flex-shrink:0;background:var(--sidebar);display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.sidebar-logo{padding:20px 18px 14px;font-size:18px;font-weight:600;color:var(--text);letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.sidebar-logo span{color:var(--accent)}
+.sidebar-nav{flex:1;padding:12px 10px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;color:var(--muted);cursor:pointer;font-size:13.5px;transition:all .15s;border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:var(--card);color:var(--text)}
+.nav-item.active{background:var(--accent);color:#fff}
+.nav-icon{width:16px;text-align:center;font-style:normal;font-size:15px}
+.sidebar-footer{padding:14px 10px;border-top:1px solid var(--border)}
+.user-chip{display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:8px}
+.user-avatar{width:28px;height:28px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;flex-shrink:0}
+.user-name{font-size:12.5px;font-weight:500}
+.user-role{font-size:10.5px;color:var(--muted)}
+.btn-logout{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:12.5px;cursor:pointer;transition:all .15s}
+.btn-logout:hover{border-color:var(--red);color:var(--red)}
 
-    /* ── Layout ── */
-    main { max-width:1280px; margin:32px auto; padding:0 24px; display:flex; flex-direction:column; gap:24px; }
-    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px 24px; }
-    .card-title { font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:16px; }
+/* ── Content ── */
+.content{flex:1;overflow-y:auto;background:var(--bg)}
+.page{padding:28px;display:flex;flex-direction:column;gap:24px}
+.page-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.page-title{font-size:20px;font-weight:600}
+.page-sub{font-size:13px;color:var(--muted);margin-top:2px}
 
-    /* ── Buttons ── */
-    .btn { display:inline-flex; align-items:center; gap:8px; padding:8px 18px; border-radius:var(--radius); border:none; cursor:pointer; font-size:14px; font-weight:500; transition:background .15s, opacity .15s; }
-    .btn:disabled { opacity:.45; cursor:not-allowed; }
-    .btn-primary { background:var(--accent); color:#fff; }
-    .btn-primary:not(:disabled):hover { background:var(--accent-hover); }
-    .btn-success { background:#16a34a; color:#fff; }
-    .btn-success:not(:disabled):hover { background:#15803d; }
-    .btn-danger  { background:transparent; color:var(--red); border:1px solid var(--red); }
-    .btn-danger:not(:disabled):hover  { background:rgba(239,68,68,.08); }
-    .btn-ghost   { background:transparent; color:var(--muted); border:1px solid var(--border); }
-    .btn-ghost:not(:disabled):hover  { border-color:var(--accent); color:var(--accent); }
-    .btn-sm { padding:4px 10px; font-size:12px; }
+/* ── Cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:20px}
+.card-title{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:14px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px}
+.stat-val{font-size:28px;font-weight:600;margin-bottom:3px}
+.stat-label{font-size:12px;color:var(--muted)}
+.stat-card.blue .stat-val{color:var(--accent)}
+.stat-card.green .stat-val{color:var(--green)}
+.stat-card.red .stat-val{color:var(--red)}
+.stat-card.yellow .stat-val{color:var(--yellow)}
 
-    /* ── Steps ── */
-    .steps { display:flex; flex-direction:column; gap:10px; }
-    .step { display:flex; align-items:center; gap:14px; padding:14px 18px; border-radius:var(--radius); background:var(--bg); border:1px solid var(--border); transition:border-color .25s; }
-    .step.running { border-color:var(--yellow); } .step.done { border-color:var(--green); } .step.error { border-color:var(--red); }
-    .step-icon { width:22px; text-align:center; font-size:16px; flex-shrink:0; }
-    .step-body { flex:1; }
-    .step-label { font-weight:600; font-size:13px; }
-    .step.running .step-label { color:var(--yellow); } .step.done .step-label { color:var(--green); } .step.error .step-label { color:var(--red); }
-    .step-msg { font-size:12px; color:var(--muted); margin-top:2px; }
+/* ── Buttons ── */
+.btn{padding:8px 16px;border-radius:6px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn-blue{background:var(--accent);color:#fff}.btn-blue:hover{background:var(--accent2)}
+.btn-green{background:#16a34a;color:#fff}.btn-green:hover{background:#15803d}
+.btn-ghost{background:var(--card2);border:1px solid var(--border);color:var(--text)}.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-red{background:#b91c1c;color:#fff}.btn-red:hover{background:#991b1b}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-sm{padding:5px 10px;font-size:12px}
 
-    /* ── Stats ── */
-    .stats { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
-    .stat { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:12px 20px; min-width:120px; }
-    .stat-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-    .stat-value { font-size:24px; font-weight:700; margin-top:2px; }
+/* ── Tables ── */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{padding:9px 12px;text-align:left;color:var(--muted);font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12px}
+td{padding:8px 12px;border-bottom:1px solid #1e2d45;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--card2)}
+td.number{text-align:right;font-variant-numeric:tabular-nums}
 
-    /* ── Toolbar ── */
-    .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
-    .toggle-group { display:flex; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
-    .toggle-group button { background:none; border:none; color:var(--muted); padding:5px 14px; font-size:13px; cursor:pointer; transition:background .12s, color .12s; }
-    .toggle-group button.active { background:var(--accent); color:#fff; }
-    .search-input, .cat-select, .num-input {
-      padding:5px 10px; border-radius:var(--radius); border:1px solid var(--border);
-      background:var(--bg); color:var(--text); font-size:13px; outline:none;
-    }
-    .search-input { flex:1; min-width:160px; max-width:260px; }
-    .search-input:focus, .cat-select:focus, .num-input:focus { border-color:var(--accent); }
-    .cat-select { cursor:pointer; }
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:500}
+.badge-green{background:#14532d;color:#86efac}
+.badge-red{background:#450a0a;color:#fca5a5}
+.badge-yellow{background:#451a03;color:#fde68a}
+.badge-blue{background:#1e3a5f;color:#93c5fd}
+.badge-gray{background:#1e293b;color:var(--muted)}
+.badge-purple{background:#2e1065;color:#d8b4fe}
 
-    /* ── Tables ── */
-    .table-wrap { overflow-x:auto; border-radius:var(--radius); border:1px solid var(--border); }
-    table { width:100%; border-collapse:collapse; }
-    th, td { padding:9px 11px; text-align:left; white-space:nowrap; }
-    th { background:var(--bg); color:var(--muted); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid var(--border); }
-    tr:not(:last-child) td { border-bottom:1px solid var(--border); }
-    tr:hover td { background:rgba(255,255,255,.025); }
-    input[type=checkbox] { cursor:pointer; width:14px; height:14px; accent-color:var(--accent); }
+/* ── Color dot ── */
+.color-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid rgba(255,255,255,.2)}
 
-    /* ── Badges ── */
-    .badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
-    .badge-updated   { background:rgba(34,197,94,.15);  color:var(--green); }
-    .badge-failed    { background:rgba(239,68,68,.15);  color:var(--red); }
-    .badge-skipped   { background:rgba(100,116,139,.15);color:var(--gray); }
-    .badge-pending   { background:rgba(59,130,246,.15); color:var(--accent); }
-    .badge-preview   { background:rgba(59,130,246,.15); color:var(--accent); }
-    .badge-running   { background:rgba(245,158,11,.15); color:var(--yellow); }
-    .badge-completed { background:rgba(34,197,94,.15);  color:var(--green); }
-    .badge-cancelled { background:rgba(100,116,139,.15);color:var(--gray); }
-    .badge-instock   { background:rgba(34,197,94,.12);  color:var(--green);  font-size:10px; }
-    .badge-outofstock{ background:rgba(239,68,68,.12);  color:var(--red);    font-size:10px; }
-    .badge-login  { background:rgba(59,130,246,.12);  color:var(--accent); }
-    .badge-fetch  { background:rgba(245,158,11,.12);  color:var(--yellow); }
-    .badge-apply  { background:rgba(34,197,94,.12);   color:var(--green); }
+/* ── Steps ── */
+.steps{display:flex;gap:10px;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;font-size:12px;background:var(--card2);border:1px solid var(--border);color:var(--muted)}
+.step.running{border-color:var(--accent);color:var(--accent)}
+.step.done{border-color:var(--green);color:var(--green)}
+.step.error{border-color:var(--red);color:var(--red)}
+.step-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
 
-    /* ── Price colors ── */
-    .price-up { color:var(--red); } .price-down { color:var(--green); } .price-same { color:var(--muted); }
-    td.price-cell { cursor:default; position:relative; }
+/* ── Editable cells ── */
+.editable-cell{cursor:pointer;border-radius:4px;padding:2px 6px;transition:background .1s}
+.editable-cell:hover{background:var(--card2)}
+.cell-input{background:var(--bg);border:1px solid var(--accent);border-radius:4px;color:var(--text);padding:3px 7px;font-size:13px;width:100%;outline:none;font-family:inherit}
+.cell-select{background:var(--bg);border:1px solid var(--accent);border-radius:4px;color:var(--text);padding:3px 7px;font-size:12px;outline:none;font-family:inherit}
+.saving-text{color:var(--muted);font-size:12px;font-style:italic}
 
-    .action-row { display:flex; gap:12px; align-items:center; padding-top:16px; border-top:1px solid var(--border); margin-top:16px; flex-wrap:wrap; }
+/* ── Filter bar ── */
+.filter-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.search-input{padding:7px 12px;background:var(--card);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;outline:none;min-width:200px}
+.search-input:focus{border-color:var(--accent)}
+select.filter-sel{padding:7px 10px;background:var(--card);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;outline:none;cursor:pointer}
+select.filter-sel:focus{border-color:var(--accent)}
 
-    /* ── Alerts ── */
-    .alert { padding:12px 16px; border-radius:var(--radius); font-size:13px; margin-top:16px; }
-    .alert-error   { background:rgba(239,68,68,.1);  border:1px solid rgba(239,68,68,.3);  color:#fca5a5; }
-    .alert-success { background:rgba(34,197,94,.1);  border:1px solid rgba(34,197,94,.3);  color:#86efac; }
-    .alert-info    { background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.3); color:#93c5fd; }
+/* ── Stats bar ── */
+.stats-bar{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;padding:10px 14px;background:var(--card2);border-radius:7px;border:1px solid var(--border)}
+.stats-bar span{color:var(--muted)}.stats-bar b{color:var(--text)}
 
-    /* ── Spinners ── */
-    .spinner    { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.2);   border-top-color:#fff;          border-radius:50%; animation:spin .7s linear infinite; }
-    .spinner-sm { display:inline-block; width:16px; height:16px; border:2px solid rgba(245,158,11,.3);   border-top-color:var(--yellow); border-radius:50%; animation:spin .7s linear infinite; }
-    @keyframes spin { to { transform:rotate(360deg); } }
+/* ── Log feed ── */
+.log-feed{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
+.log-item{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;background:var(--card2);font-size:12.5px}
+.log-action{padding:2px 7px;border-radius:4px;font-size:11px;font-weight:500;min-width:50px;text-align:center}
+.log-action.login{background:#1e3a5f;color:#93c5fd}
+.log-action.fetch{background:#14532d;color:#86efac}
+.log-action.apply{background:#4c1d95;color:#d8b4fe}
+.log-ts{color:var(--muted);font-size:11px;margin-left:auto}
 
-    /* ── Log ── */
-    .log-panel { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; max-height:220px; overflow-y:auto; font-family:'Courier New',monospace; font-size:12px; }
-    .log-entry { display:flex; gap:14px; padding:2px 0; }
-    .log-time  { color:var(--gray); flex-shrink:0; user-select:none; }
-    .log-msg   { color:var(--muted); word-break:break-all; }
-    .log-msg.ok   { color:var(--green); } .log-msg.err { color:var(--red); }
-    .log-msg.warn { color:var(--yellow); } .log-msg.info { color:var(--accent); }
+/* ── Activity log (workspace) ── */
+.activity-log{max-height:180px;overflow-y:auto;font-size:12px;display:flex;flex-direction:column;gap:4px}
+.activity-line{padding:3px 0;color:var(--muted)}
+.activity-line.ok{color:#86efac}
+.activity-line.err{color:#fca5a5}
+.activity-line.info{color:#93c5fd}
 
-    .empty { text-align:center; padding:40px; color:var(--muted); }
-    .result-summary { display:flex; gap:20px; flex-wrap:wrap; font-size:14px; font-weight:500; }
+/* ── Modal ── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;display:flex;align-items:center;justify-content:center}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;max-width:560px;width:100%;margin:20px}
+.modal h3{font-size:16px;font-weight:600;margin-bottom:6px}
+.modal p{color:var(--muted);font-size:13px;margin-bottom:18px}
+.modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
 
-    /* ── Settings ── */
-    .settings-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-    @media (max-width:680px) { .settings-grid { grid-template-columns:1fr; } }
-    .setting-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); gap:16px; }
-    .setting-row:last-child { border-bottom:none; }
-    .setting-key { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; min-width:120px; }
-    .setting-val { font-size:13px; font-family:monospace; color:var(--text); word-break:break-all; text-align:right; }
+/* ── Chart containers ── */
+.chart-wrap{position:relative;height:180px}
 
-    /* ── Alarm modal ── */
-    #alarm-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); z-index:200; align-items:center; justify-content:center; }
-    #alarm-modal.open { display:flex; }
-    .alarm-modal-card { background:var(--surface); border:1px solid var(--yellow); border-radius:12px; padding:28px 32px; max-width:540px; width:90%; max-height:80vh; display:flex; flex-direction:column; }
-    .alarm-modal-items { overflow-y:auto; max-height:220px; margin:12px 0; }
-    .alarm-item-row { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
-    .alarm-item-row:last-child { border-bottom:none; }
-    .alarm-pct { font-weight:700; color:var(--red); }
-  </style>
+/* ── Section header ── */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-hdr h3{font-size:14px;font-weight:600}
+.section-count{font-size:12px;color:var(--muted)}
+
+/* ── Tabs ── */
+.tab-bar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:18px}
+.tab-btn{padding:8px 16px;border:none;background:none;color:var(--muted);font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-btn:hover{color:var(--text)}
+
+/* ── Settings rows ── */
+.settings-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);align-items:center}
+.settings-row:last-child{border-bottom:none}
+.settings-key{color:var(--muted);font-size:12.5px}
+.settings-val{font-size:13px;font-family:monospace}
+
+/* ── Threshold editor ── */
+.threshold-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.threshold-row:last-child{border-bottom:none}
+.threshold-label{flex:1;font-size:13px}
+.threshold-input{width:80px;padding:5px 8px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:13px;outline:none}
+.threshold-input:focus{border-color:var(--accent)}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
 </head>
 <body>
 
-<!-- ── Login ─────────────────────────────────────────────────────────────────── -->
+<!-- ══ Login ══ -->
 <div id="login-overlay">
-  <div class="login-card">
-    <div class="login-logo">
-      <svg width="24" height="24" fill="none" viewBox="0 0 24 24"><path stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10"/></svg>
-      <h1>WooPrice Sync</h1>
-    </div>
-    <p class="login-subtitle">Sign in with your Nextcloud account to continue.</p>
-    <div id="login-error" class="login-error"></div>
-    <div class="form-group"><label>Username</label><input type="text" id="login-username" autocomplete="username" placeholder="nextcloud username" /></div>
-    <div class="form-group"><label>Password</label><input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••" /></div>
-    <button class="btn-login" id="btn-login" onclick="doLogin()">Sign in</button>
-    <p class="login-nc-note">Credentials are verified against your Nextcloud instance.</p>
+  <div class="login-box">
+    <h1>Woo<span style="color:var(--accent)">Price</span></h1>
+    <p>Sign in with your Nextcloud account</p>
+    <label>Username</label>
+    <input id="login-user" type="text" placeholder="username" autocomplete="username">
+    <label>Password</label>
+    <input id="login-pass" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password">
+    <button class="btn-primary" onclick="doLogin()">Sign In</button>
+    <div id="login-error"></div>
   </div>
 </div>
 
-<!-- ── Alarm modal ────────────────────────────────────────────────────────────── -->
-<div id="alarm-modal">
-  <div class="alarm-modal-card">
-    <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:22px;">⚠</span>
-      <h3 style="color:var(--yellow);">Large Price Changes Detected</h3>
-    </div>
-    <p style="color:var(--muted);font-size:13px;margin-top:8px;">These products exceed the configured alarm threshold. Review before continuing:</p>
-    <div class="alarm-modal-items" id="alarm-modal-items"></div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px;">
-      <button class="btn btn-ghost" onclick="closeAlarmModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="proceedApply()">Apply Anyway</button>
-    </div>
-  </div>
-</div>
+<!-- ══ App ══ -->
+<div id="app" class="hidden">
+  <div class="layout">
 
-<!-- ── App ───────────────────────────────────────────────────────────────────── -->
-<div id="app" style="display:none;">
-
-  <header>
-    <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10"/></svg>
-    <h1>WooPrice Sync</h1>
-    <nav class="header-nav">
-      <button class="nav-tab active" id="nav-sync"     onclick="switchTab('sync')">Sync</button>
-      <button class="nav-tab"        id="nav-history"  onclick="switchTab('history')">History</button>
-      <button class="nav-tab"        id="nav-audit"    onclick="switchTab('audit')"    style="display:none;">Audit</button>
-      <button class="nav-tab"        id="nav-settings" onclick="switchTab('settings')" style="display:none;">Settings</button>
-    </nav>
-    <div class="header-right">
-      <div id="conn-status"><div id="conn-dot"></div><span id="conn-label">Checking…</span></div>
-      <div class="user-chip"><span id="user-name"></span><span class="role-badge" id="user-role-badge"></span></div>
-      <button class="btn-logout" onclick="doLogout()">Sign out</button>
-    </div>
-  </header>
-
-  <main>
-
-    <!-- ── TAB: Sync ──────────────────────────────────────────────────────── -->
-    <div id="tab-sync">
-      <div class="card">
-        <div class="card-title">Sync Price List</div>
-        <p style="color:var(--muted);margin-bottom:16px;">Fetches the latest price list from Nextcloud, compares each product with WooCommerce, and shows a diff before applying.</p>
-        <div id="action-alert"></div>
-        <button class="btn btn-primary" id="btn-fetch" onclick="startPreview()">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1M8 12l4 4 4-4M12 4v12"/></svg>
-          Fetch Preview
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">Woo<span>Price</span></div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-page="home" onclick="showPage('home')">
+          <i class="nav-icon">&#8962;</i> Home
         </button>
-      </div>
-
-      <div class="card" id="steps-section" style="display:none;">
-        <div class="card-title">Progress</div>
-        <div class="steps">
-          <div class="step" id="step-excel"><div class="step-icon" id="icon-excel">○</div><div class="step-body"><div class="step-label">Get Excel prices</div><div class="step-msg" id="msg-excel">Waiting…</div></div></div>
-          <div class="step" id="step-wc"   ><div class="step-icon" id="icon-wc"   >○</div><div class="step-body"><div class="step-label">Get WooCommerce data</div><div class="step-msg" id="msg-wc">Waiting…</div></div></div>
-          <div class="step" id="step-calc" ><div class="step-icon" id="icon-calc" >○</div><div class="step-body"><div class="step-label">Calculate differences</div><div class="step-msg" id="msg-calc">Waiting…</div></div></div>
+        <button class="nav-item" data-page="workspace" onclick="showPage('workspace')">
+          <i class="nav-icon">&#9889;</i> Workspace
+        </button>
+        <button class="nav-item" data-page="analytics" onclick="showPage('analytics')">
+          <i class="nav-icon">&#8803;</i> Analytics
+        </button>
+        <button class="nav-item" data-page="logs" onclick="showPage('logs')">
+          <i class="nav-icon">&#8801;</i> Logs
+        </button>
+        <button class="nav-item admin-nav hidden" data-page="settings" onclick="showPage('settings')">
+          <i class="nav-icon">&#8857;</i> Settings
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <div class="user-avatar" id="user-avatar">?</div>
+          <div>
+            <div class="user-name" id="user-name-label">&#8212;</div>
+            <div class="user-role" id="user-role-label">&#8212;</div>
+          </div>
+        </div>
+        <div style="padding:4px 12px 8px;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)">
+          <span id="health-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0"></span>
+          <span id="health-text">Checking&#8230;</span>
+        </div>
+        <div style="padding:0 8px">
+          <button class="btn-logout" onclick="logout()">Sign Out</button>
         </div>
       </div>
+    </aside>
 
-      <div class="card" id="preview-section" style="display:none;">
-        <div class="card-title">Preview Changes — Job <span id="preview-job-id"></span></div>
-        <div class="stats">
-          <div class="stat"><div class="stat-label">Total products</div><div class="stat-value" id="stat-total">—</div></div>
-          <div class="stat"><div class="stat-value price-up" id="stat-changed">—</div><div class="stat-label">Will change</div></div>
-          <div class="stat"><div class="stat-value price-same" id="stat-same">—</div><div class="stat-label">Unchanged</div></div>
-          <div class="stat"><div class="stat-value" id="stat-selected" style="color:var(--accent);">—</div><div class="stat-label">Selected</div></div>
-        </div>
-        <div class="toolbar">
-          <span class="toggle-group">
-            <button class="active" id="filter-changed" onclick="setFilter('changed')">Changed only</button>
-            <button id="filter-all" onclick="setFilter('all')">Show all</button>
-          </span>
-          <input class="search-input" id="search-input" type="text" placeholder="Search name, SKU or ID…" oninput="renderPreviewTable()" />
-          <select class="cat-select" id="cat-select" onchange="renderPreviewTable()">
-            <option value="">All categories</option>
-          </select>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th><input type="checkbox" id="check-all" onchange="toggleAllVisible(this.checked)" title="Select / deselect all visible" /></th>
-                <th>ID</th><th>SKU</th><th>Product Name</th>
-                <th>Reg. Price</th><th>Sale Price</th><th>New Price</th>
-                <th>Stock</th><th>Qty</th><th>Categories</th><th>Change</th>
-              </tr>
-            </thead>
-            <tbody id="preview-tbody"></tbody>
-          </table>
-        </div>
-        <div id="preview-alert"></div>
-        <div class="action-row">
-          <button class="btn btn-success" id="btn-apply" onclick="requestApply()">
-            <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-            Apply Selected
-          </button>
-          <button class="btn btn-danger" id="btn-cancel" onclick="cancelSync()">Cancel</button>
-        </div>
-      </div>
+    <!-- Content -->
+    <main class="content">
 
-      <div class="card" id="apply-section" style="display:none;">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-          <div class="card-title" style="margin:0;">Apply Results — Job <span id="apply-job-id"></span></div>
-          <div class="result-summary" id="apply-summary"></div>
+      <!-- ── Home ── -->
+      <div id="page-home" class="page">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Home</div>
+            <div class="page-sub">Overview and recent activity</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadHome()">Refresh</button>
         </div>
-        <div id="apply-alert"></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>ID</th><th>SKU</th><th>Product Name</th><th>Old Price</th><th>New Price</th><th>Status</th><th>Note / Error</th></tr></thead>
-            <tbody id="apply-tbody"></tbody>
-          </table>
-        </div>
-        <div style="margin-top:14px;" id="writeback-wrap" style="display:none;">
-          <button class="btn btn-ghost btn-sm" id="btn-writeback" onclick="writeBack()">Write status back to sheet (columns E–G)</button>
-        </div>
-      </div>
 
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <div class="card-title" style="margin:0;">Activity Log</div>
-          <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear</button>
+        <div class="grid-4">
+          <div class="stat-card blue"><div class="stat-val" id="hs-syncs">&#8212;</div><div class="stat-label">Total Syncs</div></div>
+          <div class="stat-card yellow"><div class="stat-val" id="hs-total">&#8212;</div><div class="stat-label">Products</div></div>
+          <div class="stat-card green"><div class="stat-val" id="hs-instock">&#8212;</div><div class="stat-label">In Stock</div></div>
+          <div class="stat-card red"><div class="stat-val" id="hs-outstock">&#8212;</div><div class="stat-label">Out of Stock</div></div>
         </div>
-        <div class="log-panel" id="log-panel">
-          <div class="log-entry"><span class="log-msg" style="color:var(--gray);">Session started — ready.</span></div>
-        </div>
-      </div>
-    </div><!-- /tab-sync -->
 
-    <!-- ── TAB: History ───────────────────────────────────────────────────── -->
-    <div id="tab-history" style="display:none;">
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-          <div class="card-title" style="margin:0;">Sync History</div>
-          <button class="btn btn-ghost btn-sm" onclick="loadHistory()">Refresh</button>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">Sync Activity &#8212; Last 30 Days</div>
+            <div class="chart-wrap"><canvas id="sync-chart"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Stock Distribution</div>
+            <div class="chart-wrap"><canvas id="stock-chart"></canvas></div>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>ID</th><th>Started</th><th>Completed</th><th>Status</th><th>Updated</th><th>Failed</th><th>Skipped</th><th>Actions</th></tr></thead>
-            <tbody id="history-tbody"><tr><td colspan="8" class="empty">No sync history yet.</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
-    <!-- ── TAB: Audit ─────────────────────────────────────────────────────── -->
-    <div id="tab-audit" style="display:none;">
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-          <div class="card-title" style="margin:0;">User Activity Log</div>
-          <button class="btn btn-ghost btn-sm" onclick="loadAuditLog()">Refresh</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>User</th><th>Action</th><th>Date &amp; Time</th><th>IP Address</th><th>Job</th></tr></thead>
-            <tbody id="audit-tbody"><tr><td colspan="5" class="empty">No audit records yet.</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── TAB: Settings ──────────────────────────────────────────────────── -->
-    <div id="tab-settings" style="display:none;">
-      <div class="settings-grid">
         <div class="card">
-          <div class="card-title">WooCommerce</div>
-          <div id="settings-wc"><div class="empty" style="padding:20px;">Loading…</div></div>
+          <div class="card-title">Recent Activity</div>
+          <div class="log-feed" id="home-logs">
+            <div style="color:var(--muted);text-align:center;padding:20px">Loading&#8230;</div>
+          </div>
         </div>
+      </div>
+
+      <!-- ── Workspace ── -->
+      <div id="page-workspace" class="page hidden">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Workspace</div>
+            <div class="page-sub">Fetch, review, and apply price updates</div>
+          </div>
+          <button class="btn btn-blue" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
+        </div>
+
+        <div class="steps" id="steps-row" style="display:none">
+          <div class="step" id="step-excel"><span class="step-dot"></span>Excel</div>
+          <div class="step" id="step-wc"><span class="step-dot"></span>WooCommerce</div>
+          <div class="step" id="step-calc"><span class="step-dot"></span>Calculate</div>
+        </div>
+
+        <div id="ws-controls" style="display:none;flex-direction:column;gap:10px">
+          <div class="filter-bar">
+            <input class="search-input" id="ws-search" placeholder="Search name or SKU&#8230;" oninput="renderPreview()">
+            <select class="filter-sel" id="ws-cat" onchange="renderPreview()">
+              <option value="">All categories</option>
+            </select>
+            <select class="filter-sel" id="ws-changed" onchange="renderPreview()">
+              <option value="">All rows</option>
+              <option value="1">Changed only</option>
+              <option value="0">Unchanged only</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="selectAll(true)">Select All</button>
+            <button class="btn btn-ghost btn-sm" onclick="selectAll(false)">Deselect All</button>
+          </div>
+          <div class="stats-bar" id="ws-stats"></div>
+        </div>
+
+        <div class="card" id="ws-table-card" style="display:none">
+          <div class="tbl-wrap">
+            <table id="ws-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th>
+                  <th>Color</th>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>SKU</th>
+                  <th>WC Price</th>
+                  <th>Sheet Price</th>
+                  <th>Change</th>
+                  <th>Stock</th>
+                  <th>Qty</th>
+                  <th>Last Updated</th>
+                  <th>Categories</th>
+                </tr>
+              </thead>
+              <tbody id="ws-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="apply-bar" style="display:none;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <span id="selected-count" style="font-size:13px;color:var(--muted)"></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" id="writeback-btn" style="display:none" onclick="doWriteback()">Write Status to Sheet</button>
+            <button class="btn btn-green" id="apply-btn" onclick="requestApply()" disabled>Apply Selected</button>
+          </div>
+        </div>
+
+        <div class="card" id="apply-results-card" style="display:none">
+          <div class="section-hdr">
+            <h3>Apply Results</h3>
+            <span id="apply-summary" class="section-count"></span>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Old Price</th><th>New Price</th><th>Status</th><th>Error</th></tr></thead>
+              <tbody id="apply-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" id="activity-card" style="display:none">
+          <div class="card-title">Activity</div>
+          <div class="activity-log" id="activity-log"></div>
+        </div>
+      </div>
+
+      <!-- ── Analytics ── -->
+      <div id="page-analytics" class="page hidden">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Analytics</div>
+            <div class="page-sub">Product insights from latest sync</div>
+          </div>
+          <div class="filter-bar">
+            <input class="search-input" id="an-search" placeholder="Search name&#8230;" oninput="renderAnalytics()">
+            <select class="filter-sel" id="an-cat" onchange="renderAnalytics()">
+              <option value="">All categories</option>
+            </select>
+            <select class="filter-sel" id="an-sort" onchange="renderAnalytics()">
+              <option value="name">Sort: Name</option>
+              <option value="updated">Sort: Last Updated</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="loadAnalytics()">Refresh</button>
+          </div>
+        </div>
+
         <div class="card">
-          <div class="card-title">Nextcloud</div>
-          <div id="settings-nc"><div class="empty" style="padding:20px;">Loading…</div></div>
+          <div class="section-hdr">
+            <h3 style="color:var(--yellow)">In Stock &#8212; No Price</h3>
+            <span class="section-count" id="an-no-price-count"></span>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Stock</th><th>Qty</th><th>Last Updated</th><th>Categories</th></tr></thead>
+              <tbody id="an-no-price-body"></tbody>
+            </table>
+          </div>
         </div>
+
         <div class="card">
-          <div class="card-title">Access Control</div>
-          <div id="settings-auth"><div class="empty" style="padding:20px;">Loading…</div></div>
+          <div class="section-hdr">
+            <h3 style="color:var(--orange)">Has Price &#8212; Out of Stock</h3>
+            <span class="section-count" id="an-no-stock-count"></span>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th><th>Categories</th></tr></thead>
+              <tbody id="an-no-stock-body"></tbody>
+            </table>
+          </div>
         </div>
-        <!-- Alarm thresholds — full width -->
-        <div class="card" style="grid-column:1/-1;">
-          <div class="card-title">Price Alarm Thresholds</div>
-          <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
-            Warn and ask for re-confirmation before applying if a product's price changes by more than the set percentage.
-            Leave blank to disable. Category thresholds override the global setting.
-          </p>
-          <div class="setting-row">
-            <span class="setting-key">Global default</span>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input type="number" id="alarm-global" class="num-input" min="0" max="10000" step="1" placeholder="off" style="width:80px;" />
-              <span style="color:var(--muted);">%</span>
+
+        <div class="card">
+          <div class="section-hdr">
+            <h3 style="color:var(--red)">Not Updated &gt; 1 Week</h3>
+            <span class="section-count" id="an-stale-count"></span>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th><th>Categories</th></tr></thead>
+              <tbody id="an-stale-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Logs ── -->
+      <div id="page-logs" class="page hidden">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Logs</div>
+            <div class="page-sub">Audit trail and sync history</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="loadLogs()">Refresh</button>
+        </div>
+
+        <div class="card">
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchLogTab('audit', this)">Audit Log</button>
+            <button class="tab-btn" onclick="switchLogTab('history', this)">Sync History</button>
+          </div>
+
+          <div id="tab-audit">
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr><th>User</th><th>Action</th><th>Date / Time</th><th>IP</th><th>Job</th></tr></thead>
+                <tbody id="audit-tbody"></tbody>
+              </table>
             </div>
           </div>
-          <div id="alarm-categories-list"></div>
-          <div style="margin-top:16px;display:flex;align-items:center;gap:12px;">
-            <button class="btn btn-primary btn-sm" onclick="saveAlarmSettings()">Save Thresholds</button>
-            <span id="alarm-save-msg" style="font-size:12px;color:var(--green);display:none;">✓ Saved</span>
+
+          <div id="tab-history" class="hidden">
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Started</th><th>Completed</th><th>Status</th><th>Updated</th><th>Failed</th><th>Skipped</th><th></th></tr></thead>
+                <tbody id="history-tbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-  </main>
+      <!-- ── Settings ── -->
+      <div id="page-settings" class="page hidden">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Settings</div>
+            <div class="page-sub">Super admin configuration</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">WooCommerce</div>
+          <div id="settings-wc"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Nextcloud</div>
+          <div id="settings-nc"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Price Alarm Thresholds</div>
+          <p style="color:var(--muted);font-size:12.5px;margin-bottom:14px">Warn before applying changes that exceed these percentages.</p>
+          <div id="threshold-list"></div>
+          <div style="margin-top:14px">
+            <button class="btn btn-blue btn-sm" onclick="saveThresholds()">Save Thresholds</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ── Alarm Modal ── -->
+<div class="modal-backdrop hidden" id="alarm-modal">
+  <div class="modal">
+    <h3>Large Price Change Warning</h3>
+    <p>The following items exceed the alarm threshold. Review before applying.</p>
+    <div class="tbl-wrap" style="max-height:260px;overflow-y:auto">
+      <table>
+        <thead><tr><th>Name</th><th>Old Price</th><th>New Price</th><th>Change</th></tr></thead>
+        <tbody id="alarm-tbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeAlarm()">Cancel</button>
+      <button class="btn btn-red" onclick="runApplyStream()">Apply Anyway</button>
+    </div>
+  </div>
 </div>
 
 <script>
-  // ── State ──────────────────────────────────────────────────────────────────
-  let currentJobId        = null;
-  let previewItems        = [];
-  let currentFilter       = 'changed';
-  let sseDone             = false;
-  let allCategories       = [];
-  let alarmThresholds     = [];
-  let selectedProductIds  = new Set();
-  let pendingApplySids    = null; // set when alarm modal is bypassed
+// ══ State ══════════════════════════════════════════════════════════════════
+var token = localStorage.getItem('wp_token') || '';
+var currentUser = JSON.parse(localStorage.getItem('wp_user') || 'null');
+var currentJobId = null;
+var previewItems = [];
+var selectedIds = new Set();
+var allCategories = [];
+var alarmThresholds = [];
+var analyticsData = null;
+var syncChart = null;
+var stockChart = null;
 
-  // ── Auth ───────────────────────────────────────────────────────────────────
-  const getToken = () => localStorage.getItem('wpsync_token');
-  const getUser  = () => { try { return JSON.parse(localStorage.getItem('wpsync_user')); } catch { return null; } };
-  const saveAuth = (token, user) => { localStorage.setItem('wpsync_token', token); localStorage.setItem('wpsync_user', JSON.stringify(user)); };
-  const clearAuth = () => { localStorage.removeItem('wpsync_token'); localStorage.removeItem('wpsync_user'); };
-
-  async function api(path, opts = {}) {
-    opts.headers = { 'Content-Type': 'application/json', ...(opts.headers || {}), 'Authorization': `Bearer ${getToken()}` };
-    const r = await fetch(path, opts);
-    if (r.status === 401) { clearAuth(); showLogin(); throw new Error('Session expired'); }
-    return r;
+// ══ API ════════════════════════════════════════════════════════════════════
+async function api(method, path, body) {
+  var opts = { method: method, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  var r = await fetch(path, opts);
+  if (!r.ok) {
+    var err = await r.json().catch(function() { return { detail: r.statusText }; });
+    throw new Error(err.detail || r.statusText);
   }
+  return r.json();
+}
 
-  async function doLogin() {
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value;
-    const errEl    = document.getElementById('login-error');
-    const btn      = document.getElementById('btn-login');
-    if (!username || !password) { errEl.textContent = 'Enter username and password.'; return; }
-    btn.disabled = true; btn.textContent = 'Signing in…'; errEl.textContent = '';
-    try {
-      const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username, password}) });
-      const d = await r.json();
-      if (!r.ok) { errEl.textContent = d.detail || 'Login failed'; return; }
-      saveAuth(d.token, { username: d.username, role: d.role });
-      document.getElementById('login-password').value = '';
-      showApp();
-    } catch(ex) { errEl.textContent = 'Connection error: ' + ex.message; }
-    finally { btn.disabled = false; btn.textContent = 'Sign in'; }
+// ══ Auth ═══════════════════════════════════════════════════════════════════
+async function doLogin() {
+  var u = document.getElementById('login-user').value.trim();
+  var p = document.getElementById('login-pass').value;
+  var errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!u || !p) { errEl.textContent = 'Username and password required'; return; }
+  try {
+    var data = await api('POST', '/api/auth/login', { username: u, password: p });
+    token = data.token;
+    currentUser = { username: data.username, role: data.role };
+    localStorage.setItem('wp_token', token);
+    localStorage.setItem('wp_user', JSON.stringify(currentUser));
+    bootApp();
+  } catch(e) {
+    errEl.textContent = e.message;
   }
+}
 
-  function doLogout() { clearAuth(); showLogin(); }
-  function showLogin() {
-    document.getElementById('login-overlay').style.display = '';
-    document.getElementById('app').style.display = 'none';
-  }
-  function showApp() {
-    const user = getUser();
-    if (!user) { showLogin(); return; }
-    document.getElementById('login-overlay').style.display = 'none';
-    document.getElementById('app').style.display = '';
-    document.getElementById('user-name').textContent = user.username;
-    const badge = document.getElementById('user-role-badge');
-    badge.textContent = user.role; badge.className = `role-badge ${user.role}`;
-    const isAdmin = user.role === 'admin';
-    document.getElementById('nav-audit').style.display    = isAdmin ? '' : 'none';
-    document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
-    checkHealth(); loadHistory(); loadCategories(); loadAlarmThresholds();
-  }
+function logout() {
+  token = '';
+  currentUser = null;
+  localStorage.removeItem('wp_token');
+  localStorage.removeItem('wp_user');
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login-overlay').classList.remove('hidden');
+}
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && document.getElementById('login-overlay').style.display !== 'none') doLogin();
+document.getElementById('login-pass').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+
+// ══ Boot ═══════════════════════════════════════════════════════════════════
+function bootApp() {
+  document.getElementById('login-overlay').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('user-name-label').textContent = currentUser.username;
+  document.getElementById('user-role-label').textContent = currentUser.role === 'admin' ? 'Admin' : 'User';
+  document.getElementById('user-avatar').textContent = currentUser.username[0].toUpperCase();
+  if (currentUser.role === 'admin') {
+    document.querySelectorAll('.admin-nav').forEach(function(el) { el.classList.remove('hidden'); });
+  }
+  checkHealth();
+  setInterval(checkHealth, 30000);
+  loadCategories();
+  loadAlarmThresholds();
+  showPage('home');
+}
+
+async function checkHealth() {
+  try {
+    var d = await api('GET', '/api/health');
+    document.getElementById('health-dot').style.background = d.status === 'ok' ? 'var(--green)' : 'var(--red)';
+    document.getElementById('health-text').textContent = d.status === 'ok' ? 'Connected' : 'Error';
+  } catch(e) {
+    document.getElementById('health-dot').style.background = 'var(--red)';
+    document.getElementById('health-text').textContent = 'Offline';
+  }
+}
+
+async function loadCategories() {
+  try { allCategories = await api('GET', '/api/categories'); } catch(e) { allCategories = []; }
+  ['ws-cat', 'an-cat'].forEach(function(id) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">All categories</option>' +
+      allCategories.map(function(c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
+  });
+}
+
+async function loadAlarmThresholds() {
+  try { alarmThresholds = await api('GET', '/api/alarm-settings'); } catch(e) { alarmThresholds = []; }
+}
+
+// ══ Navigation ═════════════════════════════════════════════════════════════
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.add('hidden'); });
+  document.getElementById('page-' + name).classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+  var navBtn = document.querySelector('[data-page="' + name + '"]');
+  if (navBtn) navBtn.classList.add('active');
+  if (name === 'home') loadHome();
+  else if (name === 'analytics') loadAnalytics();
+  else if (name === 'logs') loadLogs();
+  else if (name === 'settings') loadSettings();
+}
+
+// ══ Home ═══════════════════════════════════════════════════════════════════
+async function loadHome() {
+  try {
+    var d = await api('GET', '/api/dashboard');
+    document.getElementById('hs-syncs').textContent = d.total_syncs;
+    document.getElementById('hs-total').textContent = d.product_stats.total;
+    document.getElementById('hs-instock').textContent = d.product_stats.in_stock;
+    document.getElementById('hs-outstock').textContent = d.product_stats.out_of_stock;
+    renderSyncChart(d.sync_chart);
+    renderStockChart(d.product_stats);
+    renderHomeLogs(d.recent_logs);
+  } catch(e) { console.error('Dashboard error:', e); }
+}
+
+function renderSyncChart(data) {
+  var ctx = document.getElementById('sync-chart').getContext('2d');
+  if (syncChart) syncChart.destroy();
+  syncChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(function(d) { return d.date.slice(5); }),
+      datasets: [{ label: 'Syncs', data: data.map(function(d) { return d.count; }),
+        backgroundColor: 'rgba(59,130,246,0.5)', borderColor: '#3b82f6', borderWidth: 1, borderRadius: 3 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2d45' } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2d45' } }
+      }
+    }
+  });
+}
+
+function renderStockChart(stats) {
+  var ctx = document.getElementById('stock-chart').getContext('2d');
+  if (stockChart) stockChart.destroy();
+  if (!stats.in_stock && !stats.out_of_stock) return;
+  stockChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['In Stock', 'Out of Stock'],
+      datasets: [{ data: [stats.in_stock, stats.out_of_stock],
+        backgroundColor: ['rgba(34,197,94,0.7)', 'rgba(239,68,68,0.7)'],
+        borderColor: ['#16a34a', '#b91c1c'], borderWidth: 1 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 }, padding: 14 } } }
+    }
+  });
+}
+
+function renderHomeLogs(logs) {
+  var el = document.getElementById('home-logs');
+  if (!logs || !logs.length) { el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No activity yet</div>'; return; }
+  el.innerHTML = logs.map(function(l) {
+    return '<div class="log-item"><span class="log-action ' + esc(l.action) + '">' + esc(l.action) + '</span><span style="font-weight:500">' + esc(l.username) + '</span><span style="color:var(--muted)">' + esc(l.ip_address || '') + '</span><span class="log-ts">' + fmt(l.timestamp) + '</span></div>';
+  }).join('');
+}
+
+// ══ Workspace ══════════════════════════════════════════════════════════════
+function startPreview() {
+  document.getElementById('fetch-btn').disabled = true;
+  document.getElementById('steps-row').style.display = 'flex';
+  document.getElementById('ws-controls').style.display = 'flex';
+  document.getElementById('ws-table-card').style.display = 'block';
+  document.getElementById('apply-bar').style.display = 'flex';
+  document.getElementById('apply-results-card').style.display = 'none';
+  document.getElementById('activity-card').style.display = 'block';
+  setStep('excel', 'running'); setStep('wc', ''); setStep('calc', '');
+  addLog('Connecting to Nextcloud...', 'info');
+  previewItems = [];
+  selectedIds.clear();
+  document.getElementById('ws-tbody').innerHTML = '';
+  document.getElementById('apply-tbody').innerHTML = '';
+  document.getElementById('writeback-btn').style.display = 'none';
+  document.getElementById('apply-btn').disabled = true;
+  currentJobId = null;
+
+  var evSource = new EventSource('/api/preview/stream?token=' + encodeURIComponent(token));
+  evSource.onmessage = function(e) {
+    var d = JSON.parse(e.data);
+    if (d.step) {
+      setStep(d.step, d.status);
+      addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'done' ? 'ok' : 'info');
+    }
+    if (d.step === 'preview' && d.status === 'done') {
+      evSource.close();
+      currentJobId = d.job_id;
+      previewItems = d.items;
+      selectedIds = new Set(d.items.filter(function(i) { return i.changed; }).map(function(i) { return i.product_id; }));
+      renderPreview();
+      updateStats();
+      document.getElementById('fetch-btn').disabled = false;
+      addLog('Preview ready: ' + d.changed_count + ' changed, ' + d.unchanged_count + ' unchanged', 'ok');
+    }
+    if (d.status === 'error') {
+      evSource.close();
+      document.getElementById('fetch-btn').disabled = false;
+    }
+  };
+  evSource.onerror = function() {
+    evSource.close();
+    addLog('Connection error', 'err');
+    document.getElementById('fetch-btn').disabled = false;
+  };
+}
+
+function setStep(name, state) {
+  var el = document.getElementById('step-' + name);
+  if (!el) return;
+  el.className = 'step' + (state ? ' ' + state : '');
+}
+
+function addLog(msg, cls) {
+  var log = document.getElementById('activity-log');
+  var line = document.createElement('div');
+  line.className = 'activity-line ' + (cls || '');
+  line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderPreview() {
+  var search = document.getElementById('ws-search').value.toLowerCase();
+  var catFilter = document.getElementById('ws-cat').value;
+  var changedFilter = document.getElementById('ws-changed').value;
+  var tbody = document.getElementById('ws-tbody');
+
+  var filtered = previewItems.filter(function(item) {
+    if (search && !((item.product_name || '').toLowerCase().includes(search) || (item.sku || '').toLowerCase().includes(search))) return false;
+    if (catFilter && !((item.categories || []).some(function(c) { return String(c.id) === catFilter; }))) return false;
+    if (changedFilter === '1' && !item.changed) return false;
+    if (changedFilter === '0' && item.changed) return false;
+    return true;
   });
 
-  // ── Tabs ───────────────────────────────────────────────────────────────────
-  function switchTab(name) {
-    ['sync','history','audit','settings'].forEach(t => {
-      document.getElementById(`tab-${t}`).style.display    = t === name ? '' : 'none';
-      document.getElementById(`nav-${t}`).classList.toggle('active', t === name);
-    });
-    if (name === 'history')  loadHistory();
-    if (name === 'audit')    loadAuditLog();
-    if (name === 'settings') loadSettings();
-  }
+  tbody.innerHTML = filtered.map(function(item) {
+    var chg = priceChange(item.old_price, item.new_price);
+    var colorDotStyle = item.row_color
+      ? 'background:' + item.row_color + ';border:1px solid rgba(255,255,255,.2)'
+      : 'background:var(--card2);border:1px solid var(--border)';
+    return '<tr>' +
+      '<td><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
+      '<td><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
+      '<td><span style="color:var(--muted);font-size:12px">' + item.product_id + '</span></td>' +
+      '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '&#8212;') + '</td>' +
+      '<td style="color:var(--muted);font-size:12px">' + esc(item.sku || '&#8212;') + '</td>' +
+      '<td class="number">' + fmtPrice(item.old_price) + '</td>' +
+      '<td class="number" id="price-cell-' + item.product_id + '" onclick="editPrice(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + fmtPrice(item.new_price) + '</span></td>' +
+      '<td class="number">' + chg + '</td>' +
+      '<td id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
+      '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span></td>' +
+      '<td style="font-size:11.5px;color:var(--muted)">' + (item.last_price_updated ? relTime(item.last_price_updated) : '&#8212;') + '</td>' +
+      '<td>' + catsHtml(item.categories) + '</td>' +
+      '</tr>';
+  }).join('');
 
-  // ── Utilities ──────────────────────────────────────────────────────────────
-  const fmt = dt => dt ? new Date(dt).toLocaleString() : '—';
+  updateStats(filtered.length);
+  document.getElementById('apply-btn').disabled = selectedIds.size === 0;
+  document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
+}
 
-  function fmtPrice(p) {
-    if (p === null || p === undefined || p === '') return '<span style="color:var(--muted)">—</span>';
-    const n = parseFloat(p);
-    if (isNaN(n)) return p;
-    // No trailing zeros: 10.00 → "10", 10.50 → "10.5"
-    return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  }
+function updateStats(visCount) {
+  var total = previewItems.length;
+  var changed = previewItems.filter(function(i) { return i.changed; }).length;
+  var html = '<span>Total: <b>' + total + '</b></span><span>Changed: <b>' + changed + '</b></span><span>Unchanged: <b>' + (total - changed) + '</b></span><span>Selected: <b>' + selectedIds.size + '</b></span>';
+  if (visCount !== undefined && visCount !== total) html += '<span>Showing: <b>' + visCount + '</b></span>';
+  document.getElementById('ws-stats').innerHTML = html;
+}
 
-  function fmtPriceToman(p) {
-    if (!p || p === '') return '';
-    const n = parseFloat(p);
-    if (isNaN(n)) return '';
-    return n.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' تومان';
-  }
+function toggleItem(pid, checked) {
+  if (checked) selectedIds.add(pid); else selectedIds.delete(pid);
+  document.getElementById('apply-btn').disabled = selectedIds.size === 0;
+  document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
+  updateStats();
+}
 
-  function priceArrow(oldP, newP, changed) {
-    if (!changed) return '<span class="price-same">= same</span>';
-    const o = parseFloat(oldP || 0), n = parseFloat(newP || 0);
-    const diff = Math.abs(n - o);
-    const pct  = o !== 0 ? (Math.abs((n - o) / o) * 100).toFixed(1) : '—';
-    return n > o
-      ? `<span class="price-up">▲ +${fmtN(diff)} (${pct}%)</span>`
-      : `<span class="price-down">▼ −${fmtN(diff)} (${pct}%)</span>`;
-  }
+function toggleSelectAll(checked) {
+  previewItems.forEach(function(i) { if (checked) selectedIds.add(i.product_id); else selectedIds.delete(i.product_id); });
+  renderPreview();
+}
 
-  function fmtN(n) { return n.toLocaleString('en-US', { maximumFractionDigits: 2 }); }
+function selectAll(val) {
+  previewItems.forEach(function(i) { if (val) selectedIds.add(i.product_id); else selectedIds.delete(i.product_id); });
+  renderPreview();
+}
 
-  const badge = s => `<span class="badge badge-${s}">${s}</span>`;
+// ── Editable price ──
+function editPrice(pid) {
+  var item = previewItems.find(function(i) { return i.product_id === pid; });
+  if (!item) return;
+  var td = document.getElementById('price-cell-' + pid);
+  var rawVal = item.new_price || '';
+  td.innerHTML = '<input class="cell-input" id="price-input-' + pid + '" value="' + fmtPriceRaw(rawVal) + '" style="width:130px">';
+  var inp = document.getElementById('price-input-' + pid);
+  inp.focus(); inp.select();
 
-  function stockBadge(status) {
-    if (!status) return '<span style="color:var(--muted)">—</span>';
-    const cls = status === 'instock' ? 'badge-instock' : 'badge-outofstock';
-    const lbl = status === 'instock' ? 'In Stock' : 'Out of Stock';
-    return `<span class="badge ${cls}">${lbl}</span>`;
-  }
-
-  function catsHtml(cats) {
-    if (!cats || !cats.length) return '<span style="color:var(--muted)">—</span>';
-    return cats.map(c => `<span style="display:inline-block;margin:1px 3px 1px 0;padding:1px 6px;background:rgba(59,130,246,.12);color:var(--accent);border-radius:3px;font-size:11px;">${c.name}</span>`).join('');
-  }
-
-  function setAlert(id, html, type = '') {
-    document.getElementById(id).innerHTML = html ? `<div class="alert alert-${type}">${html}</div>` : '';
-  }
-
-  // ── Log ────────────────────────────────────────────────────────────────────
-  function addLog(msg, type = '') {
-    const panel = document.getElementById('log-panel');
-    const t = new Date().toLocaleTimeString();
-    const entry = document.createElement('div'); entry.className = 'log-entry';
-    entry.innerHTML = `<span class="log-time">[${t}]</span><span class="log-msg ${type}">${msg}</span>`;
-    panel.appendChild(entry); panel.scrollTop = panel.scrollHeight;
-  }
-  function clearLog() { document.getElementById('log-panel').innerHTML = '<div class="log-entry"><span class="log-msg" style="color:var(--gray);">Log cleared.</span></div>'; }
-
-  // ── Steps ──────────────────────────────────────────────────────────────────
-  function setStep(name, status, msg) {
-    const el = document.getElementById(`step-${name}`);
-    const icon = document.getElementById(`icon-${name}`);
-    const msgEl = document.getElementById(`msg-${name}`);
-    el.className = `step ${status}`; msgEl.textContent = msg;
-    if (status === 'running') { icon.innerHTML = '<span class="spinner-sm"></span>'; }
-    else { icon.textContent = {pending:'○', done:'✓', error:'✗'}[status] || '○'; }
-  }
-
-  // ── Btn helpers ────────────────────────────────────────────────────────────
-  function setBtnFetch(loading) {
-    const btn = document.getElementById('btn-fetch');
-    btn.disabled = loading;
-    btn.innerHTML = loading ? '<span class="spinner"></span> Fetching…'
-      : `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1M8 12l4 4 4-4M12 4v12"/></svg> Fetch Preview`;
-  }
-  function setBtnApply(loading) {
-    const btn = document.getElementById('btn-apply');
-    const cancelBtn = document.getElementById('btn-cancel');
-    btn.disabled = loading; cancelBtn.disabled = loading;
-    if (loading) { btn.innerHTML = '<span class="spinner"></span> Applying…'; }
-    else { updateApplyButton(); }
-  }
-
-  // ── Health ─────────────────────────────────────────────────────────────────
-  async function checkHealth() {
+  var save = async function() {
+    var stripped = inp.value.replace(/,/g, '').trim();
+    var asNum = parseFloat(stripped);
+    var formatted = isNaN(asNum) ? '' : asNum.toFixed(2);
+    if (formatted === rawVal) {
+      td.onclick = function() { editPrice(pid); };
+      td.innerHTML = '<span class="editable-cell">' + fmtPrice(rawVal) + '</span>';
+      return;
+    }
+    td.innerHTML = '<span class="saving-text">Saving&#8230;</span>';
     try {
-      const r = await fetch('/api/health'); const d = await r.json();
-      document.getElementById('conn-dot').className = 'ok';
-      document.getElementById('conn-label').textContent = d.wc_url;
-    } catch {
-      document.getElementById('conn-dot').className = 'err';
-      document.getElementById('conn-label').textContent = 'API unreachable';
+      await api('PUT', '/api/products/' + pid + '/price', { new_price: formatted, parent_id: item.parent_id || 0, job_id: currentJobId });
+      item.new_price = formatted;
+      item.changed = Math.abs(parseFloat(item.old_price || 0) - parseFloat(formatted || 0)) > 0.001;
+      addLog('Price updated for #' + pid + ': ' + fmtPriceRaw(formatted), 'ok');
+    } catch(e) {
+      addLog('Failed to update price for #' + pid + ': ' + e.message, 'err');
     }
-  }
+    td.onclick = function() { editPrice(pid); };
+    td.innerHTML = '<span class="editable-cell">' + fmtPrice(item.new_price) + '</span>';
+    updateStats();
+  };
 
-  // ── Categories ─────────────────────────────────────────────────────────────
-  async function loadCategories() {
+  inp.onblur = save;
+  inp.onkeydown = function(ev) {
+    if (ev.key === 'Enter') inp.blur();
+    if (ev.key === 'Escape') {
+      td.onclick = function() { editPrice(pid); };
+      td.innerHTML = '<span class="editable-cell">' + fmtPrice(rawVal) + '</span>';
+    }
+  };
+}
+
+// ── Editable stock ──
+function editStock(pid) {
+  var item = previewItems.find(function(i) { return i.product_id === pid; });
+  if (!item) return;
+  var td = document.getElementById('stock-cell-' + pid);
+  td.innerHTML = '<select class="cell-select"><option value="instock"' + (item.stock_status === 'instock' ? ' selected' : '') + '>In Stock</option><option value="outofstock"' + (item.stock_status === 'outofstock' ? ' selected' : '') + '>Out of Stock</option></select>';
+  var sel = td.querySelector('select');
+  sel.focus();
+  sel.onchange = async function() {
+    var newStatus = sel.value;
     try {
-      const r = await api('/api/categories');
-      if (!r.ok) return;
-      allCategories = await r.json();
-      const sel = document.getElementById('cat-select');
-      sel.innerHTML = '<option value="">All categories</option>' +
-        allCategories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    } catch {}
-  }
+      await api('PUT', '/api/products/' + pid + '/stock', { stock_status: newStatus, parent_id: item.parent_id || 0, job_id: currentJobId });
+      item.stock_status = newStatus;
+      addLog('Stock updated for #' + pid + ': ' + newStatus, 'ok');
+    } catch(e) { addLog('Failed stock update #' + pid + ': ' + e.message, 'err'); }
+    td.onclick = function() { editStock(pid); };
+    td.innerHTML = '<span class="editable-cell">' + stockBadge(item.stock_status) + '</span>';
+  };
+  sel.onblur = function() {
+    setTimeout(function() {
+      if (td.querySelector('select')) {
+        td.onclick = function() { editStock(pid); };
+        td.innerHTML = '<span class="editable-cell">' + stockBadge(item.stock_status) + '</span>';
+      }
+    }, 200);
+  };
+}
 
-  // ── Alarm thresholds ───────────────────────────────────────────────────────
-  async function loadAlarmThresholds() {
+// ── Editable quantity ──
+function editQty(pid) {
+  var item = previewItems.find(function(i) { return i.product_id === pid; });
+  if (!item) return;
+  var td = document.getElementById('qty-cell-' + pid);
+  td.innerHTML = '<input class="cell-input" id="qty-input-' + pid + '" type="number" value="' + (item.stock_quantity != null ? item.stock_quantity : '') + '" style="width:80px">';
+  var inp = document.getElementById('qty-input-' + pid);
+  inp.focus(); inp.select();
+
+  var save = async function() {
+    var newQty = inp.value === '' ? null : parseInt(inp.value);
     try {
-      const r = await api('/api/alarm-settings');
-      if (r.ok) alarmThresholds = await r.json();
-    } catch {}
-  }
+      await api('PUT', '/api/products/' + pid + '/stock', { stock_status: item.stock_status, stock_quantity: newQty, parent_id: item.parent_id || 0, job_id: currentJobId });
+      item.stock_quantity = newQty;
+      addLog('Quantity updated for #' + pid + ': ' + newQty, 'ok');
+    } catch(e) { addLog('Failed qty update #' + pid + ': ' + e.message, 'err'); }
+    td.onclick = function() { editQty(pid); };
+    td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span>';
+  };
 
-  function getThresholdFor(item) {
-    for (const cat of (item.categories || [])) {
-      const t = alarmThresholds.find(x => x.category_id === cat.id);
-      if (t) return t.threshold_percent;
+  inp.onblur = save;
+  inp.onkeydown = function(ev) {
+    if (ev.key === 'Enter') inp.blur();
+    if (ev.key === 'Escape') {
+      td.onclick = function() { editQty(pid); };
+      td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span>';
     }
-    const global = alarmThresholds.find(x => x.category_id === null);
-    return global ? global.threshold_percent : null;
-  }
+  };
+}
 
-  function checkAlarms(items) {
-    const flagged = [];
-    for (const item of items) {
-      if (!item.changed || !item.old_price || !item.new_price) continue;
-      const o = parseFloat(item.old_price), n = parseFloat(item.new_price);
-      if (isNaN(o) || isNaN(n) || o === 0) continue;
-      const pct = Math.abs((n - o) / o * 100);
-      const threshold = getThresholdFor(item);
-      if (threshold !== null && pct > threshold) flagged.push({ ...item, pct: pct.toFixed(1), threshold });
-    }
-    return flagged;
+// ── Apply ──
+function getThreshold(categories) {
+  for (var i = 0; i < (categories || []).length; i++) {
+    var t = alarmThresholds.find(function(a) { return a.category_id === categories[i].id; });
+    if (t) return t.threshold_percent;
   }
+  var global = alarmThresholds.find(function(a) { return a.category_id === null; });
+  return global ? global.threshold_percent : Infinity;
+}
 
-  function closeAlarmModal() {
-    document.getElementById('alarm-modal').classList.remove('open');
-    pendingApplySids = null;
-  }
-
-  function proceedApply() {
-    document.getElementById('alarm-modal').classList.remove('open');
-    if (pendingApplySids !== null) runApplyStream(pendingApplySids);
-    pendingApplySids = null;
-  }
-
-  // ── Selection ──────────────────────────────────────────────────────────────
-  function toggleItem(pid, checked) {
-    if (checked) selectedProductIds.add(pid);
-    else selectedProductIds.delete(pid);
-    updateApplyButton();
-    updateCheckAll();
-  }
-
-  function toggleAllVisible(checked) {
-    getFilteredRows().forEach(r => { if (checked) selectedProductIds.add(r.product_id); else selectedProductIds.delete(r.product_id); });
-    renderPreviewTable();
-    updateApplyButton();
-  }
-
-  function updateApplyButton() {
-    const n = selectedProductIds.size;
-    const btn = document.getElementById('btn-apply');
-    document.getElementById('stat-selected').textContent = n;
-    if (btn) {
-      btn.disabled = n === 0;
-      btn.innerHTML = `<svg width="16" height="16" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Apply Selected (${n})`;
-    }
-  }
-
-  function updateCheckAll() {
-    const visible = getFilteredRows();
-    const allSel = visible.length > 0 && visible.every(r => selectedProductIds.has(r.product_id));
-    const ca = document.getElementById('check-all');
-    if (ca) { ca.checked = allSel; ca.indeterminate = !allSel && visible.some(r => selectedProductIds.has(r.product_id)); }
-  }
-
-  // ── Preview table ──────────────────────────────────────────────────────────
-  function getFilteredRows() {
-    const q    = (document.getElementById('search-input').value || '').toLowerCase();
-    const catId = parseInt(document.getElementById('cat-select').value) || 0;
-    let rows = currentFilter === 'changed' ? previewItems.filter(i => i.changed) : [...previewItems];
-    if (q) rows = rows.filter(r => String(r.product_id).includes(q) || (r.product_name || '').toLowerCase().includes(q) || (r.sku || '').toLowerCase().includes(q));
-    if (catId) rows = rows.filter(r => (r.categories || []).some(c => c.id === catId));
-    return rows;
-  }
-
-  function setFilter(f) {
-    currentFilter = f;
-    document.getElementById('filter-changed').className = f === 'changed' ? 'active' : '';
-    document.getElementById('filter-all').className     = f === 'all'     ? 'active' : '';
-    renderPreviewTable();
-  }
-
-  function renderPreviewTable() {
-    const rows  = getFilteredRows();
-    const tbody = document.getElementById('preview-tbody');
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="empty">No rows match the current filters.</td></tr>';
-      updateCheckAll(); return;
-    }
-    tbody.innerHTML = rows.map(r => {
-      const sel = selectedProductIds.has(r.product_id);
-      const alarmHit = (() => {
-        if (!r.changed || !r.old_price || !r.new_price) return false;
-        const o = parseFloat(r.old_price), n = parseFloat(r.new_price);
-        if (isNaN(o) || isNaN(n) || o === 0) return false;
-        const pct = Math.abs((n - o) / o * 100);
-        const threshold = getThresholdFor(r);
-        return threshold !== null && pct > threshold;
-      })();
-      return `<tr style="${alarmHit ? 'background:rgba(245,158,11,.06);' : ''}">
-        <td><input type="checkbox" ${sel ? 'checked' : ''} onchange="toggleItem(${r.product_id}, this.checked)" /></td>
-        <td><code>${r.product_id}</code></td>
-        <td><code style="color:var(--muted)">${r.sku || '—'}</code></td>
-        <td>${r.product_name || '<span style="color:var(--muted)">—</span>'}${!r.found_in_wc ? ' <span style="color:var(--red);font-size:11px;">(not in WC)</span>' : ''}${alarmHit ? ' <span style="color:var(--yellow);font-size:11px;">⚠</span>' : ''}</td>
-        <td class="price-cell" title="${fmtPriceToman(r.old_price)}">${fmtPrice(r.old_price)}</td>
-        <td class="price-cell" title="${fmtPriceToman(r.sale_price)}">${fmtPrice(r.sale_price)}</td>
-        <td class="price-cell" title="${fmtPriceToman(r.new_price)}"><strong>${fmtPrice(r.new_price)}</strong></td>
-        <td>${stockBadge(r.stock_status)}</td>
-        <td>${r.stock_quantity !== null && r.stock_quantity !== undefined ? r.stock_quantity : '<span style="color:var(--muted)">—</span>'}</td>
-        <td>${catsHtml(r.categories)}</td>
-        <td>${priceArrow(r.old_price, r.new_price, r.changed)}</td>
-      </tr>`;
+function requestApply() {
+  var toApply = previewItems.filter(function(i) { return selectedIds.has(i.product_id) && i.changed; });
+  var flagged = toApply.filter(function(i) {
+    if (!i.old_price || !i.new_price) return false;
+    var pct = Math.abs((parseFloat(i.new_price) - parseFloat(i.old_price)) / parseFloat(i.old_price) * 100);
+    return pct > getThreshold(i.categories);
+  });
+  if (flagged.length) {
+    document.getElementById('alarm-tbody').innerHTML = flagged.map(function(i) {
+      var pct = (parseFloat(i.new_price) - parseFloat(i.old_price)) / parseFloat(i.old_price) * 100;
+      return '<tr><td>' + esc(i.product_name || '') + '</td><td class="number">' + fmtPrice(i.old_price) + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td class="number" style="color:' + (pct > 0 ? 'var(--green)' : 'var(--red)') + '">' + (pct > 0 ? '+' : '') + pct.toFixed(1) + '%</td></tr>';
     }).join('');
-    updateCheckAll();
+    document.getElementById('alarm-modal').classList.remove('hidden');
+  } else {
+    runApplyStream();
   }
+}
 
-  // ── Fetch Preview via SSE ──────────────────────────────────────────────────
-  function startPreview() {
-    const token = getToken(); if (!token) { showLogin(); return; }
-    setBtnFetch(true); setAlert('action-alert', ''); sseDone = false;
-    document.getElementById('preview-section').style.display = 'none';
-    document.getElementById('apply-section').style.display   = 'none';
-    currentJobId = null; previewItems = []; selectedProductIds.clear();
-    document.getElementById('steps-section').style.display = '';
-    setStep('excel','pending','Waiting…'); setStep('wc','pending','Waiting…'); setStep('calc','pending','Waiting…');
-    addLog('Starting fetch…','info');
+function closeAlarm() { document.getElementById('alarm-modal').classList.add('hidden'); }
 
-    const es = new EventSource(`/api/preview/stream?token=${encodeURIComponent(token)}`);
-    es.onmessage = (e) => {
-      const d = JSON.parse(e.data);
-      if (['excel','wc','calc'].includes(d.step)) {
-        setStep(d.step, d.status, d.msg);
-        addLog(d.msg, d.status==='error'?'err':d.status==='done'?'ok':'warn');
-        if (d.status === 'error') { sseDone=true; es.close(); setBtnFetch(false); }
-      } else if (d.step === 'preview' && d.status === 'done') {
-        sseDone=true; es.close();
-        currentJobId = d.job_id; previewItems = d.items;
-        // Auto-select all changed items
-        selectedProductIds = new Set(d.items.filter(i => i.changed).map(i => i.product_id));
-        document.getElementById('preview-job-id').textContent = `#${d.job_id}`;
-        document.getElementById('stat-total').textContent   = d.total;
-        document.getElementById('stat-changed').textContent = d.changed_count;
-        document.getElementById('stat-same').textContent    = d.unchanged_count;
-        setAlert('preview-alert','');
-        if (d.changed_count === 0) setAlert('preview-alert','All prices are already up-to-date. Nothing to apply.','info');
-        setFilter('changed');
-        document.getElementById('preview-section').style.display = '';
-        updateApplyButton();
-        addLog(`Preview ready — Job #${d.job_id}: ${d.changed_count} to update, ${d.unchanged_count} unchanged.`,'ok');
-        loadHistory(); setBtnFetch(false);
-      }
-    };
-    es.onerror = () => { es.close(); if (!sseDone) { addLog('Connection lost — please try again.','err'); setAlert('action-alert','Connection error. Please try again.','error'); setBtnFetch(false); } };
-  }
+function runApplyStream() {
+  closeAlarm();
+  if (!currentJobId) return;
+  document.getElementById('apply-btn').disabled = true;
+  document.getElementById('apply-results-card').style.display = 'block';
+  document.getElementById('apply-tbody').innerHTML = '';
+  addLog('Applying updates...', 'info');
 
-  // ── Apply (with alarm check) ───────────────────────────────────────────────
-  function requestApply() {
-    if (!currentJobId || selectedProductIds.size === 0) return;
-    const sids = [...selectedProductIds];
-    const selectedItems = previewItems.filter(i => sids.includes(i.product_id));
-    const flagged = checkAlarms(selectedItems);
-    if (flagged.length > 0) {
-      pendingApplySids = sids;
-      const listEl = document.getElementById('alarm-modal-items');
-      listEl.innerHTML = flagged.map(f => `
-        <div class="alarm-item-row">
-          <span><code>${f.product_id}</code> ${f.product_name || ''}</span>
-          <span class="alarm-pct">${f.pct}% change (threshold: ${f.threshold}%)</span>
-        </div>`).join('');
-      document.getElementById('alarm-modal').classList.add('open');
-    } else {
-      runApplyStream(sids);
+  var params = Array.from(selectedIds).map(function(id) { return 'sid=' + id; }).join('&');
+  var evSource = new EventSource('/api/sync/' + currentJobId + '/apply-stream?token=' + encodeURIComponent(token) + '&' + params);
+
+  evSource.onmessage = function(e) {
+    var d = JSON.parse(e.data);
+    if (d.type === 'start') addLog('Updating ' + d.total + ' products...', 'info');
+    if (d.type === 'item') {
+      var ok = d.status === 'updated';
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + d.product_id + '</td><td>' + esc(d.product_name) + '</td><td>' + esc(d.sku) + '</td><td class="number">' + fmtPrice(d.old_price) + '</td><td class="number">' + fmtPrice(d.new_price) + '</td><td>' + (ok ? '<span class="badge badge-green">updated</span>' : '<span class="badge badge-red">failed</span>') + '</td><td style="color:var(--red);font-size:12px">' + esc(d.error || '') + '</td>';
+      document.getElementById('apply-tbody').appendChild(tr);
     }
-  }
-
-  function runApplyStream(sids) {
-    const token = getToken(); if (!token) { showLogin(); return; }
-    setBtnApply(true); sseDone = false;
-    document.getElementById('apply-job-id').textContent     = `#${currentJobId}`;
-    document.getElementById('apply-tbody').innerHTML        = '';
-    document.getElementById('apply-summary').innerHTML      = '';
-    document.getElementById('writeback-wrap').style.display = 'none';
-    setAlert('apply-alert','');
-    document.getElementById('apply-section').style.display  = '';
-    addLog(`Applying ${sids.length} selected product(s) — Job #${currentJobId}…`,'info');
-
-    const sidParams = sids.map(id => `sid=${id}`).join('&');
-    const es = new EventSource(`/api/sync/${currentJobId}/apply-stream?token=${encodeURIComponent(token)}&${sidParams}`);
-    es.onmessage = (e) => {
-      const d = JSON.parse(e.data);
-      const tbody = document.getElementById('apply-tbody');
-      if (d.type === 'start') {
-        addLog(`Sending ${d.total} price updates (${d.skipped} skipped)…`,'warn');
-      } else if (d.type === 'item') {
-        const ok = d.status === 'updated';
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td><code>${d.product_id}</code></td>
-          <td><code style="color:var(--muted)">${d.sku||'—'}</code></td>
-          <td>${d.product_name||'<span style="color:var(--muted)">—</span>'}</td>
-          <td class="price-cell" title="${fmtPriceToman(d.old_price)}">${fmtPrice(d.old_price)}</td>
-          <td class="price-cell" title="${fmtPriceToman(d.new_price)}"><strong>${fmtPrice(d.new_price)}</strong></td>
-          <td>${badge(d.status)}</td>
-          <td style="color:${ok?'var(--muted)':'var(--red)'};max-width:280px;white-space:normal;">${d.error||(ok?'—':'')}</td>`;
-        tbody.appendChild(row);
-        if (ok) addLog(`✓ [${d.product_id}] ${d.product_name}: ${d.old_price} → ${d.new_price}`,'ok');
-        else    addLog(`✗ [${d.product_id}] ${d.product_name}: ${d.error}`,'err');
-      } else if (d.type === 'error') {
-        sseDone=true; es.close();
-        setAlert('apply-alert', d.msg, 'error'); addLog(`Apply error: ${d.msg}`,'err');
-        setBtnApply(false); loadHistory();
-      } else if (d.type === 'done') {
-        sseDone=true; es.close();
-        const hasErr = d.failed > 0;
-        document.getElementById('apply-summary').innerHTML = `
-          <span style="color:var(--green);">✓ ${d.updated} updated</span>
-          ${d.failed>0?`<span style="color:var(--red);">✗ ${d.failed} failed</span>`:''}
-          <span style="color:var(--muted);">${d.skipped} skipped</span>`;
-        setAlert('apply-alert',
-          hasErr ? `Completed with ${d.failed} error(s).` : `All done! ${d.updated} product${d.updated!==1?'s':''} updated successfully.`,
-          hasErr ? 'error' : 'success');
-        document.getElementById('writeback-wrap').style.display = '';
-        document.getElementById('preview-section').style.display = 'none';
-        addLog(`Job #${d.job_id} complete — ${d.updated} updated, ${d.failed} failed, ${d.skipped} skipped.`, hasErr?'warn':'ok');
-        loadHistory(); setBtnApply(false);
-      }
-    };
-    es.onerror = () => { es.close(); if (!sseDone) { addLog('Connection lost during apply — check sync history.','err'); setAlert('apply-alert','Connection error. Check sync history.','error'); setBtnApply(false); loadHistory(); } };
-  }
-
-  // ── Cancel ─────────────────────────────────────────────────────────────────
-  async function cancelSync() {
-    if (!currentJobId) return;
-    try { await api(`/api/sync/${currentJobId}`, { method:'DELETE' }); } catch {}
-    addLog(`Job #${currentJobId} cancelled.`,'warn');
-    document.getElementById('preview-section').style.display = 'none';
-    currentJobId = null; loadHistory();
-  }
-
-  // ── Write back ─────────────────────────────────────────────────────────────
-  async function writeBack(jobId) {
-    const id = jobId || currentJobId; if (!id) return;
-    const btn = document.getElementById('btn-writeback');
-    if (btn) { btn.disabled=true; btn.textContent='Writing…'; }
-    addLog('Writing results back to spreadsheet…','info');
-    try {
-      const r = await api(`/api/jobs/${id}/writeback`, { method:'POST' });
-      const d = await r.json();
-      if (!r.ok) { setAlert('apply-alert', d.detail||'Write-back failed','error'); addLog(`Write-back failed: ${d.detail}`,'err'); }
-      else { setAlert('apply-alert', d.message, 'success'); addLog('Results written back to spreadsheet (columns E–G).','ok'); }
-    } catch(ex) { addLog(`Write-back error: ${ex}`,'err'); }
-    finally { if (btn) { btn.disabled=false; btn.textContent='Write status back to sheet (columns E–G)'; } }
-  }
-
-  // ── History ────────────────────────────────────────────────────────────────
-  async function loadHistory() {
-    try {
-      const r = await api('/api/jobs'); if (!r.ok) return;
-      const jobs = await r.json();
-      const tbody = document.getElementById('history-tbody');
-      if (!jobs.length) { tbody.innerHTML='<tr><td colspan="8" class="empty">No sync history yet.</td></tr>'; return; }
-      tbody.innerHTML = jobs.map(j => `
-        <tr>
-          <td><code>#${j.id}</code></td><td>${fmt(j.created_at)}</td><td>${fmt(j.completed_at)}</td>
-          <td>${badge(j.status)}</td><td>${j.updated_count}</td>
-          <td>${j.failed_count>0?`<span class="price-up">${j.failed_count}</span>`:j.failed_count}</td>
-          <td>${j.skipped_count}</td>
-          <td>${j.status==='completed'?`<button class="btn btn-ghost btn-sm" onclick="writeBack(${j.id})">Write back</button>`:'—'}</td>
-        </tr>`).join('');
-    } catch {}
-  }
-
-  // ── Audit log ──────────────────────────────────────────────────────────────
-  async function loadAuditLog() {
-    try {
-      const r = await api('/api/audit-logs'); if (!r.ok) return;
-      const logs = await r.json();
-      const tbody = document.getElementById('audit-tbody');
-      if (!logs.length) { tbody.innerHTML='<tr><td colspan="5" class="empty">No audit records yet.</td></tr>'; return; }
-      tbody.innerHTML = logs.map(l => `
-        <tr>
-          <td><strong>${l.username}</strong></td>
-          <td><span class="badge badge-${l.action}">${l.action}</span></td>
-          <td>${fmt(l.timestamp)}</td>
-          <td><code style="color:var(--muted)">${l.ip_address||'—'}</code></td>
-          <td>${l.job_id ? `<code>#${l.job_id}</code>` : '—'}</td>
-        </tr>`).join('');
-    } catch {}
-  }
-
-  // ── Settings ───────────────────────────────────────────────────────────────
-  async function loadSettings() {
-    const user = getUser(); if (!user || user.role !== 'admin') return;
-    try {
-      const r = await api('/api/settings'); if (!r.ok) return;
-      const s = await r.json();
-      function rows(fields) {
-        return fields.map(([k,v]) => `<div class="setting-row"><span class="setting-key">${k}</span><span class="setting-val">${v}</span></div>`).join('');
-      }
-      document.getElementById('settings-wc').innerHTML   = rows([['URL',s.wc_url],['API Key',s.wc_key],['API Secret',s.wc_secret]]);
-      document.getElementById('settings-nc').innerHTML   = rows([['URL',s.nextcloud_url],['User',s.nextcloud_user],['File Path',s.nextcloud_file_path]]);
-      document.getElementById('settings-auth').innerHTML = rows([['Super Admins',s.super_admin_users||'<em style="color:var(--muted)">none set</em>']]);
-    } catch {}
-
-    // Load alarm thresholds into form
-    await loadAlarmThresholds();
-    const global = alarmThresholds.find(t => t.category_id === null);
-    document.getElementById('alarm-global').value = global ? global.threshold_percent : '';
-
-    const catList = document.getElementById('alarm-categories-list');
-    if (allCategories.length) {
-      catList.innerHTML = allCategories.map(c => {
-        const ct = alarmThresholds.find(t => t.category_id === c.id);
-        return `<div class="setting-row">
-          <span class="setting-key">${c.name}</span>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <input type="number" id="alarm-cat-${c.id}" class="num-input" min="0" max="10000" step="1"
-                   placeholder="use global" style="width:100px;" value="${ct ? ct.threshold_percent : ''}" />
-            <span style="color:var(--muted);">%</span>
-          </div>
-        </div>`;
-      }).join('');
-    } else {
-      catList.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:8px 0;">No categories loaded — fetch a preview first to populate categories.</p>';
+    if (d.type === 'done') {
+      evSource.close();
+      document.getElementById('apply-summary').textContent = d.updated + ' updated, ' + d.failed + ' failed, ' + d.skipped + ' skipped';
+      document.getElementById('writeback-btn').style.display = 'inline-flex';
+      addLog('Done: ' + d.updated + ' updated, ' + d.failed + ' failed', 'ok');
     }
-  }
-
-  async function saveAlarmSettings() {
-    const thresholds = [];
-    const gv = parseFloat(document.getElementById('alarm-global').value);
-    if (!isNaN(gv) && gv > 0) thresholds.push({ category_id: null, threshold_percent: gv });
-
-    for (const c of allCategories) {
-      const el = document.getElementById(`alarm-cat-${c.id}`);
-      if (!el) continue;
-      const v = parseFloat(el.value);
-      if (!isNaN(v) && v > 0) thresholds.push({ category_id: c.id, threshold_percent: v });
+    if (d.type === 'error') {
+      evSource.close();
+      addLog('Apply error: ' + d.msg, 'err');
+      document.getElementById('apply-btn').disabled = false;
     }
+  };
+  evSource.onerror = function() { evSource.close(); addLog('Connection error during apply', 'err'); };
+}
 
-    try {
-      const r = await api('/api/alarm-settings', { method:'PUT', body:JSON.stringify(thresholds) });
-      if (r.ok) {
-        alarmThresholds = thresholds;
-        const msg = document.getElementById('alarm-save-msg');
-        msg.style.display = '';
-        setTimeout(() => { msg.style.display = 'none'; }, 2000);
+async function doWriteback() {
+  if (!currentJobId) return;
+  try {
+    await api('POST', '/api/jobs/' + currentJobId + '/writeback');
+    addLog('Status written back to spreadsheet', 'ok');
+  } catch(e) { addLog('Writeback failed: ' + e.message, 'err'); }
+}
+
+// ══ Analytics ══════════════════════════════════════════════════════════════
+async function loadAnalytics() {
+  try {
+    analyticsData = await api('GET', '/api/analytics');
+    renderAnalytics();
+  } catch(e) { console.error('Analytics error:', e); }
+}
+
+function renderAnalytics() {
+  if (!analyticsData) return;
+  var search = document.getElementById('an-search').value.toLowerCase();
+  var catFilter = document.getElementById('an-cat').value;
+  var sort = document.getElementById('an-sort').value;
+
+  function filterItems(items) {
+    return items.filter(function(i) {
+      if (search && !(i.product_name || '').toLowerCase().includes(search)) return false;
+      if (catFilter && !(i.categories || []).some(function(c) { return String(c.id) === catFilter; })) return false;
+      return true;
+    }).sort(function(a, b) {
+      if (sort === 'updated') {
+        var ta = a.last_price_updated || a.synced_at || '';
+        var tb = b.last_price_updated || b.synced_at || '';
+        return ta < tb ? 1 : -1;
       }
-    } catch {}
+      return (a.product_name || '').localeCompare(b.product_name || '');
+    });
   }
 
-  // ── Init ───────────────────────────────────────────────────────────────────
-  (function init() {
-    if (getUser() && getToken()) showApp(); else showLogin();
-    setInterval(checkHealth, 30000);
-  })();
+  var noPrice = filterItems(analyticsData.in_stock_no_price);
+  var noStock = filterItems(analyticsData.has_price_out_of_stock);
+  var stale = filterItems(analyticsData.stale_products);
+
+  document.getElementById('an-no-price-count').textContent = noPrice.length + ' products';
+  document.getElementById('an-no-stock-count').textContent = noStock.length + ' products';
+  document.getElementById('an-stale-count').textContent = stale.length + ' products';
+
+  document.getElementById('an-no-price-body').innerHTML = noPrice.map(function(i) {
+    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td>' + stockBadge(i.stock_status) + '</td><td>' + (i.stock_quantity != null ? i.stock_quantity : '&#8212;') + '</td><td style="font-size:12px;color:var(--muted)">' + relTime(i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+  }).join('');
+
+  document.getElementById('an-no-stock-body').innerHTML = noStock.map(function(i) {
+    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--muted)">' + relTime(i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+  }).join('');
+
+  document.getElementById('an-stale-body').innerHTML = stale.map(function(i) {
+    var lu = i.last_price_updated || i.synced_at;
+    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:' + (lu ? 'var(--red)' : 'var(--muted)') + '">' + relTime(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+  }).join('');
+}
+
+// ══ Logs ═══════════════════════════════════════════════════════════════════
+async function loadLogs() {
+  await Promise.all([loadAuditLog(), loadHistory()]);
+}
+
+async function loadAuditLog() {
+  try {
+    var logs = await api('GET', '/api/audit-logs?limit=200');
+    document.getElementById('audit-tbody').innerHTML = logs.map(function(l) {
+      return '<tr><td><b>' + esc(l.username) + '</b></td><td><span class="log-action ' + esc(l.action) + '" style="display:inline-flex;padding:2px 8px;border-radius:4px;font-size:11px">' + esc(l.action) + '</span></td><td>' + fmt(l.timestamp) + '</td><td style="color:var(--muted);font-size:12px">' + esc(l.ip_address || '&#8212;') + '</td><td style="color:var(--muted);font-size:12px">' + (l.job_id ? '#' + l.job_id : '&#8212;') + '</td></tr>';
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function loadHistory() {
+  try {
+    var jobs = await api('GET', '/api/jobs?limit=50');
+    document.getElementById('history-tbody').innerHTML = jobs.map(function(j) {
+      return '<tr><td>#' + j.id + '</td><td>' + fmt(j.created_at) + '</td><td>' + (j.completed_at ? fmt(j.completed_at) : '&#8212;') + '</td><td>' + jobBadge(j.status) + '</td><td style="color:var(--green)">' + j.updated_count + '</td><td style="color:var(--red)">' + j.failed_count + '</td><td style="color:var(--muted)">' + j.skipped_count + '</td><td>' + (j.status === 'completed' ? '<button class="btn btn-ghost btn-sm" onclick="writebackJob(' + j.id + ')">Write Back</button>' : '') + '</td></tr>';
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+function switchLogTab(name, btn) {
+  document.getElementById('tab-audit').classList.toggle('hidden', name !== 'audit');
+  document.getElementById('tab-history').classList.toggle('hidden', name !== 'history');
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+
+async function writebackJob(jobId) {
+  try {
+    await api('POST', '/api/jobs/' + jobId + '/writeback');
+    alert('Results written back to spreadsheet');
+  } catch(e) { alert('Writeback failed: ' + e.message); }
+}
+
+// ══ Settings ═══════════════════════════════════════════════════════════════
+async function loadSettings() {
+  try {
+    var s = await api('GET', '/api/settings');
+    document.getElementById('settings-wc').innerHTML = settRow('URL', s.wc_url) + settRow('Key', s.wc_key) + settRow('Secret', s.wc_secret);
+    document.getElementById('settings-nc').innerHTML = settRow('URL', s.nextcloud_url) + settRow('User', s.nextcloud_user) + settRow('File Path', s.nextcloud_file_path) + settRow('Admins', (s.super_admin_users || []).join(', '));
+  } catch(e) { }
+  await loadAlarmThresholds();
+  renderThresholds();
+}
+
+function settRow(k, v) {
+  return '<div class="settings-row"><span class="settings-key">' + esc(k) + '</span><span class="settings-val">' + esc(String(v || '')) + '</span></div>';
+}
+
+function renderThresholds() {
+  var list = document.getElementById('threshold-list');
+  var globalT = alarmThresholds.find(function(t) { return t.category_id === null; });
+  var html = '<div class="threshold-row"><span class="threshold-label">Global (all categories)</span><input class="threshold-input" type="number" id="thresh-global" value="' + (globalT ? globalT.threshold_percent : 20) + '" min="1" max="100"><span style="font-size:12px;color:var(--muted)">%</span></div>';
+  allCategories.forEach(function(cat) {
+    var t = alarmThresholds.find(function(a) { return a.category_id === cat.id; });
+    html += '<div class="threshold-row"><span class="threshold-label">' + esc(cat.name) + '</span><input class="threshold-input" type="number" id="thresh-cat-' + cat.id + '" value="' + (t ? t.threshold_percent : '') + '" placeholder="&#8212;" min="1" max="100"><span style="font-size:12px;color:var(--muted)">%</span></div>';
+  });
+  list.innerHTML = html;
+}
+
+async function saveThresholds() {
+  var thresholds = [];
+  var gv = parseFloat(document.getElementById('thresh-global').value);
+  if (!isNaN(gv) && gv > 0) thresholds.push({ category_id: null, threshold_percent: gv });
+  allCategories.forEach(function(cat) {
+    var el = document.getElementById('thresh-cat-' + cat.id);
+    if (el && el.value) {
+      var v = parseFloat(el.value);
+      if (!isNaN(v) && v > 0) thresholds.push({ category_id: cat.id, threshold_percent: v });
+    }
+  });
+  try {
+    await api('PUT', '/api/alarm-settings', thresholds);
+    alarmThresholds = thresholds;
+    alert('Thresholds saved');
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+// ══ Utilities ══════════════════════════════════════════════════════════════
+function fmtPrice(v) {
+  if (v === '' || v === null || v === undefined) return '<span style="color:var(--muted)">&#8212;</span>';
+  var n = parseFloat(v);
+  if (isNaN(n)) return esc(String(v));
+  return Math.round(n).toLocaleString();
+}
+
+function fmtPriceRaw(v) {
+  if (!v) return '';
+  var n = parseFloat(v);
+  return isNaN(n) ? String(v) : Math.round(n).toString();
+}
+
+function priceChange(old, nw) {
+  if (!old || !nw) return '<span style="color:var(--muted)">&#8212;</span>';
+  var o = parseFloat(old), n = parseFloat(nw);
+  if (isNaN(o) || isNaN(n) || Math.abs(o - n) < 0.001) return '<span style="color:var(--muted)">&#8212;</span>';
+  var pct = ((n - o) / o * 100).toFixed(1);
+  return '<span style="color:' + (n > o ? 'var(--green)' : 'var(--red)') + ';font-size:12px">' + (n > o ? '&#9650;' : '&#9660;') + ' ' + Math.abs(pct) + '%</span>';
+}
+
+function stockBadge(s) {
+  if (s === 'instock') return '<span class="badge badge-green">In Stock</span>';
+  if (s === 'outofstock') return '<span class="badge badge-red">Out of Stock</span>';
+  return '<span class="badge badge-gray">&#8212;</span>';
+}
+
+function jobBadge(s) {
+  var map = { completed: 'badge-green', failed: 'badge-red', running: 'badge-blue', preview: 'badge-yellow', cancelled: 'badge-gray' };
+  return '<span class="badge ' + (map[s] || 'badge-gray') + '">' + s + '</span>';
+}
+
+function catsHtml(cats) {
+  if (!cats || !cats.length) return '<span style="color:var(--muted);font-size:12px">&#8212;</span>';
+  var html = cats.slice(0, 2).map(function(c) { return '<span class="badge badge-purple" style="margin-right:3px;font-size:10px">' + esc(c.name) + '</span>'; }).join('');
+  if (cats.length > 2) html += '<span style="color:var(--muted);font-size:11px">+' + (cats.length - 2) + '</span>';
+  return html;
+}
+
+function fmt(ts) {
+  if (!ts) return '&#8212;';
+  var s = String(ts);
+  var d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+  return d.toLocaleString();
+}
+
+function relTime(ts) {
+  if (!ts) return '&#8212;';
+  var s = String(ts);
+  var d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+  var diff = Date.now() - d.getTime();
+  var mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return mins + 'm ago';
+  var hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  var days = Math.floor(hrs / 24);
+  if (days < 7) return days + 'd ago';
+  return d.toLocaleDateString();
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══ Init ═══════════════════════════════════════════════════════════════════
+if (token && currentUser) { bootApp(); }
 </script>
 </body>
 </html>

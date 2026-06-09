@@ -52,9 +52,11 @@ class SyncItem(Base):
     stock_status = Column(String, nullable=True)
     stock_quantity = Column(Integer, nullable=True)
     categories = Column(String, nullable=True)  # JSON: [{"id":1,"name":"..."}]
+    row_color = Column(String, nullable=True)   # hex color from Excel row, e.g. #4472C4
     status = Column(SAEnum(ItemStatus), default=ItemStatus.pending)
     error_message = Column(String, nullable=True)
     synced_at = Column(DateTime, nullable=True)
+    last_price_updated = Column(DateTime, nullable=True)
 
     job = relationship("SyncJob", back_populates="items")
 
