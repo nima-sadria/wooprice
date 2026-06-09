@@ -33,7 +33,7 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
         return {}
 
     result: dict[int, dict] = {}
-    async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+    async with httpx.AsyncClient(auth=_auth(), timeout=90) as client:
         for i in range(0, len(product_ids), 100):
             chunk = product_ids[i : i + 100]
             params = [("include[]", str(pid)) for pid in chunk] + [

@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -335,14 +337,23 @@ async def get_audit_logs(
     ]
 
 
-# ── Categories ────────────────────────────────────────────────────────────────
+# ── Categories (cached 5 min) ─────────────────────────────────────────────────
+
+_cat_cache: dict = {"data": None, "ts": 0.0}
 
 @app.get("/api/categories")
 async def get_categories(user: dict = Depends(get_current_user)):
+    if _cat_cache["data"] is not None and time.time() - _cat_cache["ts"] < 300:
+        return _cat_cache["data"]
     try:
-        return await fetch_categories()
+        data = await fetch_categories()
     except Exception as exc:
+        if _cat_cache["data"] is not None:
+            return _cat_cache["data"]  # serve stale on error
         raise HTTPException(502, f"Cannot fetch categories from WooCommerce: {exc}")
+    _cat_cache["data"] = data
+    _cat_cache["ts"] = time.time()
+    return data
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -678,7 +689,11 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             yield ev({"step": "wc", "status": "running", "msg": f"Fetching current data from WooCommerce for {len(sheet_items)} products…"})
             product_ids = [i["product_id"] for i in sheet_items]
             try:
-                wc_data = await fetch_product_prices(product_ids)
+                fetch_task = asyncio.create_task(fetch_product_prices(product_ids))
+                while not fetch_task.done():
+                    yield ": keepalive\n\n"
+                    await asyncio.sleep(10)
+                wc_data = await fetch_task
             except Exception as exc:
                 yield ev({"step": "wc", "status": "error", "msg": str(exc)}); return
             yield ev({"step": "wc", "status": "done", "msg": f"Fetched data for {len(wc_data)} products from WooCommerce"})
