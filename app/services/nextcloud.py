@@ -50,14 +50,19 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True)
     ws = wb.active
     items = []
+    consecutive_empty = 0
     for row_idx in range(3, 1001):
         col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
         col_c = ws.cell(row=row_idx, column=3).value
 
-        # Stop when both A and B are empty (truly blank row)
-        if col_a is None and col_b is None:
-            break
+        # Stop after 30 consecutive fully-empty rows
+        if col_a is None and col_b is None and col_c is None:
+            consecutive_empty += 1
+            if consecutive_empty >= 30:
+                break
+            continue
+        consecutive_empty = 0
 
         # Column B must be a valid positive integer product ID
         if col_b is None:
@@ -92,10 +97,17 @@ async def write_price_to_sheet(product_id: int, new_price: str) -> None:
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes))
     ws = wb.active
 
+    consecutive_empty = 0
     for row_idx in range(3, 1001):
+        col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
-        if col_b is None and ws.cell(row=row_idx, column=1).value is None:
-            break
+        col_c = ws.cell(row=row_idx, column=3).value
+        if col_a is None and col_b is None and col_c is None:
+            consecutive_empty += 1
+            if consecutive_empty >= 30:
+                break
+            continue
+        consecutive_empty = 0
         if col_b is None:
             continue
         try:
@@ -120,11 +132,17 @@ async def write_back_to_sheet(results: list[dict]) -> None:
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes))
     ws = wb.active
 
+    consecutive_empty = 0
     for row_idx in range(3, 1001):
         col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
-        if col_a is None and col_b is None:
-            break
+        col_c = ws.cell(row=row_idx, column=3).value
+        if col_a is None and col_b is None and col_c is None:
+            consecutive_empty += 1
+            if consecutive_empty >= 30:
+                break
+            continue
+        consecutive_empty = 0
         if col_b is None:
             continue
         try:
