@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 import httpx
 
 from ..config import get_settings
@@ -14,6 +17,21 @@ def _base() -> str:
 
 _PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories"
 
+# In-memory product cache: {product_id: (data_dict, timestamp)}
+_product_cache: dict[int, tuple[dict, float]] = {}
+_CACHE_TTL = 600  # 10 minutes
+
+
+def _cache_get(pid: int) -> dict | None:
+    entry = _product_cache.get(pid)
+    if entry and time.time() - entry[1] < _CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _cache_set(pid: int, data: dict) -> None:
+    _product_cache[pid] = (data, time.time())
+
 
 def _parse_product(p: dict) -> dict:
     return {
@@ -28,14 +46,28 @@ def _parse_product(p: dict) -> dict:
 
 
 async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
-    """Return {product_id: {name, price, sale_price, sku, stock_status, stock_quantity, categories}} for every ID."""
+    """Return {product_id: {...}} for every ID. Uses cache + parallel requests."""
     if not product_ids:
         return {}
 
     result: dict[int, dict] = {}
+
+    # Serve cached entries first
+    uncached = []
+    for pid in product_ids:
+        cached = _cache_get(pid)
+        if cached is not None:
+            result[pid] = cached
+        else:
+            uncached.append(pid)
+
+    if not uncached:
+        return result
+
     async with httpx.AsyncClient(auth=_auth(), timeout=90) as client:
-        for i in range(0, len(product_ids), 100):
-            chunk = product_ids[i : i + 100]
+
+        # ── Phase 1: parallel batch requests (100 IDs each) ──────────────────
+        async def _fetch_batch(chunk: list[int]) -> list[dict]:
             params = [("include[]", str(pid)) for pid in chunk] + [
                 ("per_page", "100"),
                 ("status", "any"),
@@ -43,20 +75,44 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
             ]
             resp = await client.get(f"{_base()}/products", params=params)
             resp.raise_for_status()
-            for p in resp.json():
-                result[p["id"]] = _parse_product(p)
+            return resp.json()
 
-        missing = [pid for pid in product_ids if pid not in result]
-        for pid in missing:
-            resp = await client.get(
-                f"{_base()}/products/{pid}",
-                params={"_fields": _PRODUCT_FIELDS + ",parent_id"},
-            )
-            if resp.status_code == 200:
-                p = resp.json()
+        chunks = [uncached[i : i + 100] for i in range(0, len(uncached), 100)]
+        batch_results = await asyncio.gather(*[_fetch_batch(c) for c in chunks], return_exceptions=True)
+
+        for res in batch_results:
+            if isinstance(res, Exception):
+                continue
+            for p in res:
                 data = _parse_product(p)
-                data["parent_id"] = p.get("parent_id") or 0
                 result[p["id"]] = data
+                _cache_set(p["id"], data)
+
+        # ── Phase 2: parallel individual lookups for missing IDs ─────────────
+        missing = [pid for pid in uncached if pid not in result]
+
+        async def _fetch_one(pid: int) -> tuple[int, dict] | None:
+            try:
+                resp = await client.get(
+                    f"{_base()}/products/{pid}",
+                    params={"_fields": _PRODUCT_FIELDS + ",parent_id"},
+                )
+                if resp.status_code == 200:
+                    p = resp.json()
+                    data = _parse_product(p)
+                    data["parent_id"] = p.get("parent_id") or 0
+                    return p["id"], data
+            except Exception:
+                pass
+            return None
+
+        if missing:
+            one_results = await asyncio.gather(*[_fetch_one(pid) for pid in missing])
+            for r in one_results:
+                if r is not None:
+                    pid, data = r
+                    result[pid] = data
+                    _cache_set(pid, data)
 
     return result
 
@@ -91,7 +147,9 @@ async def update_single_product(product_id: int, updates: dict, parent_id: int =
             url = f"{_base()}/products/{product_id}"
         resp = await client.put(url, json=updates)
         resp.raise_for_status()
-        return _parse_product(resp.json())
+        data = _parse_product(resp.json())
+        _cache_set(product_id, data)
+        return data
 
 
 async def batch_update_prices(updates: list[dict]) -> list[dict]:
