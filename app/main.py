@@ -672,7 +672,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
 
             sheet_items = parse_price_list(xlsx)
             if not sheet_items:
-                yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, prices in col C from row 3)"}); return
+                yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, BRSTPRICE in col D from row 3)"}); return
             yield ev({"step": "excel", "status": "done", "msg": f"Found {len(sheet_items)} products in price list"})
 
             yield ev({"step": "wc", "status": "running", "msg": f"Fetching current data from WooCommerce for {len(sheet_items)} products…"})
