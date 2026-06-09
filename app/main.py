@@ -230,6 +230,26 @@ async def health():
     return {"status": "ok", "wc_url": s.wc_url, "nextcloud_url": s.nextcloud_url}
 
 
+# ── Sheet debug (admin) ───────────────────────────────────────────────────────
+
+@app.get("/api/debug/sheet")
+async def debug_sheet(user: dict = Depends(require_admin)):
+    """Download the sheet and return the first 12 rows × 8 cols as raw values."""
+    import io as _io
+    from openpyxl import load_workbook as _lw
+    xlsx = await download_xlsx()
+    wb = _lw(filename=_io.BytesIO(xlsx), data_only=True)
+    ws = wb.active
+    rows = []
+    for r in range(1, 13):
+        row = []
+        for c in range(1, 9):
+            v = ws.cell(row=r, column=c).value
+            row.append({"col": c, "value": str(v) if v is not None else None, "type": type(v).__name__})
+        rows.append({"row": r, "cells": row})
+    return {"sheet_name": ws.title, "rows": rows}
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/login")
