@@ -44,7 +44,7 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
     """
     Read sheet from row 3 onward.
     Column B = WooCommerce product ID (must be numeric, skip row if empty or non-numeric).
-    Column D = BRSTPRICE / regular price (comma-separated string or number, empty/❌ means clear price).
+    Column C = regular price (comma-separated string or number, empty means clear price).
     Returns [{product_id, new_price, row_color}].
     """
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True)
@@ -55,10 +55,9 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
         col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
         col_c = ws.cell(row=row_idx, column=3).value
-        col_d = ws.cell(row=row_idx, column=4).value
 
         # Stop after 30 consecutive fully-empty rows
-        if col_a is None and col_b is None and col_c is None and col_d is None:
+        if col_a is None and col_b is None and col_c is None:
             consecutive_empty += 1
             if consecutive_empty >= 30:
                 break
@@ -75,11 +74,11 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
         if pid <= 0:
             continue
 
-        # Column D: BRSTPRICE (strip commas, convert to float string, or "" if empty/❌)
-        if col_d is None or str(col_d).strip() in ("", "❌", "✕", "✗", "x", "X"):
+        # Column C: price (strip commas, convert to float string, or "" if empty)
+        if col_c is None or str(col_c).strip() == "":
             new_price = ""
         else:
-            price_str = str(col_d).replace(",", "").strip()
+            price_str = str(col_c).replace(",", "").strip()
             try:
                 new_price = f"{float(price_str):.2f}"
             except (ValueError, TypeError):
@@ -93,7 +92,7 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
 
 
 async def write_price_to_sheet(product_id: int, new_price: str) -> None:
-    """Overwrite column D (BRSTPRICE) for the row whose column B matches product_id."""
+    """Overwrite column C for the row whose column B matches product_id."""
     xlsx_bytes = await download_xlsx()
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes))
     ws = wb.active
@@ -103,8 +102,7 @@ async def write_price_to_sheet(product_id: int, new_price: str) -> None:
         col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
         col_c = ws.cell(row=row_idx, column=3).value
-        col_d = ws.cell(row=row_idx, column=4).value
-        if col_a is None and col_b is None and col_c is None and col_d is None:
+        if col_a is None and col_b is None and col_c is None:
             consecutive_empty += 1
             if consecutive_empty >= 30:
                 break
@@ -118,9 +116,9 @@ async def write_price_to_sheet(product_id: int, new_price: str) -> None:
             continue
         if pid == product_id:
             try:
-                ws.cell(row=row_idx, column=4).value = float(new_price) if new_price else None
+                ws.cell(row=row_idx, column=3).value = float(new_price) if new_price else None
             except (ValueError, TypeError):
-                ws.cell(row=row_idx, column=4).value = new_price or None
+                ws.cell(row=row_idx, column=3).value = new_price or None
             break
 
     await _upload_wb(wb)
@@ -139,8 +137,7 @@ async def write_back_to_sheet(results: list[dict]) -> None:
         col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
         col_c = ws.cell(row=row_idx, column=3).value
-        col_d = ws.cell(row=row_idx, column=4).value
-        if col_a is None and col_b is None and col_c is None and col_d is None:
+        if col_a is None and col_b is None and col_c is None:
             consecutive_empty += 1
             if consecutive_empty >= 30:
                 break
