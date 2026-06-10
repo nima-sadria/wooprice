@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import datetime, timezone
 
 import httpx
 
@@ -178,8 +179,10 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
     results: list[dict] = []
     async with httpx.AsyncClient(auth=_auth(), timeout=60) as client:
 
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
         async def _post_batch(url: str, chunk: list[dict]) -> list[dict]:
-            payload = {"update": [{"id": u["product_id"], "regular_price": u["new_price"]} for u in chunk]}
+            payload = {"update": [{"id": u["product_id"], "regular_price": u["new_price"], "date_modified": now_iso} for u in chunk]}
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return _parse_results(resp.json().get("update", []))
