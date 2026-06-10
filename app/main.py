@@ -635,6 +635,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
         raise HTTPException(400, "No valid rows found.")
 
     product_ids = [i["product_id"] for i in sheet_items]
+    clear_product_cache()
     try:
         wc_data = await fetch_product_prices(product_ids)
     except Exception as exc:
@@ -799,6 +800,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
 
             yield ev({"step": "wc", "status": "running", "msg": f"Fetching current data from WooCommerce for {len(sheet_items)} products…"})
             product_ids = [i["product_id"] for i in sheet_items]
+            clear_product_cache()
             try:
                 fetch_task = asyncio.create_task(fetch_product_prices(product_ids))
                 while not fetch_task.done():
