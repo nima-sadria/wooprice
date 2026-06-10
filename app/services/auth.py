@@ -33,7 +33,7 @@ def create_token(username: str) -> str:
     payload = {
         "sub": username,
         "role": "admin" if is_super_admin(username) else "user",
-        "exp": datetime.utcnow() + timedelta(hours=24),
+        "exp": datetime.utcnow() + timedelta(days=7),
     }
     return jwt.encode(payload, s.jwt_secret, algorithm="HS256")
 
