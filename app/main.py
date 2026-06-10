@@ -626,7 +626,7 @@ async def update_stock(
 @app.post("/api/preview")
 async def create_preview(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        xlsx = await download_xlsx()
+        xlsx = await download_xlsx(force=True)
     except Exception as exc:
         raise HTTPException(502, f"Cannot download sheet from Nextcloud: {exc}")
 
@@ -789,7 +789,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
 
             yield ev({"step": "excel", "status": "running", "msg": "Downloading price list from Nextcloud…"})
             try:
-                xlsx = await download_xlsx()
+                xlsx = await download_xlsx(force=True)
             except Exception as exc:
                 yield ev({"step": "excel", "status": "error", "msg": str(exc)}); return
 
