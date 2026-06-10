@@ -861,7 +861,7 @@ function renderPreview() {
       '<td class="number">' + chg + '</td>' +
       '<td id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
       '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span></td>' +
-      '<td style="font-size:11.5px;color:var(--muted)">' + relTime(item.last_price_updated || item.wc_date_modified) + '</td>' +
+      '<td style="font-size:11.5px;color:var(--muted)">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
       '<td>' + catsHtml(item.categories) + '</td>' +
       '</tr>';
   }).join('');
@@ -1263,6 +1263,32 @@ function relTime(ts) {
   var days = Math.floor(hrs / 24);
   if (days < 7) return days + 'd ago';
   return d.toLocaleDateString();
+}
+
+function _gregToJalali(gy, gm, gd) {
+  var g_d_no = 365*(gy-1600) + Math.floor((gy-1597)/4) - Math.floor((gy-1501)/100) + Math.floor((gy-1201)/400);
+  var gml = [31,((gy%4==0&&gy%100!=0)||gy%400==0)?29:28,31,30,31,30,31,31,30,31,30,31];
+  for (var i=0;i<gm-1;i++) g_d_no += gml[i];
+  g_d_no += gd - 1;
+  var j_d_no = g_d_no - 79;
+  var j_np = Math.floor(j_d_no/12053); j_d_no %= 12053;
+  var jy = 979 + 33*j_np + 4*Math.floor(j_d_no/1461);
+  j_d_no %= 1461;
+  if (j_d_no >= 366) { jy += Math.floor((j_d_no-1)/365); j_d_no = (j_d_no-1)%365; }
+  var jml = [31,31,31,31,31,31,30,30,30,30,30,29], jm;
+  for (jm=0; jm<11 && j_d_no>=jml[jm]; jm++) j_d_no -= jml[jm];
+  return [jy, jm+1, j_d_no+1];
+}
+
+function toJalaliStr(ts) {
+  if (!ts) return '&#8212;';
+  var s = String(ts);
+  var d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
+  if (isNaN(d.getTime())) return '&#8212;';
+  var j = _gregToJalali(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate());
+  var months = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+  var p = function(n){ return String(n).replace(/[0-9]/g,function(c){return '۰۱۲۳۴۵۶۷۸۹'[c];}); };
+  return p(j[2]) + ' ' + months[j[1]-1] + ' ' + p(j[0]);
 }
 
 function esc(s) {
