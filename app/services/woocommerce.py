@@ -62,32 +62,38 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
         else:
             uncached.append(pid)
 
-    if not uncached:
+    needs_parent_fetch = any(
+        data.get("parent_id", 0) > 0 and not data.get("categories")
+        for data in result.values()
+    )
+
+    if not uncached and not needs_parent_fetch:
         return result
 
     async with httpx.AsyncClient(auth=_auth(), timeout=90) as client:
 
-        # ── Phase 1: parallel batch requests (100 IDs each) ──────────────────
-        async def _fetch_batch(chunk: list[int]) -> list[dict]:
-            params = [("include[]", str(pid)) for pid in chunk] + [
-                ("per_page", "100"),
-                ("status", "any"),
-                ("_fields", _PRODUCT_FIELDS),
-            ]
-            resp = await client.get(f"{_base()}/products", params=params)
-            resp.raise_for_status()
-            return resp.json()
+        if uncached:
+            # ── Phase 1: parallel batch requests (100 IDs each) ──────────────
+            async def _fetch_batch(chunk: list[int]) -> list[dict]:
+                params = [("include[]", str(pid)) for pid in chunk] + [
+                    ("per_page", "100"),
+                    ("status", "any"),
+                    ("_fields", _PRODUCT_FIELDS),
+                ]
+                resp = await client.get(f"{_base()}/products", params=params)
+                resp.raise_for_status()
+                return resp.json()
 
-        chunks = [uncached[i : i + 100] for i in range(0, len(uncached), 100)]
-        batch_results = await asyncio.gather(*[_fetch_batch(c) for c in chunks], return_exceptions=True)
+            chunks = [uncached[i : i + 100] for i in range(0, len(uncached), 100)]
+            batch_results = await asyncio.gather(*[_fetch_batch(c) for c in chunks], return_exceptions=True)
 
-        for res in batch_results:
-            if isinstance(res, Exception):
-                continue
-            for p in res:
-                data = _parse_product(p)
-                result[p["id"]] = data
-                _cache_set(p["id"], data)
+            for res in batch_results:
+                if isinstance(res, Exception):
+                    continue
+                for p in res:
+                    data = _parse_product(p)
+                    result[p["id"]] = data
+                    _cache_set(p["id"], data)
 
         # ── Phase 2: parallel individual lookups for missing IDs ─────────────
         missing = [pid for pid in uncached if pid not in result]
