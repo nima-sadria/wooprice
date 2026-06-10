@@ -68,11 +68,10 @@ async def _auto_fetch_loop(interval_secs: int) -> None:
             info = get_cache_info()
             age = info.get("age_seconds")
             if age is None or age >= interval_secs:
-                xlsx = await download_xlsx()
+                xlsx = await download_xlsx(force=True)
                 ids = [i["product_id"] for i in parse_price_list(xlsx)]
                 if ids:
-                    clear_product_cache()
-                    await fetch_product_prices(ids)
+                    await fetch_product_prices(ids, force=True)
         except asyncio.CancelledError:
             break
         except Exception:
@@ -635,9 +634,8 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
         raise HTTPException(400, "No valid rows found.")
 
     product_ids = [i["product_id"] for i in sheet_items]
-    clear_product_cache()
     try:
-        wc_data = await fetch_product_prices(product_ids)
+        wc_data = await fetch_product_prices(product_ids, force=True)
     except Exception as exc:
         raise HTTPException(502, f"Cannot fetch prices from WooCommerce: {exc}")
 
@@ -800,9 +798,8 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
 
             yield ev({"step": "wc", "status": "running", "msg": f"Fetching current data from WooCommerce for {len(sheet_items)} products…"})
             product_ids = [i["product_id"] for i in sheet_items]
-            clear_product_cache()
             try:
-                fetch_task = asyncio.create_task(fetch_product_prices(product_ids))
+                fetch_task = asyncio.create_task(fetch_product_prices(product_ids, force=True))
                 while not fetch_task.done():
                     yield ": keepalive\n\n"
                     await asyncio.sleep(10)

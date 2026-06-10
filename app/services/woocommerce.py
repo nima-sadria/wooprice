@@ -69,17 +69,18 @@ def _parse_product(p: dict) -> dict:
     }
 
 
-async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
-    """Return {product_id: {...}} for every ID. Uses cache + parallel requests."""
+async def fetch_product_prices(product_ids: list[int], force: bool = False) -> dict[int, dict]:
+    """Return {product_id: {...}} for every ID. Uses cache + parallel requests.
+    Pass force=True to bypass cache entirely (manual user fetch)."""
     if not product_ids:
         return {}
 
     result: dict[int, dict] = {}
 
-    # Serve cached entries first
+    # Serve cached entries first (skipped when force=True)
     uncached = []
     for pid in product_ids:
-        cached = _cache_get(pid)
+        cached = None if force else _cache_get(pid)
         if cached is not None:
             result[pid] = cached
         else:
