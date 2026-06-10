@@ -199,6 +199,7 @@ def _build_preview_row(
         "parent_id": wc.get("parent_id", 0),
         "row_color": row_color,
         "last_price_updated": lpu,
+        "wc_date_modified": wc.get("wc_date_modified"),
         "changed": _price_differs(old_price, new_price),
         "found_in_wc": bool(wc),
     }

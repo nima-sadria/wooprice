@@ -16,7 +16,7 @@ def _base() -> str:
     return get_settings().wc_url.rstrip("/") + "/wp-json/wc/v3"
 
 
-_PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories"
+_PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories,date_modified_gmt"
 
 # In-memory product cache: {product_id: (data_dict, timestamp)}
 _product_cache: dict[int, tuple[dict, float]] = {}
@@ -43,6 +43,7 @@ def _parse_product(p: dict) -> dict:
         "stock_status": p.get("stock_status") or "instock",
         "stock_quantity": p.get("stock_quantity"),
         "categories": [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])],
+        "wc_date_modified": p.get("date_modified_gmt") or None,
     }
 
 

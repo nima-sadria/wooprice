@@ -861,7 +861,7 @@ function renderPreview() {
       '<td class="number">' + chg + '</td>' +
       '<td id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
       '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span></td>' +
-      '<td style="font-size:11.5px;color:var(--muted)">' + (item.last_price_updated ? relTime(item.last_price_updated) : '&#8212;') + '</td>' +
+      '<td style="font-size:11.5px;color:var(--muted)">' + relTime(item.last_price_updated || item.wc_date_modified) + '</td>' +
       '<td>' + catsHtml(item.categories) + '</td>' +
       '</tr>';
   }).join('');
