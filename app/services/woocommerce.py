@@ -115,6 +115,43 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
                     result[pid] = data
                     _cache_set(pid, data)
 
+        # ── Phase 3: inherit categories (and stock) from parent for variations ──
+        parent_ids_needed = {
+            data["parent_id"]
+            for data in result.values()
+            if data.get("parent_id", 0) > 0 and not data.get("categories")
+        }
+
+        async def _fetch_parent(ppid: int) -> tuple[int, dict] | None:
+            cached = _cache_get(ppid)
+            if cached:
+                return ppid, cached
+            try:
+                resp = await client.get(
+                    f"{_base()}/products/{ppid}",
+                    params={"_fields": "id,categories,stock_status,stock_quantity"},
+                )
+                if resp.status_code == 200:
+                    p = resp.json()
+                    return ppid, {
+                        "categories": [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])],
+                        "stock_quantity": p.get("stock_quantity"),
+                    }
+            except Exception:
+                pass
+            return None
+
+        if parent_ids_needed:
+            parent_results = await asyncio.gather(*[_fetch_parent(ppid) for ppid in parent_ids_needed])
+            parent_map = {ppid: pdata for r in parent_results if r is not None for ppid, pdata in [r]}
+            for data in result.values():
+                ppid = data.get("parent_id", 0)
+                if ppid and ppid in parent_map:
+                    if not data.get("categories"):
+                        data["categories"] = parent_map[ppid].get("categories", [])
+                    if data.get("stock_quantity") is None:
+                        data["stock_quantity"] = parent_map[ppid].get("stock_quantity")
+
     return result
 
 

@@ -1219,7 +1219,8 @@ function fmtPriceRaw(v) {
 function priceChange(old, nw) {
   if (!old || !nw) return '<span style="color:var(--muted)">&#8212;</span>';
   var o = parseFloat(old), n = parseFloat(nw);
-  if (isNaN(o) || isNaN(n) || Math.abs(o - n) < 0.001) return '<span style="color:var(--muted)">&#8212;</span>';
+  if (isNaN(o) || isNaN(n)) return '<span style="color:var(--muted)">&#8212;</span>';
+  if (Math.abs(o - n) < 0.001) return '<span style="color:var(--muted);font-size:13px">=</span>';
   var pct = ((n - o) / o * 100).toFixed(1);
   return '<span style="color:' + (n > o ? '#16a34a' : '#dc2626') + ';font-size:12px">' + (n > o ? '&#9650;' : '&#9660;') + ' ' + Math.abs(pct) + '%</span>';
 }
