@@ -1,4 +1,5 @@
 import io
+import time
 
 import httpx
 from openpyxl import load_workbook
@@ -16,11 +17,25 @@ def _webdav_url() -> str:
     return s.nextcloud_url.rstrip("/") + s.nextcloud_file_path
 
 
-async def download_xlsx() -> bytes:
+# Short read-cache for preview flow; invalidated after every upload
+_xlsx_cache: dict = {"data": None, "ts": 0.0}
+_XLSX_CACHE_TTL = 60  # seconds
+
+
+async def download_xlsx(force: bool = False) -> bytes:
+    if (
+        not force
+        and _xlsx_cache["data"] is not None
+        and time.time() - _xlsx_cache["ts"] < _XLSX_CACHE_TTL
+    ):
+        return _xlsx_cache["data"]
     async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
         resp = await client.get(_webdav_url(), timeout=30)
         resp.raise_for_status()
-        return resp.content
+        data = resp.content
+    _xlsx_cache["data"] = data
+    _xlsx_cache["ts"] = time.time()
+    return data
 
 
 def _extract_row_color(ws, row_idx: int) -> str | None:
@@ -93,7 +108,7 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
 
 async def write_price_to_sheet(product_id: int, new_price: str) -> None:
     """Overwrite column C for the row whose column B matches product_id."""
-    xlsx_bytes = await download_xlsx()
+    xlsx_bytes = await download_xlsx(force=True)
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes))
     ws = wb.active
 
@@ -128,7 +143,7 @@ async def write_back_to_sheet(results: list[dict]) -> None:
     """Update columns E (status), F (sync time), G (error) by product_id (column B)."""
     result_map = {r["product_id"]: r for r in results}
 
-    xlsx_bytes = await download_xlsx()
+    xlsx_bytes = await download_xlsx(force=True)
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes))
     ws = wb.active
 
@@ -175,3 +190,4 @@ async def _upload_wb(wb) -> None:
             },
         )
         resp.raise_for_status()
+    _xlsx_cache["data"] = None  # invalidate so next read fetches the just-uploaded file

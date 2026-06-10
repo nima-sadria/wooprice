@@ -177,19 +177,25 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
 
     results: list[dict] = []
     async with httpx.AsyncClient(auth=_auth(), timeout=60) as client:
-        for i in range(0, len(regular), 100):
-            chunk = regular[i : i + 100]
-            payload = {"update": [{"id": u["product_id"], "regular_price": u["new_price"]} for u in chunk]}
-            resp = await client.post(f"{_base()}/products/batch", json=payload)
-            resp.raise_for_status()
-            results.extend(_parse_results(resp.json().get("update", [])))
 
+        async def _post_batch(url: str, chunk: list[dict]) -> list[dict]:
+            payload = {"update": [{"id": u["product_id"], "regular_price": u["new_price"]} for u in chunk]}
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            return _parse_results(resp.json().get("update", []))
+
+        tasks = []
+        base = _base()
+        for i in range(0, len(regular), 100):
+            tasks.append(_post_batch(f"{base}/products/batch", regular[i : i + 100]))
         for parent_id, var_updates in variations_by_parent.items():
             for i in range(0, len(var_updates), 100):
-                chunk = var_updates[i : i + 100]
-                payload = {"update": [{"id": u["product_id"], "regular_price": u["new_price"]} for u in chunk]}
-                resp = await client.post(f"{_base()}/products/{parent_id}/variations/batch", json=payload)
-                resp.raise_for_status()
-                results.extend(_parse_results(resp.json().get("update", [])))
+                tasks.append(_post_batch(f"{base}/products/{parent_id}/variations/batch", var_updates[i : i + 100]))
+
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in batch_results:
+            if isinstance(res, Exception):
+                raise res
+            results.extend(res)
 
     return results
