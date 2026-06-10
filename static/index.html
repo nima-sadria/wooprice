@@ -1207,7 +1207,7 @@ function fmtPrice(v) {
   if (v === '' || v === null || v === undefined) return '<span style="color:var(--muted)">&#8212;</span>';
   var n = parseFloat(v);
   if (isNaN(n)) return esc(String(v));
-  return Math.round(n).toLocaleString();
+  return Math.round(n).toLocaleString('fa-IR');
 }
 
 function fmtPriceRaw(v) {

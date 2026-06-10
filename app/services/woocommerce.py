@@ -128,7 +128,7 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
             try:
                 resp = await client.get(
                     f"{_base()}/products/{pid}",
-                    params={"_fields": _PRODUCT_FIELDS + ",parent_id"},
+                    params={"_fields": _PRODUCT_FIELDS + ",parent_id", "status": "any"},
                 )
                 if resp.status_code == 200:
                     p = resp.json()
