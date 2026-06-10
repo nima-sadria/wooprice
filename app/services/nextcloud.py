@@ -55,15 +55,8 @@ def _extract_row_color(ws, row_idx: int) -> str | None:
     return None
 
 
-def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
-    """
-    Read sheet from row 3 onward.
-    Column B = WooCommerce product ID (must be numeric, skip row if empty or non-numeric).
-    Column C = regular price (comma-separated string or number, empty means clear price).
-    Returns [{product_id, new_price, row_color}].
-    """
-    wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True)
-    ws = wb.active
+def _parse_sheet_rows(ws) -> list[dict]:
+    """Parse one worksheet using the standard column mapping (B=ID, C=price, A=color)."""
     items = []
     consecutive_empty = 0
     for row_idx in range(3, 1001):
@@ -71,7 +64,6 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
         col_b = ws.cell(row=row_idx, column=2).value
         col_c = ws.cell(row=row_idx, column=3).value
 
-        # Stop after 30 consecutive fully-empty rows
         if col_a is None and col_b is None and col_c is None:
             consecutive_empty += 1
             if consecutive_empty >= 30:
@@ -79,7 +71,6 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
             continue
         consecutive_empty = 0
 
-        # Column B must be a valid positive integer product ID
         if col_b is None:
             continue
         try:
@@ -89,7 +80,6 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
         if pid <= 0:
             continue
 
-        # Column C: price (strip commas, convert to float string, or "" if empty)
         if col_c is None or str(col_c).strip() == "":
             new_price = ""
         else:
@@ -101,9 +91,23 @@ def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
 
         row_color = _extract_row_color(ws, row_idx)
         items.append({"product_id": pid, "new_price": new_price, "row_color": row_color})
-
-    wb.close()
     return items
+
+
+def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
+    """
+    Read ALL sheets from row 3 onward using the same column mapping.
+    Column B = WooCommerce product ID, Column C = regular price, Column A = row color.
+    If the same product ID appears in multiple sheets, the last sheet wins.
+    Returns [{product_id, new_price, row_color}].
+    """
+    wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True)
+    seen: dict[int, dict] = {}
+    for ws in wb.worksheets:
+        for item in _parse_sheet_rows(ws):
+            seen[item["product_id"]] = item
+    wb.close()
+    return list(seen.values())
 
 
 async def write_price_to_sheet(product_id: int, new_price: str) -> None:

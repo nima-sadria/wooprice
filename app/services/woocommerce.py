@@ -20,18 +20,40 @@ _PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock
 
 # In-memory product cache: {product_id: (data_dict, timestamp)}
 _product_cache: dict[int, tuple[dict, float]] = {}
-_CACHE_TTL = 600  # 10 minutes
+_cache_last_populated: float = 0.0  # epoch when fetch_product_prices last completed
+
+
+def _cache_ttl() -> float:
+    from ..config import get_settings
+    hours = get_settings().wc_cache_ttl_hours
+    return hours * 3600 if hours > 0 else float("inf")
 
 
 def _cache_get(pid: int) -> dict | None:
     entry = _product_cache.get(pid)
-    if entry and time.time() - entry[1] < _CACHE_TTL:
+    if entry and time.time() - entry[1] < _cache_ttl():
         return entry[0]
     return None
 
 
 def _cache_set(pid: int, data: dict) -> None:
     _product_cache[pid] = (data, time.time())
+
+
+def clear_product_cache() -> None:
+    global _cache_last_populated
+    _product_cache.clear()
+    _cache_last_populated = 0.0
+
+
+def get_cache_info() -> dict:
+    now = time.time()
+    age = (now - _cache_last_populated) if _cache_last_populated else None
+    return {
+        "size": len(_product_cache),
+        "last_populated_ts": _cache_last_populated or None,
+        "age_seconds": age,
+    }
 
 
 def _parse_product(p: dict) -> dict:
@@ -173,6 +195,8 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
                     # what article:modified_time and the product page widget show
                     data["wc_date_modified"] = parent_map[ppid].get("wc_date_modified")
 
+    global _cache_last_populated
+    _cache_last_populated = time.time()
     return result
 
 

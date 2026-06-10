@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     # Comma-separated Nextcloud usernames that get the "admin" role, e.g. "alice,bob"
     super_admin_users: str = ""
 
+    # Product cache TTL in hours (default 6h). Set to 0 to disable caching.
+    wc_cache_ttl_hours: int = 6
+    # Auto-fetch interval in hours (default 4h). Set to 0 to disable auto-fetch.
+    wc_auto_fetch_hours: int = 4
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

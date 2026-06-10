@@ -19,9 +19,11 @@ from .services.auth import create_token, decode_token, is_super_admin, verify_ne
 from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet, write_price_to_sheet
 from .services.woocommerce import (
     batch_update_prices,
+    clear_product_cache,
     fetch_all_variations_stock,
     fetch_categories,
     fetch_product_prices,
+    get_cache_info,
     update_parent_stock_statuses,
     update_single_product,
 )
@@ -55,6 +57,33 @@ def _run_column_migrations():
 _run_column_migrations()
 
 app = FastAPI(title="WooPrice Sync", docs_url="/docs")
+
+
+# ── Auto-fetch background task ────────────────────────────────────────────────
+
+async def _auto_fetch_loop(interval_secs: int) -> None:
+    while True:
+        try:
+            await asyncio.sleep(60)  # check every minute
+            info = get_cache_info()
+            age = info.get("age_seconds")
+            if age is None or age >= interval_secs:
+                xlsx = await download_xlsx()
+                ids = [i["product_id"] for i in parse_price_list(xlsx)]
+                if ids:
+                    clear_product_cache()
+                    await fetch_product_prices(ids)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
+
+
+@app.on_event("startup")
+async def _start_auto_fetch():
+    s = get_settings()
+    if s.wc_auto_fetch_hours > 0:
+        asyncio.create_task(_auto_fetch_loop(s.wc_auto_fetch_hours * 3600))
 
 static_dir = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -285,6 +314,25 @@ async def health():
     return {"status": "ok", "wc_url": s.wc_url, "nextcloud_url": s.nextcloud_url}
 
 
+# ── Cache management ──────────────────────────────────────────────────────────
+
+@app.get("/api/cache/status")
+async def cache_status(user: dict = Depends(get_current_user)):
+    s = get_settings()
+    info = get_cache_info()
+    return {
+        **info,
+        "ttl_hours": s.wc_cache_ttl_hours,
+        "auto_fetch_hours": s.wc_auto_fetch_hours,
+    }
+
+
+@app.post("/api/cache/clear")
+async def cache_clear(user: dict = Depends(require_admin)):
+    clear_product_cache()
+    return {"message": "Product cache cleared"}
+
+
 # ── Sheet debug (admin) ───────────────────────────────────────────────────────
 
 @app.get("/api/debug/sheet")
@@ -343,6 +391,8 @@ async def get_app_settings(user: dict = Depends(require_admin)):
         "nextcloud_user": s.nextcloud_user,
         "nextcloud_file_path": s.nextcloud_file_path,
         "super_admin_users": s.super_admin_users,
+        "wc_cache_ttl_hours": s.wc_cache_ttl_hours,
+        "wc_auto_fetch_hours": s.wc_auto_fetch_hours,
     }
 
 
