@@ -19,8 +19,10 @@ from .services.auth import create_token, decode_token, is_super_admin, verify_ne
 from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet, write_price_to_sheet
 from .services.woocommerce import (
     batch_update_prices,
+    fetch_all_variations_stock,
     fetch_categories,
     fetch_product_prices,
+    update_parent_stock_statuses,
     update_single_product,
 )
 
@@ -42,6 +44,7 @@ def _run_column_migrations():
                 ("categories", "TEXT"),
                 ("row_color", "TEXT"),
                 ("last_price_updated", "TIMESTAMP"),
+                ("wc_date_modified", "TIMESTAMP"),
             ]:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_items ADD COLUMN {col_name} {col_type}"))
@@ -136,6 +139,28 @@ def _price_differs(old: str | None, new: str) -> bool:
         return old != new
 
 
+def _is_zero_price(price: str | None) -> bool:
+    if not price or price.strip() == "":
+        return True
+    try:
+        return float(price) == 0
+    except (ValueError, TypeError):
+        return False
+
+
+def _stock_from_price(price: str | None) -> str:
+    return "outofstock" if _is_zero_price(price) else "instock"
+
+
+def _parse_wc_dt(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
 # ── Serialisers ───────────────────────────────────────────────────────────────
 
 def _job_out(job: SyncJob) -> dict:
@@ -171,6 +196,7 @@ def _item_out(item: SyncItem) -> dict:
         "error_message": item.error_message,
         "synced_at": item.synced_at,
         "last_price_updated": item.last_price_updated,
+        "wc_date_modified": item.wc_date_modified,
         "changed": _price_differs(item.old_price, item.new_price),
     }
 
@@ -203,6 +229,32 @@ def _build_preview_row(
         "changed": _price_differs(old_price, new_price),
         "found_in_wc": bool(wc),
     }
+
+
+async def _sync_parent_stock(updates: list[dict], result_map: dict) -> None:
+    """After variation price sync, set parent stock_status based on all its variations."""
+    parents: dict[int, dict[int, str]] = {}
+    for u in updates:
+        pid = u.get("parent_id", 0)
+        if pid and result_map.get(u["product_id"], {}).get("success"):
+            parents.setdefault(pid, {})[u["product_id"]] = u["stock_status"]
+
+    if not parents:
+        return
+
+    parent_statuses: dict[int, str] = {}
+    for parent_id, var_statuses in parents.items():
+        if any(s == "instock" for s in var_statuses.values()):
+            parent_statuses[parent_id] = "instock"
+        else:
+            try:
+                all_vars = await fetch_all_variations_stock(parent_id)
+                merged = {v["id"]: var_statuses.get(v["id"], v["stock_status"]) for v in all_vars}
+                parent_statuses[parent_id] = "outofstock" if all(s == "outofstock" for s in merged.values()) else "instock"
+            except Exception:
+                pass
+
+    await update_parent_stock_statuses(parent_statuses)
 
 
 def _get_last_synced(db: Session, product_ids: list[int]) -> dict[int, datetime | None]:
@@ -442,7 +494,7 @@ async def get_analytics(user: dict = Depends(get_current_user), db: Session = De
         if price_set and item.stock_status == "outofstock":
             has_price_out_of_stock.append(d)
 
-        last_update = item.last_price_updated or item.synced_at
+        last_update = item.wc_date_modified or item.last_price_updated or item.synced_at
         if last_update is None or last_update < one_week_ago:
             stale_products.append(d)
 
@@ -561,6 +613,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
             categories=json.dumps(wc.get("categories", [])),
             row_color=row.get("row_color"),
             last_price_updated=last_synced.get(pid),
+            wc_date_modified=_parse_wc_dt(wc.get("wc_date_modified")),
         ))
         preview_rows.append(_build_preview_row(
             pid, wc, row["new_price"],
@@ -596,7 +649,11 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
         item.synced_at = datetime.utcnow()
 
     if to_update:
-        updates = [{"product_id": i.product_id, "new_price": i.new_price, "parent_id": i.parent_id or 0} for i in to_update]
+        updates = [
+            {"product_id": i.product_id, "new_price": i.new_price,
+             "parent_id": i.parent_id or 0, "stock_status": _stock_from_price(i.new_price)}
+            for i in to_update
+        ]
         try:
             wc_results = await batch_update_prices(updates)
         except Exception as exc:
@@ -613,6 +670,9 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
             item.synced_at = now
             if r.get("success"):
                 item.last_price_updated = now
+                item.stock_status = _stock_from_price(item.new_price)
+
+        await _sync_parent_stock(updates, result_map)
 
     job.updated_count = sum(1 for i in items if i.status == ItemStatus.updated)
     job.failed_count  = sum(1 for i in items if i.status == ItemStatus.failed)
@@ -724,6 +784,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                     categories=json.dumps(wc.get("categories", [])),
                     row_color=row.get("row_color"),
                     last_price_updated=last_synced.get(pid),
+                    wc_date_modified=_parse_wc_dt(wc.get("wc_date_modified")),
                 ))
                 preview_rows.append(_build_preview_row(
                     pid, wc, row["new_price"],
@@ -799,7 +860,11 @@ async def apply_stream(
                 item.synced_at = datetime.utcnow()
 
             if to_update:
-                updates = [{"product_id": i.product_id, "new_price": i.new_price, "parent_id": i.parent_id or 0} for i in to_update]
+                updates = [
+                    {"product_id": i.product_id, "new_price": i.new_price,
+                     "parent_id": i.parent_id or 0, "stock_status": _stock_from_price(i.new_price)}
+                    for i in to_update
+                ]
                 try:
                     wc_results = await batch_update_prices(updates)
                 except Exception as exc:
@@ -816,6 +881,7 @@ async def apply_stream(
                     item.synced_at = now
                     if r.get("success"):
                         item.last_price_updated = now
+                        item.stock_status = _stock_from_price(item.new_price)
                     yield ev({
                         "type": "item",
                         "product_id": item.product_id,
@@ -826,6 +892,8 @@ async def apply_stream(
                         "new_price": item.new_price,
                         "error": item.error_message or "",
                     })
+
+                await _sync_parent_stock(updates, result_map)
 
             job.updated_count = sum(1 for i in items if i.status == ItemStatus.updated)
             job.failed_count  = sum(1 for i in items if i.status == ItemStatus.failed)

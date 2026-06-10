@@ -57,6 +57,7 @@ class SyncItem(Base):
     error_message = Column(String, nullable=True)
     synced_at = Column(DateTime, nullable=True)
     last_price_updated = Column(DateTime, nullable=True)
+    wc_date_modified = Column(DateTime, nullable=True)
 
     job = relationship("SyncJob", back_populates="items")
 

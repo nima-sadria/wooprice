@@ -240,7 +240,12 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
         async def _post_batch(url: str, chunk: list[dict]) -> list[dict]:
-            payload = {"update": [{"id": u["product_id"], "regular_price": u["new_price"], "date_modified_gmt": now_iso} for u in chunk]}
+            def _item(u: dict) -> dict:
+                d: dict = {"id": u["product_id"], "regular_price": u["new_price"], "date_modified_gmt": now_iso}
+                if "stock_status" in u:
+                    d["stock_status"] = u["stock_status"]
+                return d
+            payload = {"update": [_item(u) for u in chunk]}
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             return _parse_results(resp.json().get("update", []))
@@ -260,3 +265,44 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
             results.extend(res)
 
     return results
+
+
+async def fetch_all_variations_stock(parent_id: int) -> list[dict]:
+    """Return [{id, stock_status}] for every variation of a parent product."""
+    variations: list[dict] = []
+    page = 1
+    async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+        while True:
+            resp = await client.get(
+                f"{_base()}/products/{parent_id}/variations",
+                params={"per_page": "100", "page": str(page), "_fields": "id,stock_status"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                break
+            variations.extend({"id": v["id"], "stock_status": v.get("stock_status", "outofstock")} for v in data)
+            if len(data) < 100:
+                break
+            page += 1
+    return variations
+
+
+async def update_parent_stock_statuses(parent_statuses: dict[int, str]) -> None:
+    """Batch-update stock_status on parent variable products."""
+    if not parent_statuses:
+        return
+    async with httpx.AsyncClient(auth=_auth(), timeout=60) as client:
+        async def _update_one(pid: int, status: str) -> None:
+            try:
+                resp = await client.put(
+                    f"{_base()}/products/{pid}",
+                    json={"stock_status": status},
+                )
+                resp.raise_for_status()
+                cached = _cache_get(pid)
+                if cached:
+                    cached["stock_status"] = status
+            except Exception:
+                pass
+        await asyncio.gather(*[_update_one(pid, s) for pid, s in parent_statuses.items()])
