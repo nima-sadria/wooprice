@@ -1091,8 +1091,8 @@ function renderAnalytics() {
       return true;
     }).sort(function(a, b) {
       if (sort === 'updated') {
-        var ta = a.last_price_updated || a.synced_at || '';
-        var tb = b.last_price_updated || b.synced_at || '';
+        var ta = a.wc_date_modified || a.last_price_updated || a.synced_at || '';
+        var tb = b.wc_date_modified || b.last_price_updated || b.synced_at || '';
         return ta < tb ? 1 : -1;
       }
       return (a.product_name || '').localeCompare(b.product_name || '');
@@ -1108,16 +1108,16 @@ function renderAnalytics() {
   document.getElementById('an-stale-count').textContent = stale.length + ' products';
 
   document.getElementById('an-no-price-body').innerHTML = noPrice.map(function(i) {
-    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td>' + stockBadge(i.stock_status) + '</td><td>' + (i.stock_quantity != null ? i.stock_quantity : '&#8212;') + '</td><td style="font-size:12px;color:var(--muted)">' + relTime(i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td>' + stockBadge(i.stock_status) + '</td><td>' + (i.stock_quantity != null ? i.stock_quantity : '&#8212;') + '</td><td style="font-size:12px;color:var(--muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 
   document.getElementById('an-no-stock-body').innerHTML = noStock.map(function(i) {
-    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--muted)">' + relTime(i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 
   document.getElementById('an-stale-body').innerHTML = stale.map(function(i) {
-    var lu = i.last_price_updated || i.synced_at;
-    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:' + (lu ? '#dc2626' : 'var(--muted)') + '">' + relTime(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    var lu = i.wc_date_modified || i.last_price_updated || i.synced_at;
+    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:#dc2626">' + toJalaliStr(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 }
 
