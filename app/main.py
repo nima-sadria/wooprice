@@ -517,7 +517,7 @@ async def get_analytics(user: dict = Depends(get_current_user), db: Session = De
     latest_id_sq = (
         db.query(func.max(SyncItem.id).label("max_id"))
         .join(SyncJob, SyncItem.job_id == SyncJob.id)
-        .filter(SyncJob.status == JobStatus.completed)
+        .filter(SyncJob.status.in_([JobStatus.completed, JobStatus.preview]))
         .group_by(SyncItem.product_id)
         .subquery()
     )
