@@ -111,6 +111,8 @@ async def fetch_product_prices(product_ids: list[int]) -> dict[int, dict]:
                     p = resp.json()
                     data = _parse_product(p)
                     data["parent_id"] = p.get("parent_id") or 0
+                    if data["parent_id"] > 0:
+                        data["wc_date_modified"] = None  # Phase 3 will set from parent
                     return p["id"], data
             except Exception:
                 pass
