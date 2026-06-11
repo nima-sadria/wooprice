@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import func, inspect as sa_inspect, text
@@ -68,6 +68,13 @@ def _run_column_migrations():
 _run_column_migrations()
 
 app = FastAPI(title="WooPrice Sync", docs_url="/docs")
+
+
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        raise exc
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 # ── Auto-fetch background task ────────────────────────────────────────────────
@@ -268,7 +275,7 @@ def _build_preview_row(
         lpu = lpu.isoformat()
     return {
         "product_id": pid,
-        "product_name": wc.get("name", ""),
+        "product_name": sheet_name or wc.get("name", ""),
         "sku": wc.get("sku", ""),
         "old_price": old_price or "",
         "new_price": new_price,
@@ -986,10 +993,11 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 pid = row["product_id"]
                 wc = wc_data.get(pid, {})
                 old_price = wc.get("price") or None
+                sname = row.get("sheet_name") or wc.get("name") or None
                 db.add(SyncItem(
                     job_id=job.id, product_id=pid,
                     parent_id=wc.get("parent_id") or 0,
-                    product_name=wc.get("name") or None,
+                    product_name=sname,
                     sku=wc.get("sku") or None,
                     old_price=old_price, new_price=row["new_price"],
                     sale_price=wc.get("sale_price") or None,

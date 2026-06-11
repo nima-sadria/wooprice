@@ -1,0 +1,371 @@
+{
+  "info": {
+    "name": "WooPrice API",
+    "description": "Complete API collection for WooPrice Sync — 28 endpoints.\n\n**Setup:**\n1. Set collection variable `base_url` to your server (e.g. `https://woo.softpple.business`).\n2. Run `POST /api/auth/login` and copy the token into the collection variable `token`.\n3. All other requests use `{{token}}` automatically.\n\n**Auth levels:**\n- `None` — no token required\n- `User` — any valid token\n- `Admin` — token must belong to a user listed in `SUPER_ADMIN_USERS` env var",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://woo.softpple.business" },
+    { "key": "token",    "value": "" },
+    { "key": "job_id",   "value": "1" },
+    { "key": "product_id", "value": "17405" }
+  ],
+  "item": [
+
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/login", "host": ["{{base_url}}"], "path": ["api","auth","login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"your_nextcloud_username\",\n  \"password\": \"your_nextcloud_password\"\n}" },
+            "description": "Auth: None\n\nVerifies Nextcloud credentials. Returns a JWT (24h expiry).\n\nCopy `token` from the response into the collection variable."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/auth/me", "host": ["{{base_url}}"], "path": ["api","auth","me"] },
+            "description": "Auth: User\n\nReturns the current user's username and role.\n\nResponse: `{\"sub\": \"username\", \"role\": \"admin|user\", \"exp\": 1234567890}`"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/health", "host": ["{{base_url}}"], "path": ["api","health"] },
+            "description": "Auth: None\n\nQuick liveness check. Returns WC and Nextcloud URLs configured.\n\nResponse: `{\"status\": \"ok\", \"wc_url\": \"...\", \"nextcloud_url\": \"...\"}`"
+          }
+        },
+        {
+          "name": "Settings (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/settings", "host": ["{{base_url}}"], "path": ["api","settings"] },
+            "description": "Auth: Admin\n\nReturns app configuration (WC URL, cache TTL, auto-fetch interval). Does not expose secrets."
+          }
+        },
+        {
+          "name": "Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/audit-logs?limit=50",
+              "host": ["{{base_url}}"], "path": ["api","audit-logs"],
+              "query": [{ "key": "limit", "value": "50", "description": "Max rows to return (default 200)" }]
+            },
+            "description": "Auth: User\n\nReturns login, fetch, and apply events with username, timestamp, and IP.\n\nQuery params:\n- `limit` (int, default 200)"
+          }
+        },
+        {
+          "name": "Debug Sheet (Internal/Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/debug/sheet", "host": ["{{base_url}}"], "path": ["api","debug","sheet"] },
+            "description": "Auth: Admin — INTERNAL USE ONLY\n\nDownloads the Nextcloud spreadsheet and returns the first 12 rows × 8 columns as raw cell values. Use this to diagnose column mapping issues.\n\nDo not expose this endpoint publicly."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Config",
+      "item": [
+        {
+          "name": "Get Alarm Settings",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/alarm-settings", "host": ["{{base_url}}"], "path": ["api","alarm-settings"] },
+            "description": "Auth: User\n\nReturns price-change alarm thresholds. `category_id: null` means the global default applies to all categories.\n\nResponse: `[{\"id\": 1, \"category_id\": null, \"threshold_percent\": 20.0}]`"
+          }
+        },
+        {
+          "name": "Set Alarm Settings (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/api/alarm-settings", "host": ["{{base_url}}"], "path": ["api","alarm-settings"] },
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  { \"category_id\": null, \"threshold_percent\": 20.0 },\n  { \"category_id\": 15,   \"threshold_percent\": 10.0 }\n]"
+            },
+            "description": "Auth: Admin\n\nReplaces all alarm thresholds. Send an array — `category_id: null` sets the global default.\n\nRequest body: `[{\"category_id\": int|null, \"threshold_percent\": float}]`"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Data",
+      "item": [
+        {
+          "name": "Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/dashboard", "host": ["{{base_url}}"], "path": ["api","dashboard"] },
+            "description": "Auth: User\n\nReturns stat card data: total syncs, latest job, product stock counts, 30-day sync chart, recent audit log entries."
+          }
+        },
+        {
+          "name": "Analytics",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/analytics", "host": ["{{base_url}}"], "path": ["api","analytics"] },
+            "description": "Auth: User\n\nReturns three product lists based on the most recent SyncItem per product:\n- `in_stock_no_price` — in stock but no price set\n- `has_price_out_of_stock` — price set but out of stock\n- `stale_products` — not updated in over 7 days"
+          }
+        },
+        {
+          "name": "Categories",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/categories", "host": ["{{base_url}}"], "path": ["api","categories"] },
+            "description": "Auth: User\n\nReturns WooCommerce categories (cached 5 min). Serves stale cache if WooCommerce is temporarily unavailable.\n\nResponse: `[{\"id\": 1, \"name\": \"تبلت اپل\", \"slug\": \"apple-tablet\"}]`"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Cache",
+      "item": [
+        {
+          "name": "WC In-Memory Cache Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/cache/status", "host": ["{{base_url}}"], "path": ["api","cache","status"] },
+            "description": "Auth: User\n\nStatus of the in-memory WooCommerce product cache (used for individual price lookups).\n\nResponse includes `age_seconds`, `ttl_hours`, `auto_fetch_hours`."
+          }
+        },
+        {
+          "name": "Clear WC In-Memory Cache (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/cache/clear", "host": ["{{base_url}}"], "path": ["api","cache","clear"] },
+            "description": "Auth: Admin\n\nClears the in-memory WooCommerce product cache. Next preview will re-fetch from WooCommerce."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List Products (DB Cache)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/products", "host": ["{{base_url}}"], "path": ["api","products"] },
+            "description": "Auth: User\n\nReturns all products stored in the local DB cache (`products_cache` table).\n\nRun `GET /api/fetch/full` first to populate. Returns `{\"stats\": {...}, \"products\": [...]}`."
+          }
+        },
+        {
+          "name": "DB Cache Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/products/cache-status", "host": ["{{base_url}}"], "path": ["api","products","cache-status"] },
+            "description": "Auth: User\n\nReturns `{\"total\": N, \"last_synced_at\": \"ISO-datetime\"}`. `total` is 0 until a full sync is run."
+          }
+        },
+        {
+          "name": "Clear DB Cache (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/products/cache-clear", "host": ["{{base_url}}"], "path": ["api","products","cache-clear"] },
+            "description": "Auth: Admin\n\nDeletes all rows from the `products_cache` DB table. Next preview will re-fetch all products from WooCommerce."
+          }
+        },
+        {
+          "name": "Update Product Price",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/api/products/{{product_id}}/price", "host": ["{{base_url}}"], "path": ["api","products","{{product_id}}","price"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_price\": \"299.99\",\n  \"parent_id\": 0,\n  \"job_id\": null\n}"
+            },
+            "description": "Auth: User\n\nUpdates a single product price in WooCommerce AND writes back to the Nextcloud spreadsheet.\n\nRequest body:\n- `new_price` (str, required) — new price as a decimal string\n- `parent_id` (int, default 0) — set if this is a variation\n- `job_id` (int|null) — if provided, also updates the SyncItem in DB\n\nResponse: `{\"success\": true, \"product_id\": N, \"new_price\": \"299.99\"}`"
+          }
+        },
+        {
+          "name": "Update Product Stock",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": { "raw": "{{base_url}}/api/products/{{product_id}}/stock", "host": ["{{base_url}}"], "path": ["api","products","{{product_id}}","stock"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stock_status\": \"instock\",\n  \"stock_quantity\": 10,\n  \"parent_id\": 0,\n  \"job_id\": null\n}"
+            },
+            "description": "Auth: User\n\nUpdates a single product's stock status and/or quantity in WooCommerce.\n\nRequest body:\n- `stock_status` (str, required) — `\"instock\"` or `\"outofstock\"`\n- `stock_quantity` (int|null) — if set, also enables `manage_stock`\n- `parent_id` (int, default 0) — set if this is a variation\n- `job_id` (int|null) — if provided, also updates the SyncItem in DB\n\nResponse: `{\"success\": true, \"product_id\": N}`"
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Sync — Full Fetch",
+      "item": [
+        {
+          "name": "Full WC Sync (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": {
+              "raw": "{{base_url}}/api/fetch/full?token={{token}}",
+              "host": ["{{base_url}}"], "path": ["api","fetch","full"],
+              "query": [{ "key": "token", "value": "{{token}}", "description": "JWT token (SSE cannot use headers)" }]
+            },
+            "description": "Auth: User (query-string token)\n\nStreams a full WooCommerce product sync into the local DB cache. Fetches ALL products and variations via paginated WC REST API.\n\nSSE event format: `data: {\"step\": \"...\", \"status\": \"running|ok|error\", \"msg\": \"...\"}`\n\nExpected sequence:\n1. `{\"step\":\"start\", \"status\":\"running\"}`\n2. `{\"step\":\"fetch\", \"status\":\"running\", \"msg\":\"Fetched N products...\"}`\n3. `{\"step\":\"done\", \"status\":\"ok\", \"msg\":\"Cache updated: X new, Y updated\"}`\n\nRun this once after deployment to populate the cache. After that, use Light Sync for incremental updates.\n\n⚠️ Postman does not render SSE streams live. View raw response body for the event lines."
+          }
+        },
+        {
+          "name": "Light WC Sync (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": {
+              "raw": "{{base_url}}/api/fetch/light?token={{token}}",
+              "host": ["{{base_url}}"], "path": ["api","fetch","light"],
+              "query": [{ "key": "token", "value": "{{token}}" }]
+            },
+            "description": "Auth: User (query-string token)\n\nStreams a light sync — fetches only products modified after `last_synced_at` from the DB cache.\n\nRequires: a full sync must have been run first. Returns `error` if no prior sync found.\n\nSame SSE event format as Full Sync."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Sync — Preview & Apply",
+      "item": [
+        {
+          "name": "Create Preview (non-streaming)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/preview", "host": ["{{base_url}}"], "path": ["api","preview"] },
+            "description": "Auth: User\n\nDownloads the Nextcloud spreadsheet, looks up products from DB cache (falls back to WooCommerce for missing IDs), and returns a full preview result in one HTTP response.\n\nUse `GET /api/preview/stream` instead for real-time progress.\n\nResponse: `{\"job_id\": N, \"total\": N, \"changed_count\": N, \"unchanged_count\": N, \"items\": [...]}`\n\nItem fields: `product_id`, `product_name` (Column A), `sku`, `old_price`, `new_price`, `sale_price`, `stock_status`, `stock_quantity`, `categories`, `row_color`, `changed` (bool), `last_price_updated`, `wc_date_modified`"
+          }
+        },
+        {
+          "name": "Preview Stream (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": {
+              "raw": "{{base_url}}/api/preview/stream?token={{token}}",
+              "host": ["{{base_url}}"], "path": ["api","preview","stream"],
+              "query": [{ "key": "token", "value": "{{token}}" }]
+            },
+            "description": "Auth: User (query-string token)\n\nStreams the full preview flow with live progress events:\n1. `{\"step\":\"excel\", \"status\":\"running\"}` — downloading spreadsheet\n2. `{\"step\":\"excel\", \"status\":\"done\", \"msg\":\"Found N products\"}`\n3. `{\"step\":\"wc\", \"status\":\"running\"}` — fetching missing products\n4. `{\"step\":\"wc\", \"status\":\"done\"}`\n5. `{\"step\":\"calc\", \"status\":\"running\"}` — calculating diffs\n6. `{\"step\":\"calc\", \"status\":\"done\"}`\n7. `{\"step\":\"preview\", \"status\":\"done\", \"job_id\": N, \"items\": [...]}` — full result\n\nAlso sends `: keepalive` comments every 10s while fetching WooCommerce to prevent proxy timeout.\n\nProduct names in items use Column A as authoritative source, falling back to WooCommerce name."
+          }
+        },
+        {
+          "name": "Confirm Sync (Apply)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/sync/{{job_id}}/confirm", "host": ["{{base_url}}"], "path": ["api","sync","{{job_id}}","confirm"] },
+            "description": "Auth: User\n\nApplies a preview job — pushes all changed prices to WooCommerce via batch API, updates parent stock statuses.\n\nJob must be in `preview` status. Returns immediately with final counts.\n\nResponse: `{\"job_id\": N, \"status\": \"completed\", \"updated\": N, \"failed\": N, \"skipped\": N}`\n\nErrors: `404` job not found, `400` wrong status, `502` WooCommerce batch failed."
+          }
+        },
+        {
+          "name": "Apply Stream (SSE)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "text/event-stream" }],
+            "url": {
+              "raw": "{{base_url}}/api/sync/{{job_id}}/apply-stream?token={{token}}&sid=17405&sid=51711",
+              "host": ["{{base_url}}"], "path": ["api","sync","{{job_id}}","apply-stream"],
+              "query": [
+                { "key": "token", "value": "{{token}}" },
+                { "key": "sid",   "value": "17405", "description": "Product ID to include in this apply (repeat for each)" },
+                { "key": "sid",   "value": "51711" }
+              ]
+            },
+            "description": "Auth: User (query-string token)\n\nStreams the apply operation for selected product IDs (`?sid=` repeated). Emits one event per product as it is updated.\n\nSSE event types:\n- `{\"type\":\"item\", \"product_id\":N, \"product_name\":\"...\", \"status\":\"updated|failed|skipped\", \"old_price\":\"...\", \"new_price\":\"...\", \"error\":\"\"}`\n- `{\"type\":\"done\", \"job_id\":N, \"updated\":N, \"failed\":N, \"skipped\":N}`\n- `{\"type\":\"error\", \"msg\":\"...\"}`"
+          }
+        },
+        {
+          "name": "Cancel Preview",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/sync/{{job_id}}", "host": ["{{base_url}}"], "path": ["api","sync","{{job_id}}"] },
+            "description": "Auth: User\n\nCancels a preview job (sets status to `cancelled`). Only works on jobs with status `preview`.\n\nResponse: `{\"job_id\": N, \"status\": \"cancelled\"}`\n\nErrors: `404` not found, `400` job is not in preview status."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Jobs",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/jobs?limit=30",
+              "host": ["{{base_url}}"], "path": ["api","jobs"],
+              "query": [{ "key": "limit", "value": "30", "description": "Max jobs to return (default 30)" }]
+            },
+            "description": "Auth: User\n\nReturns the most recent sync jobs ordered by creation time descending.\n\nEach job: `{id, created_at, completed_at, status, total_count, updated_count, failed_count, skipped_count}`\n\nStatuses: `preview | running | completed | failed | cancelled`"
+          }
+        },
+        {
+          "name": "Get Job Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/jobs/{{job_id}}", "host": ["{{base_url}}"], "path": ["api","jobs","{{job_id}}"] },
+            "description": "Auth: User\n\nReturns full job details including all SyncItems.\n\nResponse: job object + `items` array. Each item includes product_id, product_name (Column A), sku, old_price, new_price, stock_status, status (pending|updated|failed|skipped), error_message, synced_at."
+          }
+        },
+        {
+          "name": "Write Back to Sheet",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{base_url}}/api/jobs/{{job_id}}/writeback", "host": ["{{base_url}}"], "path": ["api","jobs","{{job_id}}","writeback"] },
+            "description": "Auth: User\n\nWrites sync results back to the Nextcloud spreadsheet:\n- Column E: status (updated/failed/skipped)\n- Column F: synced_at timestamp\n- Column G: error message\n\nJob must be in `completed` status.\n\nErrors: `404` not found, `400` job not completed, `502` Nextcloud upload failed."
+          }
+        }
+      ]
+    }
+
+  ]
+}
