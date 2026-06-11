@@ -74,6 +74,11 @@ def _run_column_migrations():
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_items ADD COLUMN {col_name} {col_type}"))
 
+        if "audit_logs" in existing_tables:
+            existing_cols = {c["name"] for c in inspector.get_columns("audit_logs")}
+            if "detail" not in existing_cols:
+                conn.execute(text("ALTER TABLE audit_logs ADD COLUMN detail TEXT"))
+
         conn.commit()
 
 
@@ -184,8 +189,21 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
 
 # ── Audit logging ─────────────────────────────────────────────────────────────
 
-def _audit(db: Session, username: str, action: str, ip: str = "unknown", job_id: int | None = None):
-    db.add(AuditLog(username=username, action=action, ip_address=ip, job_id=job_id))
+def _audit(
+    db: Session,
+    username: str,
+    action: str,
+    ip: str = "unknown",
+    job_id: int | None = None,
+    detail: dict | None = None,
+):
+    db.add(AuditLog(
+        username=username,
+        action=action,
+        ip_address=ip,
+        job_id=job_id,
+        detail=json.dumps(detail, ensure_ascii=False) if detail else None,
+    ))
     db.commit()
 
 
@@ -666,17 +684,24 @@ async def get_audit_logs(
     db: Session = Depends(get_db),
 ):
     logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
-    return [
-        {
+    result = []
+    for l in logs:
+        entry = {
             "id": l.id,
             "username": l.username,
             "action": l.action,
             "timestamp": l.timestamp,
             "ip_address": l.ip_address,
             "job_id": l.job_id,
+            "detail": None,
         }
-        for l in logs
-    ]
+        if l.detail:
+            try:
+                entry["detail"] = json.loads(l.detail)
+            except Exception:
+                entry["detail"] = l.detail
+        result.append(entry)
+    return result
 
 
 # ── Categories (cached 5 min) ─────────────────────────────────────────────────
@@ -840,6 +865,11 @@ async def update_price(
     db: Session = Depends(get_db),
 ):
     effective_parent_id = _resolve_parent_id(db, product_id, body.parent_id or 0)
+
+    # Read old price from cache before overwriting it
+    cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
+    old_price = cache_row.final_price or cache_row.regular_price if cache_row else None
+
     try:
         await update_single_product(product_id, {"regular_price": body.new_price}, effective_parent_id)
     except Exception as exc:
@@ -854,7 +884,15 @@ async def update_price(
         "regular_price": body.new_price,
         "final_price": body.new_price,
     })
-    db.commit()
+
+    _audit(db, user["sub"], "update_price", detail={
+        "product_id": product_id,
+        "parent_id": effective_parent_id,
+        "old_price": old_price,
+        "new_price": body.new_price,
+        "cache_hit": cache_hit,
+    })
+    # _audit calls db.commit(), so no separate commit needed here
 
     now = datetime.utcnow()
     if body.job_id:
@@ -887,6 +925,12 @@ async def update_stock(
         wc_payload["manage_stock"] = True
 
     effective_parent_id = _resolve_parent_id(db, product_id, body.parent_id or 0)
+
+    # Read old stock from cache before overwriting it
+    cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
+    old_stock_status = cache_row.stock_status if cache_row else None
+    old_stock_quantity = cache_row.stock_quantity if cache_row else None
+
     try:
         await update_single_product(product_id, wc_payload, effective_parent_id)
     except Exception as exc:
@@ -896,7 +940,16 @@ async def update_stock(
     if body.stock_quantity is not None:
         cache_fields["stock_quantity"] = body.stock_quantity
     cache_hit = patch_cached_product(db, product_id, cache_fields)
-    db.commit()
+
+    _audit(db, user["sub"], "update_stock", detail={
+        "product_id": product_id,
+        "parent_id": effective_parent_id,
+        "old_stock_status": old_stock_status,
+        "new_stock_status": body.stock_status,
+        "old_stock_quantity": old_stock_quantity,
+        "new_stock_quantity": body.stock_quantity,
+        "cache_hit": cache_hit,
+    })
 
     if body.job_id:
         item = (

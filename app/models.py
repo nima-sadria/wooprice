@@ -94,12 +94,13 @@ class ProductCache(Base):
 
 
 class AuditLog(Base):
-    """Records every login, fetch preview, and apply action with user + timestamp."""
+    """Records every login, fetch preview, apply, and direct product update."""
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True)
     username = Column(String, nullable=False, index=True)
-    action = Column(String, nullable=False)  # "login" | "fetch" | "apply"
+    action = Column(String, nullable=False)  # "login"|"fetch"|"apply"|"update_price"|"update_stock"
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     ip_address = Column(String, nullable=True)
     job_id = Column(Integer, nullable=True)
+    detail = Column(Text, nullable=True)  # JSON: product_id, old/new values, parent_id
