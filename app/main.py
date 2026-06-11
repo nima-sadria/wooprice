@@ -198,6 +198,7 @@ def _audit(
 ):
     """Write an audit record using a dedicated session so caller session state
     never affects the write, and audit failure never breaks the response."""
+    logger.info("audit: action=%s user=%s job_id=%s", action, username, job_id)
     _db = SessionLocal()
     try:
         _db.add(AuditLog(
@@ -208,8 +209,9 @@ def _audit(
             detail=json.dumps(detail, ensure_ascii=False) if detail else None,
         ))
         _db.commit()
+        logger.info("audit: committed action=%s user=%s", action, username)
     except Exception as exc:
-        logger.error("Audit write failed [action=%s user=%s]: %s", action, username, exc)
+        logger.error("audit: write failed [action=%s user=%s]: %s", action, username, exc)
         try:
             _db.rollback()
         except Exception:
@@ -872,10 +874,13 @@ def _resolve_parent_id(db: Session, product_id: int, requested: int) -> int:
 async def update_price(
     product_id: int,
     body: PriceUpdateRequest,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    logger.info("update_price: product_id=%s user=%s", product_id, user.get("sub"))
     effective_parent_id = _resolve_parent_id(db, product_id, body.parent_id or 0)
+    ip = _client_ip(request)
 
     # Read old price from cache before overwriting it
     cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
@@ -886,24 +891,26 @@ async def update_price(
     except Exception as exc:
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 
-    try:
-        await write_price_to_sheet(product_id, body.new_price)
-    except Exception as exc:
-        raise HTTPException(502, f"Excel writeback failed: {exc}")
-
+    # Patch cache and write audit BEFORE Nextcloud writeback — ensures the record
+    # is always committed once WooCommerce accepts the change.
     cache_hit = patch_cached_product(db, product_id, {
         "regular_price": body.new_price,
         "final_price": body.new_price,
     })
     db.commit()
-
-    _audit(user["sub"], "update_price", detail={
+    logger.info("update_price: cache patched product_id=%s cache_hit=%s", product_id, cache_hit)
+    _audit(user["sub"], "update_price", ip=ip, detail={
         "product_id": product_id,
         "parent_id": effective_parent_id,
         "old_price": old_price,
         "new_price": body.new_price,
         "cache_hit": cache_hit,
     })
+
+    try:
+        await write_price_to_sheet(product_id, body.new_price)
+    except Exception as exc:
+        raise HTTPException(502, f"Excel writeback failed: {exc}")
 
     now = datetime.utcnow()
     if body.job_id:
@@ -927,15 +934,18 @@ async def update_price(
 async def update_stock(
     product_id: int,
     body: StockUpdateRequest,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    logger.info("update_stock: product_id=%s user=%s", product_id, user.get("sub"))
     wc_payload: dict = {"stock_status": body.stock_status}
     if body.stock_quantity is not None:
         wc_payload["stock_quantity"] = body.stock_quantity
         wc_payload["manage_stock"] = True
 
     effective_parent_id = _resolve_parent_id(db, product_id, body.parent_id or 0)
+    ip = _client_ip(request)
 
     # Read old stock from cache before overwriting it
     cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
@@ -952,8 +962,8 @@ async def update_stock(
         cache_fields["stock_quantity"] = body.stock_quantity
     cache_hit = patch_cached_product(db, product_id, cache_fields)
     db.commit()
-
-    _audit(user["sub"], "update_stock", detail={
+    logger.info("update_stock: cache patched product_id=%s cache_hit=%s", product_id, cache_hit)
+    _audit(user["sub"], "update_stock", ip=ip, detail={
         "product_id": product_id,
         "parent_id": effective_parent_id,
         "old_stock_status": old_stock_status,
@@ -979,6 +989,42 @@ async def update_stock(
     if not cache_hit:
         result["warning"] = "WooCommerce updated, but product was not present in local cache."
     return result
+
+
+# ── System diagnostics ────────────────────────────────────────────────────────
+
+@app.get("/api/system/diagnostics")
+async def system_diagnostics(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not is_super_admin(user["sub"]):
+        raise HTTPException(403, "Admin only")
+
+    import subprocess
+    settings = get_settings()
+    products_count = db.query(func.count(ProductCache.wc_id)).scalar() or 0
+    audit_count = db.query(func.count(AuditLog.id)).scalar() or 0
+    last_fetch = get_last_sync_time(db)
+
+    secret_bytes = len(settings.jwt_secret.encode())
+    jwt_status = f"ok ({secret_bytes} bytes)" if secret_bytes >= 32 else f"INSECURE — only {secret_bytes} bytes, need 32+"
+
+    try:
+        git_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            text=True, stderr=subprocess.DEVNULL, timeout=3
+        ).strip()
+    except Exception:
+        git_hash = "unavailable"
+
+    return {
+        "db_path": settings.database_url,
+        "products_cache_count": products_count,
+        "audit_logs_count": audit_count,
+        "last_full_fetch": last_fetch.isoformat() if last_fetch else None,
+        "jwt_secret_status": jwt_status,
+        "wc_url": settings.wc_url,
+        "nextcloud_url": settings.nextcloud_url,
+        "git_commit": git_hash,
+    }
 
 
 # ── 1. Create preview ─────────────────────────────────────────────────────────
