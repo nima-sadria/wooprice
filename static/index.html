@@ -834,6 +834,7 @@ function _injectTopbarExtras() {
     hw.id = 'wp-health-wrap';
     hw.innerHTML = '<span id="wp-health-dot"></span><span id="wp-health-text">Checking…</span>';
     topbarActions.insertBefore(hw, topbarActions.firstChild);
+    checkHealth();
   }
 
   // ── Theme toggle ──
