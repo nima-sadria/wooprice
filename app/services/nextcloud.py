@@ -30,7 +30,7 @@ async def download_xlsx(force: bool = False) -> bytes:
     ):
         return _xlsx_cache["data"]
     async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
-        resp = await client.get(_webdav_url(), timeout=30)
+        resp = await client.get(_webdav_url(), timeout=httpx.Timeout(10.0, read=60.0))
         resp.raise_for_status()
         data = resp.content
     _xlsx_cache["data"] = data

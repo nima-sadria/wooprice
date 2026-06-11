@@ -89,8 +89,22 @@ async def _auto_fetch_loop(interval_secs: int) -> None:
             pass
 
 
+async def _cleanup_stale_jobs():
+    db = SessionLocal()
+    try:
+        cutoff = datetime.utcnow() - timedelta(hours=1)
+        db.query(SyncJob).filter(
+            SyncJob.status == JobStatus.preview,
+            SyncJob.created_at < cutoff,
+        ).update({"status": JobStatus.cancelled})
+        db.commit()
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 async def _start_auto_fetch():
+    asyncio.create_task(_cleanup_stale_jobs())
     s = get_settings()
     if s.wc_auto_fetch_hours > 0:
         asyncio.create_task(_auto_fetch_loop(s.wc_auto_fetch_hours * 3600))
@@ -962,6 +976,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
 
             last_synced = _get_last_synced(db, product_ids)
 
+            db.query(SyncJob).filter(SyncJob.status == JobStatus.preview).update({"status": JobStatus.cancelled})
             job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items))
             db.add(job)
             db.flush()

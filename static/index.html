@@ -1096,11 +1096,13 @@ function startPreview() {
     if (d.status === 'error') {
       evSource.close();
       document.getElementById('fetch-btn').disabled = false;
+      if (d.step && document.getElementById('step-' + d.step)) setStep(d.step, 'error');
     }
   };
   evSource.onerror = function() {
     evSource.close();
-    addLog('Connection error', 'err');
+    setStep('excel', 'error');
+    addLog('Connection lost — Nextcloud may be unreachable. Please try again.', 'err');
     document.getElementById('fetch-btn').disabled = false;
   };
 }
