@@ -37,6 +37,7 @@ from .services.woocommerce import (
     fetch_product_prices,
     fetch_products_modified_after,
     get_cache_info,
+    lookup_product_info,
     update_parent_stock_statuses,
     update_single_product,
 )
@@ -723,6 +724,42 @@ async def get_analytics(user: dict = Depends(get_current_user), db: Session = De
 
 # ── Live price/stock update ───────────────────────────────────────────────────
 
+@app.get("/api/products/{product_id}/lookup")
+async def lookup_product(
+    product_id: int,
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resolve a product ID to its type and parent_id.
+    Checks local DB cache first; falls back to a direct WooCommerce query."""
+    row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
+    if row:
+        return {
+            "found": True,
+            "source": "cache",
+            "wc_id": row.wc_id,
+            "product_type": row.product_type or "simple",
+            "parent_id": row.parent_id or 0,
+            "name": row.name or "",
+            "sku": row.sku or "",
+            "status": row.status or "",
+            "last_synced_at": row.last_synced_at.isoformat() if row.last_synced_at else None,
+        }
+    try:
+        return await lookup_product_info(product_id)
+    except Exception as exc:
+        raise HTTPException(502, f"WooCommerce lookup failed: {exc}")
+
+
+def _resolve_parent_id(db: Session, product_id: int, requested: int) -> int:
+    """Return the best available parent_id for a product.
+    Caller-supplied value always wins; falls back to DB cache."""
+    if requested and requested > 0:
+        return requested
+    row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
+    return (row.parent_id or 0) if row else 0
+
+
 @app.put("/api/products/{product_id}/price")
 async def update_price(
     product_id: int,
@@ -730,8 +767,9 @@ async def update_price(
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    effective_parent_id = _resolve_parent_id(db, product_id, body.parent_id or 0)
     try:
-        await update_single_product(product_id, {"regular_price": body.new_price}, body.parent_id)
+        await update_single_product(product_id, {"regular_price": body.new_price}, effective_parent_id)
     except Exception as exc:
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 
@@ -776,8 +814,9 @@ async def update_stock(
         wc_payload["stock_quantity"] = body.stock_quantity
         wc_payload["manage_stock"] = True
 
+    effective_parent_id = _resolve_parent_id(db, product_id, body.parent_id or 0)
     try:
-        await update_single_product(product_id, wc_payload, body.parent_id)
+        await update_single_product(product_id, wc_payload, effective_parent_id)
     except Exception as exc:
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 

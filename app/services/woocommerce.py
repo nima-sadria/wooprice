@@ -249,6 +249,45 @@ async def fetch_categories() -> list[dict]:
     return categories
 
 
+async def lookup_product_info(product_id: int) -> dict:
+    """
+    Look up a product directly from WooCommerce.
+    Returns {wc_id, product_type, parent_id, name, sku, found, source}.
+    Tries /products/{id} first; 404 means it is likely a variation
+    (WC REST does not expose variations via top-level /products/{id}).
+    """
+    async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+        resp = await client.get(
+            f"{_base()}/products/{product_id}",
+            params={"_fields": "id,type,name,sku,parent_id,status"},
+        )
+        if resp.status_code == 200:
+            p = resp.json()
+            return {
+                "found": True,
+                "source": "woocommerce",
+                "wc_id": p.get("id"),
+                "product_type": p.get("type", "simple"),
+                "parent_id": p.get("parent_id") or 0,
+                "name": p.get("name", ""),
+                "sku": p.get("sku", ""),
+                "status": p.get("status", ""),
+            }
+        if resp.status_code == 404:
+            return {
+                "found": False,
+                "source": "woocommerce",
+                "wc_id": product_id,
+                "note": (
+                    "Not found as a top-level product. "
+                    "If this is a variation, parent_id is required to update it. "
+                    "Run GET /api/fetch/full to populate the local cache with parent_id data."
+                ),
+            }
+        resp.raise_for_status()
+        return {"found": False, "source": "woocommerce", "wc_id": product_id}
+
+
 async def update_single_product(product_id: int, updates: dict, parent_id: int = 0) -> dict:
     """PUT a single product or variation with arbitrary field updates."""
     async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
