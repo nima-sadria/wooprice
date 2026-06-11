@@ -1,9 +1,18 @@
 import asyncio
 import json
+import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+_SSE_HEADERS = {
+    "X-Accel-Buffering": "no",   # tell nginx: do not buffer this stream
+    "Cache-Control": "no-cache",
+    "Content-Type": "text/event-stream",
+}
 
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -429,21 +438,55 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
 
         yield ev({"step": "start", "status": "running", "msg": "Starting full WooCommerce product sync…"})
         try:
-            products, var_warnings = await fetch_all_products_full()
+            # Phase 1: fetch from WooCommerce — keepalive every 10 s so nginx
+            # does not close the connection before the catalog is downloaded.
+            yield ev({"step": "fetch", "status": "running", "msg": "Connecting to WooCommerce, fetching product catalog…"})
+            fetch_task = asyncio.create_task(fetch_all_products_full())
+            while not fetch_task.done():
+                yield ": keepalive\n\n"
+                await asyncio.sleep(10)
+            products, var_warnings = await fetch_task  # re-raises if the task failed
+
+            # Phase 2: report per-variation warnings
             for w in var_warnings:
+                logger.warning("fetch/full variation warning: %s", w)
                 yield ev({"step": "warning", "status": "warning", "msg": w})
-            yield ev({"step": "fetch", "status": "running", "msg": f"Fetched {len(products)} products from WooCommerce, saving to cache…"})
-            db = SessionLocal()
+
+            yield ev({
+                "step": "fetch",
+                "status": "done",
+                "msg": f"Fetched {len(products)} products from WooCommerce"
+                       + (f" ({len(var_warnings)} variation warning(s))" if var_warnings else ""),
+                "count": len(products),
+                "warnings": len(var_warnings),
+            })
+
+            # Phase 3: upsert into persistent DB cache
+            yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} products to local cache…"})
+            _db = SessionLocal()
             try:
-                inserted, updated = upsert_products(db, products)
-                db.commit()
+                inserted, updated = upsert_products(_db, products)
+                _db.commit()
             finally:
-                db.close()
-            yield ev({"step": "done", "status": "ok", "msg": f"Cache updated: {inserted} new, {updated} updated ({len(products)} total)"})
+                _db.close()
+
+            yield ev({
+                "step": "done",
+                "status": "ok",
+                "msg": f"Cache updated: {inserted} new, {updated} updated ({len(products)} total)",
+                "inserted": inserted,
+                "updated": updated,
+                "total": len(products),
+            })
+
+        except asyncio.CancelledError:
+            logger.warning("fetch/full SSE stream cancelled")
+            raise
         except Exception as exc:
+            logger.exception("fetch/full failed: %s", exc)
             yield ev({"step": "error", "status": "error", "msg": str(exc)})
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @app.get("/api/fetch/light")
@@ -483,21 +526,50 @@ async def fetch_light_stream(
 
         yield ev({"step": "start", "status": "running", "msg": f"Fetching products modified after {modified_after}…"})
         try:
-            products, var_warnings = await fetch_products_modified_after(modified_after)
+            yield ev({"step": "fetch", "status": "running", "msg": "Connecting to WooCommerce…"})
+            fetch_task = asyncio.create_task(fetch_products_modified_after(modified_after))
+            while not fetch_task.done():
+                yield ": keepalive\n\n"
+                await asyncio.sleep(10)
+            products, var_warnings = await fetch_task
+
             for w in var_warnings:
+                logger.warning("fetch/light variation warning: %s", w)
                 yield ev({"step": "warning", "status": "warning", "msg": w})
-            yield ev({"step": "fetch", "status": "running", "msg": f"Fetched {len(products)} modified products, updating cache…"})
-            inner_db = SessionLocal()
+
+            yield ev({
+                "step": "fetch",
+                "status": "done",
+                "msg": f"Fetched {len(products)} modified products",
+                "count": len(products),
+                "warnings": len(var_warnings),
+            })
+
+            yield ev({"step": "upsert", "status": "running", "msg": f"Updating {len(products)} products in local cache…"})
+            _db = SessionLocal()
             try:
-                inserted, updated = upsert_products(inner_db, products)
-                inner_db.commit()
+                inserted, updated = upsert_products(_db, products)
+                _db.commit()
             finally:
-                inner_db.close()
-            yield ev({"step": "done", "status": "ok", "msg": f"Light sync complete: {inserted} new, {updated} updated"})
+                _db.close()
+
+            yield ev({
+                "step": "done",
+                "status": "ok",
+                "msg": f"Light sync complete: {inserted} new, {updated} updated",
+                "inserted": inserted,
+                "updated": updated,
+                "total": len(products),
+            })
+
+        except asyncio.CancelledError:
+            logger.warning("fetch/light SSE stream cancelled")
+            raise
         except Exception as exc:
+            logger.exception("fetch/light failed: %s", exc)
             yield ev({"step": "error", "status": "error", "msg": str(exc)})
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 # ── Sheet debug (admin) ───────────────────────────────────────────────────────
