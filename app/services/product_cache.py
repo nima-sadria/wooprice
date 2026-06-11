@@ -128,6 +128,20 @@ def get_page(
     return items, total
 
 
+def patch_cached_product(db: Session, wc_id: int, fields: dict) -> bool:
+    """Update specific fields on an existing cache row. Returns True if the row existed."""
+    row = db.query(ProductCache).filter(ProductCache.wc_id == wc_id).first()
+    if row is None:
+        return False
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for key, value in fields.items():
+        if hasattr(row, key):
+            setattr(row, key, value)
+    row.last_synced_at = now
+    row.cache_version = (row.cache_version or 0) + 1
+    return True
+
+
 def get_stats(db: Session) -> dict:
     total = db.query(ProductCache).count()
     last_row = db.query(ProductCache).order_by(ProductCache.last_synced_at.desc()).first()

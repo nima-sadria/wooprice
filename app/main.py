@@ -24,6 +24,7 @@ from .services.product_cache import (
     get_last_sync_time,
     get_page as cache_get_page,
     get_stats as cache_get_stats,
+    patch_cached_product,
     upsert_products,
     wc_response_to_cache_dict,
 )
@@ -739,6 +740,12 @@ async def update_price(
     except Exception as exc:
         raise HTTPException(502, f"Excel writeback failed: {exc}")
 
+    cache_hit = patch_cached_product(db, product_id, {
+        "regular_price": body.new_price,
+        "final_price": body.new_price,
+    })
+    db.commit()
+
     now = datetime.utcnow()
     if body.job_id:
         item = (
@@ -751,7 +758,10 @@ async def update_price(
             item.last_price_updated = now
             db.commit()
 
-    return {"success": True, "product_id": product_id, "new_price": body.new_price}
+    result: dict = {"success": True, "product_id": product_id, "new_price": body.new_price}
+    if not cache_hit:
+        result["warning"] = "WooCommerce updated, but product was not present in local cache."
+    return result
 
 
 @app.put("/api/products/{product_id}/stock")
@@ -771,6 +781,12 @@ async def update_stock(
     except Exception as exc:
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 
+    cache_fields: dict = {"stock_status": body.stock_status}
+    if body.stock_quantity is not None:
+        cache_fields["stock_quantity"] = body.stock_quantity
+    cache_hit = patch_cached_product(db, product_id, cache_fields)
+    db.commit()
+
     if body.job_id:
         item = (
             db.query(SyncItem)
@@ -783,7 +799,10 @@ async def update_stock(
                 item.stock_quantity = body.stock_quantity
             db.commit()
 
-    return {"success": True, "product_id": product_id}
+    result: dict = {"success": True, "product_id": product_id}
+    if not cache_hit:
+        result["warning"] = "WooCommerce updated, but product was not present in local cache."
+    return result
 
 
 # ── 1. Create preview ─────────────────────────────────────────────────────────
