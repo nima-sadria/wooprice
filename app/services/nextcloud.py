@@ -95,20 +95,36 @@ def _parse_sheet_rows(ws) -> list[dict]:
     return items
 
 
-def parse_price_list(xlsx_bytes: bytes) -> list[dict]:
+def parse_price_list(xlsx_bytes: bytes) -> tuple[list[dict], list[dict]]:
     """
     Read ALL sheets from row 3 onward using the same column mapping.
-    Column B = WooCommerce product ID, Column C = regular price, Column A = row color.
+    Column B = WooCommerce product ID, Column C = regular price, Column A = row color/name.
     If the same product ID appears in multiple sheets, the last sheet wins.
-    Returns [{product_id, new_price, row_color}].
+    Returns (items, duplicate_warnings).
+    Each warning: {product_id, prev_sheet, final_sheet, prev_price, final_price}.
     """
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True)
     seen: dict[int, dict] = {}
+    duplicates: list[dict] = []
+
     for ws in wb.worksheets:
+        tab = ws.title
         for item in _parse_sheet_rows(ws):
-            seen[item["product_id"]] = item
+            pid = item["product_id"]
+            if pid in seen:
+                duplicates.append({
+                    "product_id": pid,
+                    "prev_sheet": seen[pid].get("_tab", ""),
+                    "final_sheet": tab,
+                    "prev_price": seen[pid]["new_price"],
+                    "final_price": item["new_price"],
+                })
+            item["_tab"] = tab
+            seen[pid] = item
+
     wb.close()
-    return list(seen.values())
+    items = [{k: v for k, v in i.items() if k != "_tab"} for i in seen.values()]
+    return items, duplicates
 
 
 async def write_price_to_sheet(product_id: int, new_price: str) -> None:

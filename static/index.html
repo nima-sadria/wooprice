@@ -155,6 +155,7 @@ select.wp-sel:focus { border-color: var(--accent); }
 .activity-line.ok { color: #16a34a; }
 .activity-line.err { color: #dc2626; }
 .activity-line.info { color: #2563eb; }
+.activity-line.warn { color: #d97706; font-weight: 500; }
 
 /* Modal */
 .wp-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9000; display: flex; align-items: center; justify-content: center; }
@@ -448,6 +449,21 @@ select.wp-sel:focus { border-color: var(--accent); }
           <div class="wp-step" id="step-excel"><span class="wp-step-dot"></span>Excel</div>
           <div class="wp-step" id="step-wc"><span class="wp-step-dot"></span>WooCommerce</div>
           <div class="wp-step" id="step-calc"><span class="wp-step-dot"></span>Calculate</div>
+        </div>
+
+        <div id="dup-warning-box" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:14px 18px;margin-bottom:4px">
+          <div style="font-weight:600;color:#92400e;margin-bottom:8px" id="dup-warning-title"></div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px" id="dup-warning-table">
+            <thead><tr style="color:#78350f;text-align:left">
+              <th style="padding:3px 8px">Product ID</th>
+              <th style="padding:3px 8px">Previous Sheet</th>
+              <th style="padding:3px 8px">Final Sheet</th>
+              <th style="padding:3px 8px">Previous Price</th>
+              <th style="padding:3px 8px">Final Price</th>
+              <th style="padding:3px 8px">Applied</th>
+            </tr></thead>
+            <tbody id="dup-warning-body"></tbody>
+          </table>
         </div>
 
         <div id="ws-controls" style="display:none;flex-direction:column;gap:10px">
@@ -1073,6 +1089,7 @@ function startPreview() {
   selectedIds.clear();
   document.getElementById('ws-tbody').innerHTML = '';
   document.getElementById('apply-tbody').innerHTML = '';
+  showDupWarnings([]);
   document.getElementById('writeback-btn').style.display = 'none';
   document.getElementById('apply-btn').disabled = true;
   currentJobId = null;
@@ -1082,7 +1099,7 @@ function startPreview() {
     var d = JSON.parse(e.data);
     if (d.step) {
       setStep(d.step, d.status);
-      if (d.msg) addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'done' ? 'ok' : 'info');
+      if (d.msg) addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'warning' ? 'warn' : d.status === 'done' ? 'ok' : 'info');
     }
     if (d.step === 'preview' && d.status === 'done') {
       evSource.close();
@@ -1093,6 +1110,7 @@ function startPreview() {
       updateStats();
       document.getElementById('fetch-btn').disabled = false;
       addLog('Preview ready: ' + d.changed_count + ' changed, ' + d.unchanged_count + ' unchanged', 'ok');
+      showDupWarnings(d.duplicate_warnings || []);
     }
     if (d.status === 'error') {
       evSource.close();
@@ -1112,6 +1130,25 @@ function setStep(name, state) {
   var el = document.getElementById('step-' + name);
   if (!el) return;
   el.className = 'wp-step' + (state ? ' ' + state : '');
+}
+
+function showDupWarnings(warnings) {
+  var box = document.getElementById('dup-warning-box');
+  if (!warnings || warnings.length === 0) { box.style.display = 'none'; return; }
+  document.getElementById('dup-warning-title').textContent =
+    '⚠ ' + warnings.length + ' duplicate product ID' + (warnings.length > 1 ? 's' : '') +
+    ' detected across worksheets — last sheet value was applied';
+  document.getElementById('dup-warning-body').innerHTML = warnings.map(function(w) {
+    return '<tr style="border-top:1px solid #fde68a">' +
+      '<td style="padding:4px 8px" lang="en">' + w.product_id + '</td>' +
+      '<td style="padding:4px 8px;color:#92400e">' + esc(w.prev_sheet) + '</td>' +
+      '<td style="padding:4px 8px;font-weight:600;color:#78350f">' + esc(w.final_sheet) + '</td>' +
+      '<td style="padding:4px 8px" class="number">' + fmtPrice(w.prev_price) + '</td>' +
+      '<td style="padding:4px 8px" class="number">' + fmtPrice(w.final_price) + '</td>' +
+      '<td style="padding:4px 8px;font-weight:600" class="number">' + fmtPrice(w.final_price) + '</td>' +
+      '</tr>';
+  }).join('');
+  box.style.display = 'block';
 }
 
 function addLog(msg, cls) {

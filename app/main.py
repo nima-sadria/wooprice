@@ -87,7 +87,7 @@ async def _auto_fetch_loop(interval_secs: int) -> None:
             age = info.get("age_seconds")
             if age is None or age >= interval_secs:
                 xlsx = await download_xlsx(force=True)
-                ids = [i["product_id"] for i in parse_price_list(xlsx)]
+                ids = [i["product_id"] for i in parse_price_list(xlsx)[0]]
                 if ids:
                     await fetch_product_prices(ids, force=True)
         except asyncio.CancelledError:
@@ -777,7 +777,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
     except Exception as exc:
         raise HTTPException(502, f"Cannot download sheet from Nextcloud: {exc}")
 
-    sheet_items = parse_price_list(xlsx)
+    sheet_items, dup_warnings = parse_price_list(xlsx)
     if not sheet_items:
         raise HTTPException(400, "No valid rows found.")
 
@@ -831,8 +831,12 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
 
     db.commit()
     changed = sum(1 for r in preview_rows if r["changed"])
-    return {"job_id": job.id, "total": len(preview_rows), "changed_count": changed,
-            "unchanged_count": len(preview_rows) - changed, "items": preview_rows}
+    return {
+        "job_id": job.id, "total": len(preview_rows),
+        "changed_count": changed, "unchanged_count": len(preview_rows) - changed,
+        "items": preview_rows,
+        "duplicate_warnings": dup_warnings,
+    }
 
 
 # ── 2. Confirm sync ───────────────────────────────────────────────────────────
@@ -950,10 +954,16 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             except Exception as exc:
                 yield ev({"step": "excel", "status": "error", "msg": str(exc)}); return
 
-            sheet_items = parse_price_list(xlsx)
+            sheet_items, dup_warnings = parse_price_list(xlsx)
             if not sheet_items:
                 yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, prices in col C from row 3)"}); return
             yield ev({"step": "excel", "status": "done", "msg": f"Found {len(sheet_items)} products in price list"})
+            if dup_warnings:
+                yield ev({
+                    "step": "excel", "status": "warning",
+                    "msg": f"{len(dup_warnings)} duplicate product ID(s) detected across worksheets — last sheet wins",
+                    "duplicate_warnings": dup_warnings,
+                })
 
             product_ids = [i["product_id"] for i in sheet_items]
             cached_data = get_cached_by_ids(db, product_ids)
@@ -1025,6 +1035,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 "job_id": job.id, "total": len(preview_rows),
                 "changed_count": changed, "unchanged_count": len(preview_rows) - changed,
                 "items": preview_rows,
+                "duplicate_warnings": dup_warnings,
             })
         finally:
             db.close()
