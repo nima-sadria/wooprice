@@ -190,21 +190,32 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
 # ── Audit logging ─────────────────────────────────────────────────────────────
 
 def _audit(
-    db: Session,
     username: str,
     action: str,
     ip: str = "unknown",
     job_id: int | None = None,
     detail: dict | None = None,
 ):
-    db.add(AuditLog(
-        username=username,
-        action=action,
-        ip_address=ip,
-        job_id=job_id,
-        detail=json.dumps(detail, ensure_ascii=False) if detail else None,
-    ))
-    db.commit()
+    """Write an audit record using a dedicated session so caller session state
+    never affects the write, and audit failure never breaks the response."""
+    _db = SessionLocal()
+    try:
+        _db.add(AuditLog(
+            username=username,
+            action=action,
+            ip_address=ip,
+            job_id=job_id,
+            detail=json.dumps(detail, ensure_ascii=False) if detail else None,
+        ))
+        _db.commit()
+    except Exception as exc:
+        logger.error("Audit write failed [action=%s user=%s]: %s", action, username, exc)
+        try:
+            _db.rollback()
+        except Exception:
+            pass
+    finally:
+        _db.close()
 
 
 def _client_ip(request: Request) -> str:
@@ -624,7 +635,7 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
         raise HTTPException(401, "Invalid Nextcloud credentials")
     token = create_token(body.username)
     role = "admin" if is_super_admin(body.username) else "user"
-    _audit(db, body.username, "login", _client_ip(request))
+    _audit(body.username, "login", _client_ip(request))
     return {"token": token, "username": body.username, "role": role}
 
 
@@ -868,7 +879,7 @@ async def update_price(
 
     # Read old price from cache before overwriting it
     cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
-    old_price = cache_row.final_price or cache_row.regular_price if cache_row else None
+    old_price = (cache_row.final_price or cache_row.regular_price) if cache_row else None
 
     try:
         await update_single_product(product_id, {"regular_price": body.new_price}, effective_parent_id)
@@ -884,15 +895,15 @@ async def update_price(
         "regular_price": body.new_price,
         "final_price": body.new_price,
     })
+    db.commit()
 
-    _audit(db, user["sub"], "update_price", detail={
+    _audit(user["sub"], "update_price", detail={
         "product_id": product_id,
         "parent_id": effective_parent_id,
         "old_price": old_price,
         "new_price": body.new_price,
         "cache_hit": cache_hit,
     })
-    # _audit calls db.commit(), so no separate commit needed here
 
     now = datetime.utcnow()
     if body.job_id:
@@ -940,8 +951,9 @@ async def update_stock(
     if body.stock_quantity is not None:
         cache_fields["stock_quantity"] = body.stock_quantity
     cache_hit = patch_cached_product(db, product_id, cache_fields)
+    db.commit()
 
-    _audit(db, user["sub"], "update_stock", detail={
+    _audit(user["sub"], "update_stock", detail={
         "product_id": product_id,
         "parent_id": effective_parent_id,
         "old_stock_status": old_stock_status,
@@ -1227,7 +1239,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 ))
             db.commit()
 
-            _audit(db, user_data["sub"], "fetch", ip, job.id)
+            _audit(user_data["sub"], "fetch", ip, job.id)
 
             changed = sum(1 for r in preview_rows if r["changed"])
             yield ev({"step": "calc", "status": "done", "msg": f"{changed} prices will change, {len(preview_rows) - changed} unchanged"})
@@ -1337,7 +1349,7 @@ async def apply_stream(
             job.completed_at = datetime.utcnow()
             db.commit()
 
-            _audit(db, user_data["sub"], "apply", ip, job.id)
+            _audit(user_data["sub"], "apply", ip, job.id)
 
             yield ev({"type": "done", "job_id": job_id,
                       "updated": job.updated_count, "failed": job.failed_count, "skipped": job.skipped_count})
