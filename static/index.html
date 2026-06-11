@@ -379,7 +379,7 @@ select.wp-sel:focus { border-color: var(--accent); }
         <div class="wp-grid-4">
           <div class="wp-stat-card">
             <div class="wp-stat-info">
-              <div class="wp-stat-val" id="hs-syncs">—</div>
+              <div class="wp-stat-val" id="hs-syncs" lang="en">—</div>
               <div class="wp-stat-label">Total Syncs</div>
             </div>
             <div class="wp-stat-icon">
@@ -388,7 +388,7 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
           <div class="wp-stat-card">
             <div class="wp-stat-info">
-              <div class="wp-stat-val" id="hs-total">—</div>
+              <div class="wp-stat-val" id="hs-total" lang="en">—</div>
               <div class="wp-stat-label">Products</div>
             </div>
             <div class="wp-stat-icon">
@@ -397,7 +397,7 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
           <div class="wp-stat-card">
             <div class="wp-stat-info">
-              <div class="wp-stat-val" id="hs-instock">—</div>
+              <div class="wp-stat-val" id="hs-instock" lang="en">—</div>
               <div class="wp-stat-label">In Stock</div>
             </div>
             <div class="wp-stat-icon">
@@ -406,7 +406,7 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
           <div class="wp-stat-card">
             <div class="wp-stat-info">
-              <div class="wp-stat-val" id="hs-outstock">—</div>
+              <div class="wp-stat-val" id="hs-outstock" lang="en">—</div>
               <div class="wp-stat-label">Out of Stock</div>
             </div>
             <div class="wp-stat-icon">
@@ -1142,14 +1142,14 @@ function renderPreview() {
     return '<tr>' +
       '<td><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
       '<td><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
-      '<td style="color:var(--wp-muted);font-size:12px">' + item.product_id + '</td>' +
+      '<td style="color:var(--wp-muted);font-size:12px" lang="en">' + item.product_id + '</td>' +
       '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '—') + '</td>' +
       '<td style="color:var(--wp-muted);font-size:12px">' + esc(item.sku || '—') + '</td>' +
       '<td class="number">' + fmtPrice(item.old_price) + '</td>' +
       '<td class="number" id="price-cell-' + item.product_id + '" onclick="editPrice(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + fmtPrice(item.new_price) + '</span></td>' +
       '<td class="number">' + chg + '</td>' +
       '<td id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
-      '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span></td>' +
+      '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer" lang="en"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span></td>' +
       '<td style="font-size:11.5px;color:var(--wp-muted)">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
       '<td>' + catsHtml(item.categories) + '</td>' +
       '</tr>';
@@ -1493,16 +1493,16 @@ function renderAnalytics() {
   document.getElementById('an-stale-count').textContent    = stale.length + ' products';
 
   document.getElementById('an-no-price-body').innerHTML = noPrice.map(function(i) {
-    return '<tr><td>' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td>' + stockBadge(i.stock_status) + '</td><td>' + (i.stock_quantity != null ? i.stock_quantity : '—') + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td lang="en">' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td>' + stockBadge(i.stock_status) + '</td><td lang="en">' + (i.stock_quantity != null ? i.stock_quantity : '—') + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 
   document.getElementById('an-no-stock-body').innerHTML = noStock.map(function(i) {
-    return '<tr><td>' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td lang="en">' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 
   document.getElementById('an-stale-body').innerHTML = stale.map(function(i) {
     var lu = i.wc_date_modified || i.last_price_updated || i.synced_at;
-    return '<tr><td>' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:#dc2626">' + toJalaliStr(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td lang="en">' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:#dc2626">' + toJalaliStr(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 }
 
@@ -1657,8 +1657,7 @@ function toJalaliStr(ts) {
   if (isNaN(d.getTime())) return '—';
   var j = _gregToJalali(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate());
   var months = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
-  var p = function(n){ return String(n).replace(/[0-9]/g,function(c){return '۰۱۲۳۴۵۶۷۸۹'[c];}); };
-  return p(j[2]) + ' ' + months[j[1]-1] + ' ' + p(j[0]);
+  return '<span lang="en">' + j[2] + '</span> ' + months[j[1]-1] + ' <span lang="en">' + j[0] + '</span>';
 }
 
 function esc(s) {

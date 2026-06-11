@@ -254,7 +254,7 @@ def _build_preview_row(
         lpu = lpu.isoformat()
     return {
         "product_id": pid,
-        "product_name": sheet_name or wc.get("name", ""),
+        "product_name": wc.get("name", ""),
         "sku": wc.get("sku", ""),
         "old_price": old_price or "",
         "new_price": new_price,
@@ -971,11 +971,10 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 pid = row["product_id"]
                 wc = wc_data.get(pid, {})
                 old_price = wc.get("price") or None
-                sname = row.get("sheet_name") or wc.get("name") or None
                 db.add(SyncItem(
                     job_id=job.id, product_id=pid,
                     parent_id=wc.get("parent_id") or 0,
-                    product_name=sname,
+                    product_name=wc.get("name") or None,
                     sku=wc.get("sku") or None,
                     old_price=old_price, new_price=row["new_price"],
                     sale_price=wc.get("sale_price") or None,
