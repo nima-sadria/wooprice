@@ -1,10 +1,39 @@
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 
 import httpx
 
 from ..config import get_settings
+
+logger = logging.getLogger(__name__)
+
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRIES = 3
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """GET with exponential backoff on 429/5xx. Respects Retry-After header."""
+    for attempt in range(_MAX_RETRIES + 1):
+        resp = await client.get(url, **kwargs)
+        if resp.status_code not in _RETRY_STATUSES:
+            resp.raise_for_status()
+            return resp
+        if attempt == _MAX_RETRIES:
+            break
+        retry_after = resp.headers.get("Retry-After")
+        try:
+            wait = float(retry_after) if retry_after else float(2 ** attempt)
+        except ValueError:
+            wait = float(2 ** attempt)
+        logger.warning(
+            "WC %d on %s — retry %d/%d in %.0fs",
+            resp.status_code, url, attempt + 1, _MAX_RETRIES, wait,
+        )
+        await asyncio.sleep(wait)
+    resp.raise_for_status()
+    return resp  # unreachable; raise_for_status raises
 
 
 def _auth() -> tuple[str, str]:
@@ -106,8 +135,7 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
                     ("status", "any"),
                     ("_fields", _PRODUCT_FIELDS),
                 ]
-                resp = await client.get(f"{_base()}/products", params=params)
-                resp.raise_for_status()
+                resp = await _get_with_retry(client, f"{_base()}/products", params=params)
                 return resp.json()
 
             chunks = [uncached[i : i + 100] for i in range(0, len(uncached), 100)]
@@ -126,8 +154,8 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
 
         async def _fetch_one(pid: int) -> tuple[int, dict] | None:
             try:
-                resp = await client.get(
-                    f"{_base()}/products/{pid}",
+                resp = await _get_with_retry(
+                    client, f"{_base()}/products/{pid}",
                     params={"_fields": _PRODUCT_FIELDS + ",parent_id", "status": "any"},
                 )
                 if resp.status_code == 200:
@@ -165,8 +193,8 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
             if cached:
                 return ppid, cached
             try:
-                resp = await client.get(
-                    f"{_base()}/products/{ppid}",
+                resp = await _get_with_retry(
+                    client, f"{_base()}/products/{ppid}",
                     params={"_fields": "id,categories,stock_status,stock_quantity,date_modified_gmt"},
                 )
                 if resp.status_code == 200:
@@ -207,11 +235,10 @@ async def fetch_categories() -> list[dict]:
     page = 1
     async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
         while True:
-            resp = await client.get(
-                f"{_base()}/products/categories",
+            resp = await _get_with_retry(
+                client, f"{_base()}/products/categories",
                 params={"per_page": "100", "page": str(page), "_fields": "id,name"},
             )
-            resp.raise_for_status()
             data = resp.json()
             if not data:
                 break
@@ -322,11 +349,10 @@ async def _fetch_variations_for_parent(client: httpx.AsyncClient, parent_id: int
     variations = []
     page = 1
     while True:
-        resp = await client.get(
-            f"{_base()}/products/{parent_id}/variations",
+        resp = await _get_with_retry(
+            client, f"{_base()}/products/{parent_id}/variations",
             params={"per_page": "100", "page": str(page), "status": "any", "_fields": _VAR_FIELDS},
         )
-        resp.raise_for_status()
         data = resp.json()
         if not data:
             break
@@ -339,19 +365,21 @@ async def _fetch_variations_for_parent(client: httpx.AsyncClient, parent_id: int
     return variations
 
 
-async def fetch_all_products_full() -> list[dict]:
-    """Fetch ALL products and their variations from WooCommerce for full cache population."""
+async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
+    """Fetch ALL products and their variations from WooCommerce for full cache population.
+    Returns (products, variation_warnings) where warnings list is non-empty if any
+    variation fetches failed after all retries."""
     all_products: list[dict] = []
     variable_parents: list[tuple[int, str, list]] = []
+    var_warnings: list[str] = []
 
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
         page = 1
         while True:
-            resp = await client.get(
-                f"{_base()}/products",
+            resp = await _get_with_retry(
+                client, f"{_base()}/products",
                 params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
             )
-            resp.raise_for_status()
             data = resp.json()
             if not data:
                 break
@@ -364,37 +392,42 @@ async def fetch_all_products_full() -> list[dict]:
                 break
             page += 1
 
-        # Fetch variations for all variable products in parallel (batches of 10)
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
                 _fetch_variations_for_parent(client, pid, name, cats)
                 for pid, name, cats in batch
             ], return_exceptions=True)
-            for r in results:
+            for j, r in enumerate(results):
                 if isinstance(r, list):
                     all_products.extend(r)
+                else:
+                    parent_id, parent_name = batch[j][0], batch[j][1]
+                    msg = f"Variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
+                    logger.warning(msg)
+                    var_warnings.append(msg)
 
-    return all_products
+    return all_products, var_warnings
 
 
-async def fetch_products_modified_after(modified_after: str) -> list[dict]:
-    """Fetch products modified after the given ISO timestamp (light sync)."""
+async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict], list[str]]:
+    """Fetch products modified after the given ISO timestamp (light sync).
+    Returns (products, variation_warnings)."""
     all_products: list[dict] = []
     variable_parents: list[tuple[int, str, list]] = []
+    var_warnings: list[str] = []
 
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
         page = 1
         while True:
-            resp = await client.get(
-                f"{_base()}/products",
+            resp = await _get_with_retry(
+                client, f"{_base()}/products",
                 params={
                     "per_page": "100", "page": str(page),
                     "status": "any", "_fields": _FULL_FIELDS,
                     "modified_after": modified_after,
                 },
             )
-            resp.raise_for_status()
             data = resp.json()
             if not data:
                 break
@@ -413,11 +446,16 @@ async def fetch_products_modified_after(modified_after: str) -> list[dict]:
                 _fetch_variations_for_parent(client, pid, name, cats)
                 for pid, name, cats in batch
             ], return_exceptions=True)
-            for r in results:
+            for j, r in enumerate(results):
                 if isinstance(r, list):
                     all_products.extend(r)
+                else:
+                    parent_id, parent_name = batch[j][0], batch[j][1]
+                    msg = f"Variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
+                    logger.warning(msg)
+                    var_warnings.append(msg)
 
-    return all_products
+    return all_products, var_warnings
 
 
 async def fetch_all_variations_stock(parent_id: int) -> list[dict]:

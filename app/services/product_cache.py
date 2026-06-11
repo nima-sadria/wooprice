@@ -105,6 +105,29 @@ def get_all(db: Session) -> list[dict]:
     return [{"wc_id": r.wc_id, **_to_dict(r)} for r in rows]
 
 
+def get_page(
+    db: Session,
+    page: int = 1,
+    limit: int = 50,
+    search: str | None = None,
+    product_type: str | None = None,
+) -> tuple[list[dict], int]:
+    """Return (items, total) for the requested page with optional filters."""
+    q = db.query(ProductCache)
+    if search:
+        like = f"%{search}%"
+        q = q.filter(
+            ProductCache.name.ilike(like) | ProductCache.sku.ilike(like)
+        )
+    if product_type:
+        q = q.filter(ProductCache.product_type == product_type)
+    total = q.count()
+    offset = (page - 1) * limit
+    rows = q.order_by(ProductCache.wc_id).offset(offset).limit(limit).all()
+    items = [{"wc_id": r.wc_id, **_to_dict(r)} for r in rows]
+    return items, total
+
+
 def get_stats(db: Session) -> dict:
     total = db.query(ProductCache).count()
     last_row = db.query(ProductCache).order_by(ProductCache.last_synced_at.desc()).first()

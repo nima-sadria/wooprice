@@ -22,6 +22,7 @@ from .services.product_cache import (
     get_all as cache_get_all,
     get_cached_by_ids,
     get_last_sync_time,
+    get_page as cache_get_page,
     get_stats as cache_get_stats,
     upsert_products,
     wc_response_to_cache_dict,
@@ -368,11 +369,24 @@ async def cache_clear(user: dict = Depends(require_admin)):
 # ── DB product cache endpoints ────────────────────────────────────────────────
 
 @app.get("/api/products")
-async def list_cached_products(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Return all products from the local DB cache."""
-    stats = cache_get_stats(db)
-    products = cache_get_all(db)
-    return {"stats": stats, "products": products}
+async def list_cached_products(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=500),
+    search: str | None = Query(None),
+    product_type: str | None = Query(None),
+    user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return paginated products from the local DB cache with optional filters."""
+    import math
+    items, total = cache_get_page(db, page=page, limit=limit, search=search, product_type=product_type)
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": math.ceil(total / limit) if total else 0,
+        "items": items,
+    }
 
 
 @app.get("/api/products/cache-status")
@@ -413,7 +427,9 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
 
         yield ev({"step": "start", "status": "running", "msg": "Starting full WooCommerce product sync…"})
         try:
-            products = await fetch_all_products_full()
+            products, var_warnings = await fetch_all_products_full()
+            for w in var_warnings:
+                yield ev({"step": "warning", "status": "warning", "msg": w})
             yield ev({"step": "fetch", "status": "running", "msg": f"Fetched {len(products)} products from WooCommerce, saving to cache…"})
             db = SessionLocal()
             try:
@@ -465,7 +481,9 @@ async def fetch_light_stream(
 
         yield ev({"step": "start", "status": "running", "msg": f"Fetching products modified after {modified_after}…"})
         try:
-            products = await fetch_products_modified_after(modified_after)
+            products, var_warnings = await fetch_products_modified_after(modified_after)
+            for w in var_warnings:
+                yield ev({"step": "warning", "status": "warning", "msg": w})
             yield ev({"step": "fetch", "status": "running", "msg": f"Fetched {len(products)} modified products, updating cache…"})
             inner_db = SessionLocal()
             try:
