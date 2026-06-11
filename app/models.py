@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -69,6 +69,28 @@ class AlarmThreshold(Base):
     id = Column(Integer, primary_key=True)
     category_id = Column(Integer, nullable=True, index=True)  # None = global
     threshold_percent = Column(Float, nullable=False)
+
+
+class ProductCache(Base):
+    """Persistent local cache of WooCommerce products and variations."""
+    __tablename__ = "products_cache"
+
+    wc_id = Column(Integer, primary_key=True)
+    parent_id = Column(Integer, default=0, index=True)
+    product_type = Column(String, default="simple")   # simple | variable | variation
+    sku = Column(String, nullable=True, index=True)
+    name = Column(String, nullable=True)              # WooCommerce name (reference only)
+    status = Column(String, nullable=True)
+    stock_status = Column(String, nullable=True)
+    stock_quantity = Column(Integer, nullable=True)
+    regular_price = Column(String, nullable=True)
+    sale_price = Column(String, nullable=True)
+    final_price = Column(String, nullable=True)       # effective display price
+    categories = Column(Text, nullable=True)          # JSON: [{"id":1,"name":"..."}]
+    date_modified_gmt = Column(String, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    cache_version = Column(Integer, default=1)
 
 
 class AuditLog(Base):

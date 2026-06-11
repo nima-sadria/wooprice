@@ -14,15 +14,26 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
-from .models import AlarmThreshold, AuditLog, ItemStatus, JobStatus, SyncItem, SyncJob
+from .models import AlarmThreshold, AuditLog, ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob
 from .services.auth import create_token, decode_token, is_super_admin, verify_nextcloud_credentials
 from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet, write_price_to_sheet
+from .services.product_cache import (
+    clear_all as cache_clear_all,
+    get_all as cache_get_all,
+    get_cached_by_ids,
+    get_last_sync_time,
+    get_stats as cache_get_stats,
+    upsert_products,
+    wc_response_to_cache_dict,
+)
 from .services.woocommerce import (
     batch_update_prices,
     clear_product_cache,
+    fetch_all_products_full,
     fetch_all_variations_stock,
     fetch_categories,
     fetch_product_prices,
+    fetch_products_modified_after,
     get_cache_info,
     update_parent_stock_statuses,
     update_single_product,
@@ -235,6 +246,7 @@ def _build_preview_row(
     new_price: str,
     row_color: str | None = None,
     last_price_updated=None,
+    sheet_name: str = "",
 ) -> dict:
     old_price = wc.get("price") or None
     lpu = last_price_updated
@@ -242,7 +254,7 @@ def _build_preview_row(
         lpu = lpu.isoformat()
     return {
         "product_id": pid,
-        "product_name": wc.get("name", ""),
+        "product_name": sheet_name or wc.get("name", ""),
         "sku": wc.get("sku", ""),
         "old_price": old_price or "",
         "new_price": new_price,
@@ -330,6 +342,121 @@ async def cache_status(user: dict = Depends(get_current_user)):
 async def cache_clear(user: dict = Depends(require_admin)):
     clear_product_cache()
     return {"message": "Product cache cleared"}
+
+
+# ── DB product cache endpoints ────────────────────────────────────────────────
+
+@app.get("/api/products")
+async def list_cached_products(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return all products from the local DB cache."""
+    stats = cache_get_stats(db)
+    products = cache_get_all(db)
+    return {"stats": stats, "products": products}
+
+
+@app.get("/api/products/cache-status")
+async def db_cache_status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return cache_get_stats(db)
+
+
+@app.post("/api/products/cache-clear")
+async def db_cache_clear(user: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    count = cache_clear_all(db)
+    db.commit()
+    return {"message": f"Cleared {count} products from DB cache"}
+
+
+@app.get("/api/fetch/full")
+async def fetch_full_stream(request: Request, token: str | None = Query(None)):
+    """Stream a full WooCommerce product sync into the DB cache."""
+    creds = None
+    raw = token
+    if not raw:
+        raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
+    if not raw:
+        return StreamingResponse(
+            iter(['data: {"error":"Not authenticated"}\n\n']),
+            media_type="text/event-stream",
+        )
+    try:
+        creds = decode_token(raw)
+    except Exception:
+        return StreamingResponse(
+            iter(['data: {"error":"Invalid token"}\n\n']),
+            media_type="text/event-stream",
+        )
+
+    async def _gen():
+        def ev(d: dict) -> str:
+            return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
+
+        yield ev({"step": "start", "status": "running", "msg": "Starting full WooCommerce product sync…"})
+        try:
+            products = await fetch_all_products_full()
+            yield ev({"step": "fetch", "status": "running", "msg": f"Fetched {len(products)} products from WooCommerce, saving to cache…"})
+            db = SessionLocal()
+            try:
+                inserted, updated = upsert_products(db, products)
+                db.commit()
+            finally:
+                db.close()
+            yield ev({"step": "done", "status": "ok", "msg": f"Cache updated: {inserted} new, {updated} updated ({len(products)} total)"})
+        except Exception as exc:
+            yield ev({"step": "error", "status": "error", "msg": str(exc)})
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+@app.get("/api/fetch/light")
+async def fetch_light_stream(
+    request: Request,
+    token: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Stream a light sync (only products modified since last sync) into the DB cache."""
+    raw = token
+    if not raw:
+        raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
+    if not raw:
+        return StreamingResponse(
+            iter(['data: {"error":"Not authenticated"}\n\n']),
+            media_type="text/event-stream",
+        )
+    try:
+        decode_token(raw)
+    except Exception:
+        return StreamingResponse(
+            iter(['data: {"error":"Invalid token"}\n\n']),
+            media_type="text/event-stream",
+        )
+
+    last_sync = get_last_sync_time(db)
+    if last_sync is None:
+        return StreamingResponse(
+            iter(['data: {"error":"No prior full sync found. Run full sync first."}\n\n']),
+            media_type="text/event-stream",
+        )
+    modified_after = last_sync.strftime("%Y-%m-%dT%H:%M:%S")
+
+    async def _gen():
+        def ev(d: dict) -> str:
+            return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
+
+        yield ev({"step": "start", "status": "running", "msg": f"Fetching products modified after {modified_after}…"})
+        try:
+            products = await fetch_products_modified_after(modified_after)
+            yield ev({"step": "fetch", "status": "running", "msg": f"Fetched {len(products)} modified products, updating cache…"})
+            inner_db = SessionLocal()
+            try:
+                inserted, updated = upsert_products(inner_db, products)
+                inner_db.commit()
+            finally:
+                inner_db.close()
+            yield ev({"step": "done", "status": "ok", "msg": f"Light sync complete: {inserted} new, {updated} updated"})
+        except Exception as exc:
+            yield ev({"step": "error", "status": "error", "msg": str(exc)})
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
 
 
 # ── Sheet debug (admin) ───────────────────────────────────────────────────────
@@ -634,10 +761,19 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
         raise HTTPException(400, "No valid rows found.")
 
     product_ids = [i["product_id"] for i in sheet_items]
-    try:
-        wc_data = await fetch_product_prices(product_ids, force=True)
-    except Exception as exc:
-        raise HTTPException(502, f"Cannot fetch prices from WooCommerce: {exc}")
+
+    # Use persistent DB cache; only fetch missing products from WooCommerce
+    wc_data = get_cached_by_ids(db, product_ids)
+    missing_ids = [pid for pid in product_ids if pid not in wc_data]
+    if missing_ids:
+        try:
+            fresh = await fetch_product_prices(missing_ids, force=True)
+        except Exception as exc:
+            raise HTTPException(502, f"Cannot fetch prices from WooCommerce: {exc}")
+        cache_rows = [wc_response_to_cache_dict(pid, d) for pid, d in fresh.items()]
+        upsert_products(db, cache_rows)
+        db.commit()
+        wc_data.update(fresh)
 
     last_synced = _get_last_synced(db, product_ids)
 
@@ -650,10 +786,11 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
         pid = row["product_id"]
         wc = wc_data.get(pid, {})
         old_price = wc.get("price") or None
+        sname = row.get("sheet_name") or wc.get("name") or None
         db.add(SyncItem(
             job_id=job.id, product_id=pid,
             parent_id=wc.get("parent_id") or 0,
-            product_name=wc.get("name") or None,
+            product_name=sname,
             sku=wc.get("sku") or None,
             old_price=old_price, new_price=row["new_price"],
             sale_price=wc.get("sale_price") or None,
@@ -668,6 +805,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
             pid, wc, row["new_price"],
             row_color=row.get("row_color"),
             last_price_updated=last_synced.get(pid),
+            sheet_name=row.get("sheet_name", ""),
         ))
 
     db.commit()
@@ -796,17 +934,29 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, prices in col C from row 3)"}); return
             yield ev({"step": "excel", "status": "done", "msg": f"Found {len(sheet_items)} products in price list"})
 
-            yield ev({"step": "wc", "status": "running", "msg": f"Fetching current data from WooCommerce for {len(sheet_items)} products…"})
             product_ids = [i["product_id"] for i in sheet_items]
-            try:
-                fetch_task = asyncio.create_task(fetch_product_prices(product_ids, force=True))
-                while not fetch_task.done():
-                    yield ": keepalive\n\n"
-                    await asyncio.sleep(10)
-                wc_data = await fetch_task
-            except Exception as exc:
-                yield ev({"step": "wc", "status": "error", "msg": str(exc)}); return
-            yield ev({"step": "wc", "status": "done", "msg": f"Fetched data for {len(wc_data)} products from WooCommerce"})
+            cached_data = get_cached_by_ids(db, product_ids)
+            missing_ids = [pid for pid in product_ids if pid not in cached_data]
+
+            if missing_ids:
+                yield ev({"step": "wc", "status": "running", "msg": f"{len(cached_data)} products from cache, fetching {len(missing_ids)} from WooCommerce…"})
+                try:
+                    fetch_task = asyncio.create_task(fetch_product_prices(missing_ids, force=True))
+                    while not fetch_task.done():
+                        yield ": keepalive\n\n"
+                        await asyncio.sleep(10)
+                    fresh_data = await fetch_task
+                except Exception as exc:
+                    yield ev({"step": "wc", "status": "error", "msg": str(exc)}); return
+                cache_rows = [wc_response_to_cache_dict(pid, d) for pid, d in fresh_data.items()]
+                upsert_products(db, cache_rows)
+                db.commit()
+                cached_data.update(fresh_data)
+            else:
+                yield ev({"step": "wc", "status": "running", "msg": f"Loading {len(cached_data)} products from local cache…"})
+
+            wc_data = cached_data
+            yield ev({"step": "wc", "status": "done", "msg": f"Loaded {len(wc_data)} products ({len(product_ids) - len(missing_ids)} from cache, {len(missing_ids)} from WooCommerce)"})
 
             yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
 
@@ -821,10 +971,11 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 pid = row["product_id"]
                 wc = wc_data.get(pid, {})
                 old_price = wc.get("price") or None
+                sname = row.get("sheet_name") or wc.get("name") or None
                 db.add(SyncItem(
                     job_id=job.id, product_id=pid,
                     parent_id=wc.get("parent_id") or 0,
-                    product_name=wc.get("name") or None,
+                    product_name=sname,
                     sku=wc.get("sku") or None,
                     old_price=old_price, new_price=row["new_price"],
                     sale_price=wc.get("sale_price") or None,
@@ -839,6 +990,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                     pid, wc, row["new_price"],
                     row_color=row.get("row_color"),
                     last_price_updated=last_synced.get(pid),
+                    sheet_name=row.get("sheet_name", ""),
                 ))
             db.commit()
 

@@ -90,7 +90,8 @@ def _parse_sheet_rows(ws) -> list[dict]:
                 new_price = ""
 
         row_color = _extract_row_color(ws, row_idx)
-        items.append({"product_id": pid, "new_price": new_price, "row_color": row_color})
+        sheet_name = str(col_a).strip() if col_a is not None else ""
+        items.append({"product_id": pid, "new_price": new_price, "row_color": row_color, "sheet_name": sheet_name})
     return items
 
 

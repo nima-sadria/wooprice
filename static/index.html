@@ -6,13 +6,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WooPrice</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234880FF'/><text x='16' y='23' font-family='Arial' font-size='20' font-weight='700' text-anchor='middle' fill='white'>W</text></svg>">
-<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/adminator/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script defer src="/static/adminator/runtime.js"></script>
 <script defer src="/static/adminator/vendors.js"></script>
 <script defer src="/static/adminator/2026.js"></script>
 <style>
+/* ── IRANYekanX variable font ── */
+@font-face {
+  font-family: 'IRANYekanX';
+  src: url('/static/fonts/IRANYekanXVF.woff2') format('woff2-variations'),
+       url('/static/fonts/IRANYekanXVF.woff') format('woff-variations');
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IRANYekanX';
+  src: url('/static/fonts/IRANYekanX-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IRANYekanX';
+  src: url('/static/fonts/IRANYekanX-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── WooPrice overrides on top of Adminator theme ── */
 :root {
   --accent: #4880FF;
@@ -23,7 +46,10 @@
   --wp-purple: #a855f7;
   --wp-muted: #8E97A7;
 }
-body { font-family: 'Vazirmatn', sans-serif !important; }
+body { font-family: 'IRANYekanX', sans-serif !important; }
+@supports (font-variation-settings: normal) {
+  body { font-variation-settings: 'wght' 400; }
+}
 
 /* Login overlay */
 #login-overlay { position: fixed; inset: 0; background: var(--bg-base, #F5F6FA); display: flex; align-items: center; justify-content: center; z-index: 9999; }
@@ -74,7 +100,7 @@ body { font-family: 'Vazirmatn', sans-serif !important; }
 .wp-tbl-wrap td { padding: 10px 14px; border-bottom: 1px solid var(--border, #E8EAED); vertical-align: middle; }
 .wp-tbl-wrap tr:last-child td { border-bottom: none; }
 .wp-tbl-wrap tr:hover td { background: rgba(72,128,255,.03); }
-td.number { text-align: right; font-variant-numeric: tabular-nums; }
+td.number { text-align: right; font-variant-numeric: tabular-nums; font-feature-settings: "ss03"; }
 
 /* Badges */
 .badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }

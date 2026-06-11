@@ -292,6 +292,134 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
     return results
 
 
+_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,categories,date_modified_gmt,status"
+_VAR_FIELDS = "id,sku,regular_price,sale_price,price,stock_status,stock_quantity,date_modified_gmt"
+
+
+def _parse_full_product(p: dict, parent_id: int = 0, parent_cats: list | None = None) -> dict:
+    cats = parent_cats if parent_cats is not None else [
+        {"id": c["id"], "name": c["name"]} for c in p.get("categories", [])
+    ]
+    ptype = "variation" if parent_id > 0 else (p.get("type") or "simple")
+    return {
+        "wc_id": p["id"],
+        "parent_id": parent_id,
+        "product_type": ptype,
+        "sku": p.get("sku", ""),
+        "name": p.get("name", ""),
+        "status": p.get("status", "publish"),
+        "stock_status": p.get("stock_status", "instock"),
+        "stock_quantity": p.get("stock_quantity"),
+        "regular_price": p.get("regular_price", ""),
+        "sale_price": p.get("sale_price", ""),
+        "final_price": p.get("regular_price") or p.get("price", ""),
+        "categories": cats,
+        "date_modified_gmt": p.get("date_modified_gmt", ""),
+    }
+
+
+async def _fetch_variations_for_parent(client: httpx.AsyncClient, parent_id: int, parent_name: str, parent_cats: list) -> list[dict]:
+    variations = []
+    page = 1
+    while True:
+        resp = await client.get(
+            f"{_base()}/products/{parent_id}/variations",
+            params={"per_page": "100", "page": str(page), "status": "any", "_fields": _VAR_FIELDS},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not data:
+            break
+        for v in data:
+            v["name"] = parent_name
+            variations.append(_parse_full_product(v, parent_id=parent_id, parent_cats=parent_cats))
+        if len(data) < 100:
+            break
+        page += 1
+    return variations
+
+
+async def fetch_all_products_full() -> list[dict]:
+    """Fetch ALL products and their variations from WooCommerce for full cache population."""
+    all_products: list[dict] = []
+    variable_parents: list[tuple[int, str, list]] = []
+
+    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+        page = 1
+        while True:
+            resp = await client.get(
+                f"{_base()}/products",
+                params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                break
+            for p in data:
+                cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
+                all_products.append(_parse_full_product(p))
+                if p.get("type") == "variable":
+                    variable_parents.append((p["id"], p.get("name", ""), cats))
+            if len(data) < 100:
+                break
+            page += 1
+
+        # Fetch variations for all variable products in parallel (batches of 10)
+        for i in range(0, len(variable_parents), 10):
+            batch = variable_parents[i:i + 10]
+            results = await asyncio.gather(*[
+                _fetch_variations_for_parent(client, pid, name, cats)
+                for pid, name, cats in batch
+            ], return_exceptions=True)
+            for r in results:
+                if isinstance(r, list):
+                    all_products.extend(r)
+
+    return all_products
+
+
+async def fetch_products_modified_after(modified_after: str) -> list[dict]:
+    """Fetch products modified after the given ISO timestamp (light sync)."""
+    all_products: list[dict] = []
+    variable_parents: list[tuple[int, str, list]] = []
+
+    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+        page = 1
+        while True:
+            resp = await client.get(
+                f"{_base()}/products",
+                params={
+                    "per_page": "100", "page": str(page),
+                    "status": "any", "_fields": _FULL_FIELDS,
+                    "modified_after": modified_after,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not data:
+                break
+            for p in data:
+                cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
+                all_products.append(_parse_full_product(p))
+                if p.get("type") == "variable":
+                    variable_parents.append((p["id"], p.get("name", ""), cats))
+            if len(data) < 100:
+                break
+            page += 1
+
+        for i in range(0, len(variable_parents), 10):
+            batch = variable_parents[i:i + 10]
+            results = await asyncio.gather(*[
+                _fetch_variations_for_parent(client, pid, name, cats)
+                for pid, name, cats in batch
+            ], return_exceptions=True)
+            for r in results:
+                if isinstance(r, list):
+                    all_products.extend(r)
+
+    return all_products
+
+
 async def fetch_all_variations_stock(parent_id: int) -> list[dict]:
     """Return [{id, stock_status}] for every variation of a parent product."""
     variations: list[dict] = []
