@@ -178,8 +178,71 @@
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-            "url": { "raw": "{{base_url}}/api/products", "host": ["{{base_url}}"], "path": ["api","products"] },
-            "description": "Auth: User\n\nReturns all products stored in the local DB cache (`products_cache` table).\n\nRun `GET /api/fetch/full` first to populate. Returns `{\"stats\": {...}, \"products\": [...]}`."
+            "url": {
+              "raw": "{{base_url}}/api/products?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api","products"],
+              "query": [
+                { "key": "page",         "value": "1",    "description": "Page number (default 1)" },
+                { "key": "limit",        "value": "50",   "description": "Items per page (default 50, max 500)" },
+                { "key": "search",       "value": "",     "description": "Case-insensitive match against name or SKU", "disabled": true },
+                { "key": "product_type", "value": "",     "description": "Filter by type: simple | variable | variation", "disabled": true }
+              ]
+            },
+            "description": "Auth: User\n\nReturns a paginated list of products from the local DB cache (`products_cache` table).\n\nRun `GET /api/fetch/full` first to populate the cache.\n\n**Query parameters:**\n- `page` (int, default 1)\n- `limit` (int, default 50, max 500)\n- `search` (str, optional) — case-insensitive match on product name or SKU\n- `product_type` (str, optional) — `simple`, `variable`, or `variation`\n\n**Response format:**\n```json\n{\n  \"page\": 1,\n  \"limit\": 50,\n  \"total\": 1234,\n  \"total_pages\": 25,\n  \"items\": [\n    {\n      \"wc_id\": 101,\n      \"name\": \"Blue T-Shirt\",\n      \"sku\": \"TSH-BLU\",\n      \"price\": \"29.99\",\n      \"regular_price\": \"29.99\",\n      \"sale_price\": \"\",\n      \"stock_status\": \"instock\",\n      \"stock_quantity\": 15,\n      \"product_type\": \"simple\",\n      \"categories\": [{\"id\": 5, \"name\": \"Clothing\"}],\n      \"last_synced_at\": \"2026-06-11T08:00:00\"\n    }\n  ]\n}\n```\n\n⚠️ `limit` defaults to **50** and has a hard maximum of **500**. Requesting more than 500 per page returns a 422 validation error."
+          }
+        },
+        {
+          "name": "List Products — Example: page 1, 50 per page",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/products?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api","products"],
+              "query": [
+                { "key": "page",  "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Auth: User\n\nBasic paginated list — first 50 products. Change `page` to paginate forward."
+          }
+        },
+        {
+          "name": "List Products — Example: search by name/SKU",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/products?search=blue+shirt&page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api","products"],
+              "query": [
+                { "key": "search", "value": "blue shirt", "description": "Matches any product whose name or SKU contains this string (case-insensitive)" },
+                { "key": "page",   "value": "1" },
+                { "key": "limit",  "value": "10" }
+              ]
+            },
+            "description": "Auth: User\n\nSearch by product name or SKU. The `search` param does a case-insensitive LIKE match on both fields.\n\nExample: `?search=iphone` returns all products whose name or SKU contains \"iphone\"."
+          }
+        },
+        {
+          "name": "List Products — Example: filter by product type",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{base_url}}/api/products?product_type=variation&page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api","products"],
+              "query": [
+                { "key": "product_type", "value": "variation", "description": "simple | variable | variation" },
+                { "key": "page",         "value": "1" },
+                { "key": "limit",        "value": "50" }
+              ]
+            },
+            "description": "Auth: User\n\nFilter by product type. Valid values: `simple`, `variable`, `variation`.\n\nUse `variation` to list all child variants. Use `variable` to list parent products with variants."
           }
         },
         {
@@ -248,7 +311,7 @@
               "host": ["{{base_url}}"], "path": ["api","fetch","full"],
               "query": [{ "key": "token", "value": "{{token}}", "description": "JWT token (SSE cannot use headers)" }]
             },
-            "description": "Auth: User (query-string token)\n\nStreams a full WooCommerce product sync into the local DB cache. Fetches ALL products and variations via paginated WC REST API.\n\nSSE event format: `data: {\"step\": \"...\", \"status\": \"running|ok|error\", \"msg\": \"...\"}`\n\nExpected sequence:\n1. `{\"step\":\"start\", \"status\":\"running\"}`\n2. `{\"step\":\"fetch\", \"status\":\"running\", \"msg\":\"Fetched N products...\"}`\n3. `{\"step\":\"done\", \"status\":\"ok\", \"msg\":\"Cache updated: X new, Y updated\"}`\n\nRun this once after deployment to populate the cache. After that, use Light Sync for incremental updates.\n\n⚠️ Postman does not render SSE streams live. View raw response body for the event lines."
+            "description": "Auth: User (query-string token)\n\nStreams a full WooCommerce product sync into the local DB cache. Fetches ALL products and variations via paginated WC REST API.\n\nSSE event format: `data: {\"step\": \"...\", \"status\": \"running|warning|ok|error\", \"msg\": \"...\"}`\n\nExpected sequence:\n1. `{\"step\":\"start\", \"status\":\"running\"}`\n2. `{\"step\":\"warning\", \"status\":\"warning\", \"msg\":\"Variation fetch failed for parent #N...\"}` (0 or more, if variation fetches fail after retries)\n3. `{\"step\":\"fetch\", \"status\":\"running\", \"msg\":\"Fetched N products...\"}`\n4. `{\"step\":\"done\", \"status\":\"ok\", \"msg\":\"Cache updated: X new, Y updated\"}`\n\nRetry/backoff: 429/5xx responses are automatically retried up to 3 times with exponential backoff. Variation failures after all retries emit a `warning` event instead of silently dropping.\n\nRun this once after deployment to populate the cache. After that, use Light Sync for incremental updates.\n\n⚠️ Postman does not render SSE streams live. View raw response body for the event lines."
           }
         },
         {
