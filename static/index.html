@@ -1,223 +1,243 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fa-IR">
 <head>
+<script>!function(){try{var t=localStorage.getItem("dash26-theme"),e=window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.setAttribute("data-theme",t||(e?"dark":"light"))}catch(t){document.documentElement.setAttribute("data-theme","light")}}()</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WooPrice</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%234880FF'/><text x='16' y='23' font-family='Arial' font-size='20' font-weight='700' text-anchor='middle' fill='white'>W</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/adminator/style.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script defer src="/static/adminator/runtime.js"></script>
+<script defer src="/static/adminator/vendors.js"></script>
+<script defer src="/static/adminator/2026.js"></script>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#F5F6FA;--sidebar:#FFFFFF;--card:#FFFFFF;--card2:#F8F9FC;
-  --border:#E8EAED;--text:#1C2434;--muted:#8E97A7;
-  --accent:#4880FF;--accent2:#3570E8;
-  --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
-  --orange:#f97316;--purple:#a855f7;
-  --shadow:0 1px 4px rgba(0,0,0,.06);--shadow-md:0 4px 20px rgba(0,0,0,.1);
+/* ── WooPrice overrides on top of Adminator theme ── */
+:root {
+  --accent: #4880FF;
+  --wp-green: #22c55e;
+  --wp-red: #ef4444;
+  --wp-yellow: #f59e0b;
+  --wp-orange: #f97316;
+  --wp-purple: #a855f7;
+  --wp-muted: #8E97A7;
 }
-body{font-family:'Vazirmatn',sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh}
+body { font-family: 'Vazirmatn', sans-serif !important; }
 
-/* ── Login ── */
-#login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
-.login-box{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:380px;box-shadow:var(--shadow-md)}
-.login-box h1{font-size:24px;font-weight:700;margin-bottom:4px}
-.login-box p{color:var(--muted);margin-bottom:28px;font-size:13px}
-.login-box label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:500}
-.login-box input{width:100%;padding:10px 14px;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:16px;outline:none;font-family:inherit;transition:border-color .15s}
-.login-box input:focus{border-color:var(--accent)}
-.btn-primary{width:100%;padding:11px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s;font-family:inherit}
-.btn-primary:hover{background:var(--accent2)}
-#login-error{color:var(--red);font-size:12px;margin-top:10px;text-align:center;min-height:18px}
+/* Login overlay */
+#login-overlay { position: fixed; inset: 0; background: var(--bg-base, #F5F6FA); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+.login-box { background: var(--bg-card, #fff); border: 1px solid var(--border, #E8EAED); border-radius: 16px; padding: 40px; width: 380px; box-shadow: 0 4px 20px rgba(0,0,0,.1); }
+.login-box h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; color: var(--text-base, #1C2434); }
+.login-box p { color: var(--wp-muted); margin-bottom: 28px; font-size: 13px; }
+.login-box label { display: block; font-size: 12px; color: var(--wp-muted); margin-bottom: 5px; font-weight: 500; }
+.login-box input { width: 100%; padding: 10px 14px; background: var(--bg-base, #F5F6FA); border: 1.5px solid var(--border, #E8EAED); border-radius: 8px; color: var(--text-base, #1C2434); font-size: 14px; margin-bottom: 16px; outline: none; font-family: inherit; transition: border-color .15s; box-sizing: border-box; }
+.login-box input:focus { border-color: var(--accent); }
+.wp-btn-primary { width: 100%; padding: 11px; background: var(--accent); border: none; border-radius: 8px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; font-family: inherit; }
+.wp-btn-primary:hover { background: #3570E8; }
+#login-error { color: var(--wp-red); font-size: 12px; margin-top: 10px; text-align: center; min-height: 18px; }
 
-/* ── Layout ── */
-.hidden{display:none!important}
-#app{display:flex;height:100vh;overflow:hidden}
-#sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:99}
+/* WooPrice page content inside Adminator shell */
+.wp-page { padding: 28px; display: flex; flex-direction: column; gap: 20px; }
+.wp-hidden { display: none !important; }
+.wp-page-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 4px; }
+.wp-page-title { font-size: 22px; font-weight: 700; }
+.wp-page-sub { font-size: 13px; color: var(--wp-muted); margin-top: 3px; }
 
-/* ── Sidebar ── */
-.sidebar{width:240px;flex-shrink:0;background:var(--sidebar);display:flex;flex-direction:column;border-right:1px solid var(--border);z-index:100}
-.sidebar-logo{padding:22px 20px 18px;font-size:20px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
-.logo-icon{width:34px;height:34px;background:var(--accent);border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700;flex-shrink:0}
-.sidebar-logo span{color:var(--accent)}
-.sidebar-nav{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
-.nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;color:var(--muted);cursor:pointer;font-size:13.5px;transition:all .15s;border:none;background:none;width:100%;text-align:left;font-family:inherit}
-.nav-item:hover{background:var(--bg);color:var(--text)}
-.nav-item.active{background:var(--accent);color:#fff;font-weight:500}
-.nav-icon{width:18px;text-align:center;font-style:normal;font-size:15px;flex-shrink:0}
-.sidebar-footer{padding:12px 12px 16px;border-top:1px solid var(--border)}
-.user-chip{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--bg);margin-bottom:8px}
-.user-avatar{width:32px;height:32px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#fff;flex-shrink:0}
-.user-name{font-size:13px;font-weight:600}
-.user-role{font-size:11px;color:var(--muted)}
-.btn-logout{width:100%;padding:9px;background:transparent;border:1.5px solid var(--border);border-radius:8px;color:var(--muted);font-size:13px;cursor:pointer;transition:all .15s;font-family:inherit}
-.btn-logout:hover{border-color:var(--red);color:var(--red)}
+/* Stat cards */
+.wp-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.wp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.wp-stat-card { background: var(--bg-card, #fff); border: 1px solid var(--border, #E8EAED); border-radius: 12px; padding: 22px 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.wp-stat-info { flex: 1; min-width: 0; }
+.wp-stat-val { font-size: 30px; font-weight: 700; margin-bottom: 4px; line-height: 1; }
+.wp-stat-label { font-size: 12.5px; color: var(--wp-muted); }
+.wp-stat-icon { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wp-stat-icon img { width: 60px; height: 60px; object-fit: contain; }
 
-/* ── Content wrapper + Topbar ── */
-.content-wrapper{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.topbar{height:64px;background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:16px;flex-shrink:0;box-shadow:var(--shadow)}
-.topbar-hamburger{display:none;background:none;border:none;cursor:pointer;padding:6px 8px;border-radius:6px;color:var(--text);font-size:20px;line-height:1;flex-shrink:0}
-.topbar-hamburger:hover{background:var(--bg)}
-.topbar-title{font-size:17px;font-weight:600;flex:1}
-.topbar-right{display:flex;align-items:center;gap:16px}
-.topbar-health{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
-.topbar-avatar{width:34px;height:34px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:#fff;flex-shrink:0}
+/* Cards */
+.wp-card { background: var(--bg-card, #fff); border: 1px solid var(--border, #E8EAED); border-radius: 12px; padding: 22px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.wp-card-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--wp-muted); margin-bottom: 16px; font-weight: 600; }
 
-/* ── Content ── */
-.content{flex:1;overflow-y:auto;background:var(--bg)}
-.page{padding:28px;display:flex;flex-direction:column;gap:20px}
-.page-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
-.page-title{font-size:22px;font-weight:700}
-.page-sub{font-size:13px;color:var(--muted);margin-top:3px}
+/* Buttons */
+.wp-btn { padding: 9px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; }
+.wp-btn-blue { background: var(--accent); color: #fff; } .wp-btn-blue:hover { background: #3570E8; }
+.wp-btn-green { background: #16a34a; color: #fff; } .wp-btn-green:hover { background: #15803d; }
+.wp-btn-ghost { background: var(--bg-card, #fff); border: 1.5px solid var(--border, #E8EAED); color: var(--text-base, #1C2434); } .wp-btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.wp-btn-red { background: #dc2626; color: #fff; } .wp-btn-red:hover { background: #b91c1c; }
+.wp-btn:disabled { opacity: .4; cursor: not-allowed; }
+.wp-btn-sm { padding: 6px 12px; font-size: 12px; }
 
-/* ── Cards ── */
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:var(--shadow)}
-.card-title{font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:16px;font-weight:600}
-.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+/* Tables */
+.wp-tbl-wrap { overflow-x: auto; }
+.wp-tbl-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wp-tbl-wrap th { padding: 10px 14px; text-align: left; color: var(--wp-muted); font-weight: 600; border-bottom: 2px solid var(--border, #E8EAED); white-space: nowrap; font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; }
+.wp-tbl-wrap td { padding: 10px 14px; border-bottom: 1px solid var(--border, #E8EAED); vertical-align: middle; }
+.wp-tbl-wrap tr:last-child td { border-bottom: none; }
+.wp-tbl-wrap tr:hover td { background: rgba(72,128,255,.03); }
+td.number { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* ── Stat Cards (DashStack style: value+label left, icon right) ── */
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px 20px;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:space-between;gap:16px}
-.stat-info{flex:1;min-width:0}
-.stat-val{font-size:30px;font-weight:700;margin-bottom:4px;line-height:1}
-.stat-label{font-size:12.5px;color:var(--muted)}
-.stat-icon{width:52px;height:52px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
-.stat-icon.blue{background:#EEF3FF;color:var(--accent)}
-.stat-icon.yellow{background:#FFF8E6;color:#f59e0b}
-.stat-icon.green{background:#E8FAF0;color:#22c55e}
-.stat-icon.red{background:#FDECEA;color:#ef4444}
+/* Badges */
+.badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge-green { background: #dcfce7; color: #16a34a; }
+.badge-red { background: #fee2e2; color: #dc2626; }
+.badge-yellow { background: #fef3c7; color: #d97706; }
+.badge-blue { background: #dbeafe; color: #2563eb; }
+.badge-gray { background: #f1f5f9; color: #64748b; }
+.badge-purple { background: #ede9fe; color: #7c3aed; }
 
-/* ── Buttons ── */
-.btn{padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px;font-family:inherit}
-.btn-blue{background:var(--accent);color:#fff}.btn-blue:hover{background:var(--accent2)}
-.btn-green{background:#16a34a;color:#fff}.btn-green:hover{background:#15803d}
-.btn-ghost{background:var(--card);border:1.5px solid var(--border);color:var(--text)}.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
-.btn-red{background:#dc2626;color:#fff}.btn-red:hover{background:#b91c1c}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-sm{padding:6px 12px;font-size:12px}
+/* Color dot */
+.color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 1.5px solid rgba(0,0,0,.12); }
 
-/* ── Tables ── */
-.tbl-wrap{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{padding:10px 14px;text-align:left;color:var(--muted);font-weight:600;border-bottom:2px solid var(--border);white-space:nowrap;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
-td{padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:#FAFBFF}
-td.number{text-align:right;font-variant-numeric:tabular-nums}
+/* Steps */
+.wp-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.wp-step { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 12px; background: var(--bg-base, #F5F6FA); border: 1.5px solid var(--border, #E8EAED); color: var(--wp-muted); }
+.wp-step.running { border-color: var(--accent); color: var(--accent); background: #EEF3FF; }
+.wp-step.done { border-color: var(--wp-green); color: #16a34a; background: #dcfce7; }
+.wp-step.error { border-color: var(--wp-red); color: #dc2626; background: #fee2e2; }
+.wp-step-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
-/* ── Badges ── */
-.badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600}
-.badge-green{background:#dcfce7;color:#16a34a}
-.badge-red{background:#fee2e2;color:#dc2626}
-.badge-yellow{background:#fef3c7;color:#d97706}
-.badge-blue{background:#dbeafe;color:#2563eb}
-.badge-gray{background:#f1f5f9;color:#64748b}
-.badge-purple{background:#ede9fe;color:#7c3aed}
+/* Editable cells */
+.editable-cell { cursor: pointer; border-radius: 4px; padding: 2px 6px; transition: background .1s; }
+.editable-cell:hover { background: var(--bg-base, #F5F6FA); }
+.cell-input { background: var(--bg-card, #fff); border: 1.5px solid var(--accent); border-radius: 6px; color: var(--text-base, #1C2434); padding: 4px 8px; font-size: 13px; width: 100%; outline: none; font-family: inherit; }
+.cell-select { background: var(--bg-card, #fff); border: 1.5px solid var(--accent); border-radius: 6px; color: var(--text-base, #1C2434); padding: 4px 8px; font-size: 12px; outline: none; font-family: inherit; }
+.saving-text { color: var(--wp-muted); font-size: 12px; font-style: italic; }
 
-/* ── Color dot ── */
-.color-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1.5px solid rgba(0,0,0,.12)}
+/* Filter bar */
+.wp-filter-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wp-search { padding: 8px 14px; background: var(--bg-card, #fff); border: 1.5px solid var(--border, #E8EAED); border-radius: 8px; color: var(--text-base, #1C2434); font-size: 13px; outline: none; min-width: 200px; font-family: inherit; transition: border-color .15s; }
+.wp-search:focus { border-color: var(--accent); }
+select.wp-sel { padding: 8px 12px; background: var(--bg-card, #fff); border: 1.5px solid var(--border, #E8EAED); border-radius: 8px; color: var(--text-base, #1C2434); font-size: 13px; outline: none; cursor: pointer; font-family: inherit; }
+select.wp-sel:focus { border-color: var(--accent); }
 
-/* ── Steps ── */
-.steps{display:flex;gap:8px;flex-wrap:wrap}
-.step{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:12px;background:var(--bg);border:1.5px solid var(--border);color:var(--muted)}
-.step.running{border-color:var(--accent);color:var(--accent);background:#EEF3FF}
-.step.done{border-color:#22c55e;color:#16a34a;background:#dcfce7}
-.step.error{border-color:var(--red);color:#dc2626;background:#fee2e2}
-.step-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+/* Stats bar */
+.wp-stats-bar { display: flex; gap: 20px; flex-wrap: wrap; font-size: 12.5px; padding: 10px 16px; background: var(--bg-base, #F5F6FA); border-radius: 8px; border: 1.5px solid var(--border, #E8EAED); }
+.wp-stats-bar span { color: var(--wp-muted); } .wp-stats-bar b { color: var(--text-base, #1C2434); }
 
-/* ── Editable cells ── */
-.editable-cell{cursor:pointer;border-radius:4px;padding:2px 6px;transition:background .1s}
-.editable-cell:hover{background:var(--bg)}
-.cell-input{background:var(--card);border:1.5px solid var(--accent);border-radius:6px;color:var(--text);padding:4px 8px;font-size:13px;width:100%;outline:none;font-family:inherit}
-.cell-select{background:var(--card);border:1.5px solid var(--accent);border-radius:6px;color:var(--text);padding:4px 8px;font-size:12px;outline:none;font-family:inherit}
-.saving-text{color:var(--muted);font-size:12px;font-style:italic}
+/* Log feed */
+.wp-log-feed { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.wp-log-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 8px; background: var(--bg-base, #F5F6FA); font-size: 12.5px; border: 1px solid var(--border, #E8EAED); }
+.log-action { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; min-width: 50px; text-align: center; }
+.log-action.login { background: #dbeafe; color: #2563eb; }
+.log-action.fetch { background: #dcfce7; color: #16a34a; }
+.log-action.apply { background: #ede9fe; color: #7c3aed; }
+.log-ts { color: var(--wp-muted); font-size: 11px; margin-left: auto; }
 
-/* ── Filter bar ── */
-.filter-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.search-input{padding:8px 14px;background:var(--card);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;min-width:200px;font-family:inherit;transition:border-color .15s}
-.search-input:focus{border-color:var(--accent)}
-select.filter-sel{padding:8px 12px;background:var(--card);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;cursor:pointer;font-family:inherit}
-select.filter-sel:focus{border-color:var(--accent)}
+/* Activity log */
+.wp-activity-log { max-height: 180px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.activity-line { padding: 3px 0; color: var(--wp-muted); }
+.activity-line.ok { color: #16a34a; }
+.activity-line.err { color: #dc2626; }
+.activity-line.info { color: #2563eb; }
 
-/* ── Stats bar ── */
-.stats-bar{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;padding:10px 16px;background:var(--bg);border-radius:8px;border:1.5px solid var(--border)}
-.stats-bar span{color:var(--muted)}.stats-bar b{color:var(--text)}
+/* Modal */
+.wp-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 9000; display: flex; align-items: center; justify-content: center; }
+.wp-modal { background: var(--bg-card, #fff); border: 1px solid var(--border, #E8EAED); border-radius: 16px; padding: 30px; max-width: 560px; width: 100%; margin: 20px; box-shadow: 0 4px 20px rgba(0,0,0,.1); }
+.wp-modal h3 { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+.wp-modal p { color: var(--wp-muted); font-size: 13px; margin-bottom: 18px; }
+.wp-modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
-/* ── Log feed (home) ── */
-.log-feed{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto}
-.log-item{display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;background:var(--bg);font-size:12.5px;border:1px solid var(--border)}
-.log-action{padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;min-width:50px;text-align:center}
-.log-action.login{background:#dbeafe;color:#2563eb}
-.log-action.fetch{background:#dcfce7;color:#16a34a}
-.log-action.apply{background:#ede9fe;color:#7c3aed}
-.log-ts{color:var(--muted);font-size:11px;margin-left:auto}
+/* Chart */
+.wp-chart-wrap { position: relative; height: 190px; }
 
-/* ── Activity log (workspace) ── */
-.activity-log{max-height:180px;overflow-y:auto;font-size:12px;display:flex;flex-direction:column;gap:4px}
-.activity-line{padding:3px 0;color:var(--muted)}
-.activity-line.ok{color:#16a34a}
-.activity-line.err{color:#dc2626}
-.activity-line.info{color:#2563eb}
+/* Section header */
+.wp-section-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.wp-section-hdr h3 { font-size: 14px; font-weight: 600; }
+.wp-section-count { font-size: 12px; color: var(--wp-muted); background: var(--bg-base, #F5F6FA); padding: 2px 9px; border-radius: 12px; border: 1px solid var(--border, #E8EAED); }
 
-/* ── Modal ── */
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:200;display:flex;align-items:center;justify-content:center}
-.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:30px;max-width:560px;width:100%;margin:20px;box-shadow:var(--shadow-md)}
-.modal h3{font-size:17px;font-weight:600;margin-bottom:6px}
-.modal p{color:var(--muted);font-size:13px;margin-bottom:18px}
-.modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+/* Tabs */
+.wp-tab-bar { display: flex; gap: 2px; border-bottom: 2px solid var(--border, #E8EAED); margin-bottom: 18px; }
+.wp-tab-btn { padding: 9px 18px; border: none; background: none; color: var(--wp-muted); font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .15s; font-family: inherit; font-weight: 500; }
+.wp-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.wp-tab-btn:hover { color: var(--text-base, #1C2434); }
 
-/* ── Chart containers ── */
-.chart-wrap{position:relative;height:190px}
+/* Settings */
+.wp-settings-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border, #E8EAED); align-items: center; }
+.wp-settings-row:last-child { border-bottom: none; }
+.wp-settings-key { color: var(--wp-muted); font-size: 12.5px; font-weight: 500; }
+.wp-settings-val { font-size: 13px; font-family: monospace; color: var(--text-base, #1C2434); }
 
-/* ── Section header ── */
-.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.section-hdr h3{font-size:14px;font-weight:600}
-.section-count{font-size:12px;color:var(--muted);background:var(--bg);padding:2px 9px;border-radius:12px;border:1px solid var(--border)}
+/* Threshold editor */
+.wp-threshold-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border, #E8EAED); }
+.wp-threshold-row:last-child { border-bottom: none; }
+.wp-threshold-label { flex: 1; font-size: 13px; }
+.wp-threshold-input { width: 80px; padding: 6px 10px; background: var(--bg-base, #F5F6FA); border: 1.5px solid var(--border, #E8EAED); border-radius: 6px; color: var(--text-base, #1C2434); font-size: 13px; outline: none; font-family: inherit; }
+.wp-threshold-input:focus { border-color: var(--accent); }
 
-/* ── Tabs ── */
-.tab-bar{display:flex;gap:2px;border-bottom:2px solid var(--border);margin-bottom:18px}
-.tab-btn{padding:9px 18px;border:none;background:none;color:var(--muted);font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;font-family:inherit;font-weight:500}
-.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab-btn:hover{color:var(--text)}
+/* Responsive overrides */
+@media (max-width: 1100px) { .wp-grid-4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 768px) {
+  .wp-grid-2 { grid-template-columns: 1fr; }
+  .wp-page { padding: 16px; }
 
-/* ── Settings rows ── */
-.settings-row{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);align-items:center}
-.settings-row:last-child{border-bottom:none}
-.settings-key{color:var(--muted);font-size:12.5px;font-weight:500}
-.settings-val{font-size:13px;font-family:monospace;color:var(--text)}
+  /* Scrollable table — right-edge fade + thin scrollbar as scroll hint */
+  .wp-tbl-wrap {
+    -webkit-mask-image: linear-gradient(to right, black 88%, transparent 100%);
+    mask-image: linear-gradient(to right, black 88%, transparent 100%);
+  }
+  .wp-tbl-wrap::-webkit-scrollbar { height: 3px; }
+  .wp-tbl-wrap::-webkit-scrollbar-track { background: transparent; }
+  .wp-tbl-wrap::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 99px; opacity: .6; }
 
-/* ── Threshold editor ── */
-.threshold-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
-.threshold-row:last-child{border-bottom:none}
-.threshold-label{flex:1;font-size:13px}
-.threshold-input{width:80px;padding:6px 10px;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;font-family:inherit}
-.threshold-input:focus{border-color:var(--accent)}
+  /* Analytics: truncate long product names */
+  .an-name-cell { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  /* Audit log: hide IP + Job columns (least important on small screen) */
+  #audit-log-table th:nth-child(4), #audit-log-table td:nth-child(4),
+  #audit-log-table th:nth-child(5), #audit-log-table td:nth-child(5) { display: none; }
 
-/* ── Responsive ── */
-@media (max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:768px){
-  .sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--shadow-md)}
-  .sidebar.mobile-open{transform:translateX(0)}
-  #sidebar-overlay.open{display:block}
-  .topbar-hamburger{display:flex}
-  .grid-2{grid-template-columns:1fr}
-  .page{padding:16px}
-  .topbar{padding:0 16px}
+  /* Sync history: hide Completed + Skipped columns */
+  #history-log-table th:nth-child(3), #history-log-table td:nth-child(3),
+  #history-log-table th:nth-child(7), #history-log-table td:nth-child(7) { display: none; }
 }
-@media (max-width:480px){
-  .grid-4{grid-template-columns:1fr}
+@media (max-width: 480px) { .wp-grid-4 { grid-template-columns: 1fr; } }
+
+/* Adminator nav active override to use our accent */
+.d-sidebar .nav-link.is-active { background: var(--accent) !important; color: #fff !important; }
+
+/* Hide notifications/messages dropdowns — not used */
+.d-topbar .dd-wrap:has([aria-label="Notifications"]),
+.d-topbar .dd-wrap:has([aria-label="Messages"]) { display: none; }
+
+/* Health indicator in topbar */
+#wp-health-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--wp-muted); }
+#wp-health-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border, #E8EAED); display: inline-block; flex-shrink: 0; }
+
+/* Progress bar */
+.wp-progress-wrap { background: var(--bg-base,#F5F6FA); border-radius: 99px; height: 10px; overflow: hidden; }
+.wp-progress-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 99px; transition: width .35s ease; }
+/* Result banner */
+.wp-result-banner { display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px; border-radius: 10px; }
+.wp-result-banner-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wp-result-banner-icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.2; }
+.wp-result-banner.success { background: #dcfce7; } .wp-result-banner.success .wp-result-banner-icon { background: #16a34a; color: #fff; }
+.wp-result-banner.warning { background: #fef3c7; } .wp-result-banner.warning .wp-result-banner-icon { background: #d97706; color: #fff; }
+.wp-result-banner.error   { background: #fee2e2; } .wp-result-banner.error   .wp-result-banner-icon { background: #dc2626; color: #fff; }
+.wp-result-banner-body h4 { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
+.wp-result-banner-body p  { font-size: 12.5px; color: var(--wp-muted); margin: 0; }
+/* Live error items during apply */
+.wp-live-error { font-size: 12px; color: #dc2626; padding: 4px 10px; background: #fee2e2; border-radius: 6px; display: flex; align-items: center; gap: 6px; }
+
+/* Custom profile dropdown */
+#wp-profile-dd {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border, #E8EAED);
+  border-radius: 10px;
+  padding: 8px;
+  min-width: 180px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.12);
+  z-index: 9999;
+  display: none;
 }
+#wp-signout-btn:hover { background: #fee2e2; }
 </style>
 </head>
-<body>
+<body data-active="home" data-crumbs="WooPrice | Dashboard">
 
-<!-- ══ Login ══ -->
+<!-- ══ Login Overlay ══ -->
 <div id="login-overlay">
   <div class="login-box">
     <h1>Woo<span style="color:var(--accent)">Price</span></h1>
@@ -225,165 +245,123 @@ select.filter-sel:focus{border-color:var(--accent)}
     <label for="login-user">Username</label>
     <input id="login-user" type="text" placeholder="username" autocomplete="username">
     <label for="login-pass">Password</label>
-    <input id="login-pass" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password">
-    <button class="btn-primary" type="button" onclick="doLogin()">Sign In</button>
+    <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+    <button class="wp-btn-primary" type="button" onclick="doLogin()">Sign In</button>
     <div id="login-error"></div>
   </div>
 </div>
 
-<!-- ══ App ══ -->
-<div id="app" class="hidden">
-  <div id="sidebar-overlay" onclick="closeSidebar()"></div>
+<!-- ══ Adminator Shell ══ -->
+<div class="shell wp-hidden" id="app">
+  <div data-shell-sidebar></div>
+  <div class="main">
+    <div data-shell-topbar></div>
 
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">
-      <div class="logo-icon">W</div>
-      Woo<span>Price</span>
-    </div>
-    <nav class="sidebar-nav">
-      <button class="nav-item active" data-page="home" onclick="showPage('home')">
-        <i class="nav-icon">&#8962;</i> Home
-      </button>
-      <button class="nav-item" data-page="workspace" onclick="showPage('workspace')">
-        <i class="nav-icon">&#9889;</i> Workspace
-      </button>
-      <button class="nav-item" data-page="analytics" onclick="showPage('analytics')">
-        <i class="nav-icon">&#8803;</i> Analytics
-      </button>
-      <button class="nav-item" data-page="logs" onclick="showPage('logs')">
-        <i class="nav-icon">&#8801;</i> Logs
-      </button>
-      <button class="nav-item admin-nav hidden" data-page="settings" onclick="showPage('settings')">
-        <i class="nav-icon">&#8857;</i> Settings
-      </button>
-    </nav>
-    <div class="sidebar-footer">
-      <div class="user-chip">
-        <div class="user-avatar" id="user-avatar">?</div>
-        <div>
-          <div class="user-name" id="user-name-label">&#8212;</div>
-          <div class="user-role" id="user-role-label">&#8212;</div>
-        </div>
-      </div>
-      <button class="btn-logout" onclick="logout()">Sign Out</button>
-    </div>
-  </aside>
+    <main class="content" style="overflow-y:auto">
 
-  <!-- Content Wrapper -->
-  <div class="content-wrapper">
-
-    <!-- Topbar -->
-    <header class="topbar">
-      <button class="topbar-hamburger" type="button" onclick="toggleSidebar()">&#9776;</button>
-      <div class="topbar-title" id="topbar-page-title">Home</div>
-      <div class="topbar-right">
-        <div class="topbar-health">
-          <span id="health-dot" style="width:8px;height:8px;border-radius:50%;background:var(--border);flex-shrink:0;display:inline-block"></span>
-          <span id="health-text">Checking&#8230;</span>
-        </div>
-        <div class="topbar-avatar" id="topbar-avatar">?</div>
-      </div>
-    </header>
-
-    <!-- Pages -->
-    <main class="content">
-
-      <!-- ── Home ── -->
-      <div id="page-home" class="page">
-        <div class="page-header">
+      <!-- ── Dashboard ── -->
+      <div id="page-home" class="wp-page">
+        <div class="wp-page-header">
           <div>
-            <div class="page-title">Home</div>
-            <div class="page-sub">Overview and recent activity</div>
+            <div class="wp-page-title">Dashboard</div>
+            <div class="wp-page-sub">Overview and recent activity</div>
           </div>
-          <button class="btn btn-ghost btn-sm" type="button" onclick="loadHome()">Refresh</button>
+          <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="loadHome()">Refresh</button>
         </div>
 
-        <div class="grid-4">
-          <div class="stat-card">
-            <div class="stat-info">
-              <div class="stat-val" id="hs-syncs">&#8212;</div>
-              <div class="stat-label">Total Syncs</div>
+        <div class="wp-grid-4">
+          <div class="wp-stat-card">
+            <div class="wp-stat-info">
+              <div class="wp-stat-val" id="hs-syncs">—</div>
+              <div class="wp-stat-label">Total Syncs</div>
             </div>
-            <div class="stat-icon blue">&#8635;</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-info">
-              <div class="stat-val" id="hs-total">&#8212;</div>
-              <div class="stat-label">Products</div>
+            <div class="wp-stat-icon">
+              <img src="/static/icons/icons8-total-syncs-96.png" alt="syncs">
             </div>
-            <div class="stat-icon yellow">&#9723;</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-info">
-              <div class="stat-val" id="hs-instock">&#8212;</div>
-              <div class="stat-label">In Stock</div>
+          <div class="wp-stat-card">
+            <div class="wp-stat-info">
+              <div class="wp-stat-val" id="hs-total">—</div>
+              <div class="wp-stat-label">Products</div>
             </div>
-            <div class="stat-icon green">&#10003;</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-info">
-              <div class="stat-val" id="hs-outstock">&#8212;</div>
-              <div class="stat-label">Out of Stock</div>
+            <div class="wp-stat-icon">
+              <img src="/static/icons/icons8-product-96.png" alt="products">
             </div>
-            <div class="stat-icon red">&#10005;</div>
           </div>
-        </div>
-
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-title">Sync Activity &#8212; Last 30 Days</div>
-            <div class="chart-wrap"><canvas id="sync-chart"></canvas></div>
+          <div class="wp-stat-card">
+            <div class="wp-stat-info">
+              <div class="wp-stat-val" id="hs-instock">—</div>
+              <div class="wp-stat-label">In Stock</div>
+            </div>
+            <div class="wp-stat-icon">
+              <img src="/static/icons/icons8-in-stock-96.png" alt="in stock">
+            </div>
           </div>
-          <div class="card">
-            <div class="card-title">Stock Distribution</div>
-            <div class="chart-wrap"><canvas id="stock-chart"></canvas></div>
+          <div class="wp-stat-card">
+            <div class="wp-stat-info">
+              <div class="wp-stat-val" id="hs-outstock">—</div>
+              <div class="wp-stat-label">Out of Stock</div>
+            </div>
+            <div class="wp-stat-icon">
+              <img src="/static/icons/icons8-out-of-stock-96.png" alt="out of stock">
+            </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-title">Recent Activity</div>
-          <div class="log-feed" id="home-logs">
-            <div style="color:var(--muted);text-align:center;padding:20px">Loading&#8230;</div>
+        <div class="wp-grid-2">
+          <div class="wp-card">
+            <div class="wp-card-title">Sync Activity — Last 30 Days</div>
+            <div class="wp-chart-wrap"><canvas id="sync-chart"></canvas></div>
+          </div>
+          <div class="wp-card">
+            <div class="wp-card-title">Stock Distribution</div>
+            <div class="wp-chart-wrap"><canvas id="stock-chart"></canvas></div>
+          </div>
+        </div>
+
+        <div class="wp-card">
+          <div class="wp-card-title">Recent Activity</div>
+          <div class="wp-log-feed" id="home-logs">
+            <div style="color:var(--wp-muted);text-align:center;padding:20px">Loading…</div>
           </div>
         </div>
       </div>
 
       <!-- ── Workspace ── -->
-      <div id="page-workspace" class="page hidden">
-        <div class="page-header">
+      <div id="page-workspace" class="wp-page wp-hidden">
+        <div class="wp-page-header">
           <div>
-            <div class="page-title">Workspace</div>
-            <div class="page-sub">Fetch, review, and apply price updates</div>
+            <div class="wp-page-title">Workspace</div>
+            <div class="wp-page-sub">Fetch, review, and apply price updates</div>
           </div>
-          <button class="btn btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
+          <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
         </div>
 
-        <div class="steps" id="steps-row" style="display:none">
-          <div class="step" id="step-excel"><span class="step-dot"></span>Excel</div>
-          <div class="step" id="step-wc"><span class="step-dot"></span>WooCommerce</div>
-          <div class="step" id="step-calc"><span class="step-dot"></span>Calculate</div>
+        <div class="wp-steps" id="steps-row" style="display:none">
+          <div class="wp-step" id="step-excel"><span class="wp-step-dot"></span>Excel</div>
+          <div class="wp-step" id="step-wc"><span class="wp-step-dot"></span>WooCommerce</div>
+          <div class="wp-step" id="step-calc"><span class="wp-step-dot"></span>Calculate</div>
         </div>
 
         <div id="ws-controls" style="display:none;flex-direction:column;gap:10px">
-          <div class="filter-bar">
-            <input class="search-input" id="ws-search" placeholder="Search name or SKU&#8230;" oninput="renderPreview()">
-            <select class="filter-sel" id="ws-cat" onchange="renderPreview()">
+          <div class="wp-filter-bar">
+            <input class="wp-search" id="ws-search" placeholder="Search name or SKU…" oninput="renderPreview()">
+            <select class="wp-sel" id="ws-cat" onchange="renderPreview()">
               <option value="">All categories</option>
             </select>
-            <select class="filter-sel" id="ws-changed" onchange="renderPreview()">
+            <select class="wp-sel" id="ws-changed" onchange="renderPreview()">
               <option value="">All rows</option>
               <option value="1">Changed only</option>
               <option value="0">Unchanged only</option>
             </select>
-            <button class="btn btn-ghost btn-sm" type="button" onclick="selectAll(true)">Select All</button>
-            <button class="btn btn-ghost btn-sm" type="button" onclick="selectAll(false)">Deselect All</button>
+            <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(true)">Select All</button>
+            <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(false)">Deselect All</button>
           </div>
-          <div class="stats-bar" id="ws-stats"></div>
+          <div class="wp-stats-bar" id="ws-stats"></div>
         </div>
 
-        <div class="card" id="ws-table-card" style="display:none">
-          <div class="tbl-wrap">
+        <div class="wp-card" id="ws-table-card" style="display:none">
+          <div class="wp-tbl-wrap">
             <table id="ws-table">
               <thead>
                 <tr>
@@ -407,58 +385,75 @@ select.filter-sel:focus{border-color:var(--accent)}
         </div>
 
         <div id="apply-bar" style="display:none;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-          <span id="selected-count" style="font-size:13px;color:var(--muted)"></span>
+          <span id="selected-count" style="font-size:13px;color:var(--wp-muted)"></span>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost" type="button" id="writeback-btn" style="display:none" onclick="doWriteback()">Write Status to Sheet</button>
-            <button class="btn btn-green" type="button" id="apply-btn" onclick="requestApply()" disabled>Apply Selected</button>
+            <button class="wp-btn wp-btn-ghost" type="button" id="writeback-btn" style="display:none" onclick="doWriteback()">Write Status to Sheet</button>
+            <button class="wp-btn wp-btn-green" type="button" id="apply-btn" onclick="requestApply()" disabled>Apply Selected</button>
           </div>
         </div>
 
-        <div class="card" id="apply-results-card" style="display:none">
-          <div class="section-hdr">
-            <h3>Apply Results</h3>
-            <span id="apply-summary" class="section-count"></span>
+        <div class="wp-card" id="apply-results-card" style="display:none">
+
+          <!-- Progress (visible while running) -->
+          <div id="apply-progress-section">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <span style="font-size:13px;font-weight:600">Applying updates…</span>
+              <span id="apply-progress-count" style="font-size:12px;color:var(--wp-muted)">0 / 0</span>
+            </div>
+            <div class="wp-progress-wrap">
+              <div class="wp-progress-bar" id="apply-progress-bar"></div>
+            </div>
+            <div id="apply-live-errors" style="margin-top:12px;display:flex;flex-direction:column;gap:4px"></div>
           </div>
-          <div class="tbl-wrap">
-            <table>
-              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Old Price</th><th>New Price</th><th>Status</th><th>Error</th></tr></thead>
-              <tbody id="apply-tbody"></tbody>
-            </table>
+
+          <!-- Result (visible when done) -->
+          <div id="apply-result-section" style="display:none">
+            <div id="apply-result-banner"></div>
+            <div id="apply-error-details" style="display:none;margin-top:16px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--wp-muted);font-weight:600;margin-bottom:10px">Failed Items</div>
+              <div class="wp-tbl-wrap">
+                <table>
+                  <thead><tr><th>ID</th><th>Name</th><th>Old Price</th><th>New Price</th><th>Reason</th></tr></thead>
+                  <tbody id="apply-errors-tbody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
+
         </div>
 
-        <div class="card" id="activity-card" style="display:none">
-          <div class="card-title">Activity</div>
-          <div class="activity-log" id="activity-log"></div>
+        <div class="wp-card" id="activity-card" style="display:none">
+          <div class="wp-card-title">Activity</div>
+          <div class="wp-activity-log" id="activity-log"></div>
         </div>
       </div>
 
       <!-- ── Analytics ── -->
-      <div id="page-analytics" class="page hidden">
-        <div class="page-header">
+      <div id="page-analytics" class="wp-page wp-hidden">
+        <div class="wp-page-header">
           <div>
-            <div class="page-title">Analytics</div>
-            <div class="page-sub">Product insights from latest sync</div>
+            <div class="wp-page-title">Analytics</div>
+            <div class="wp-page-sub">Product insights from latest sync</div>
           </div>
-          <div class="filter-bar">
-            <input class="search-input" id="an-search" placeholder="Search name&#8230;" oninput="renderAnalytics()">
-            <select class="filter-sel" id="an-cat" onchange="renderAnalytics()">
+          <div class="wp-filter-bar">
+            <input class="wp-search" id="an-search" placeholder="Search name…" oninput="renderAnalytics()">
+            <select class="wp-sel" id="an-cat" onchange="renderAnalytics()">
               <option value="">All categories</option>
             </select>
-            <select class="filter-sel" id="an-sort" onchange="renderAnalytics()">
+            <select class="wp-sel" id="an-sort" onchange="renderAnalytics()">
               <option value="name">Sort: Name</option>
               <option value="updated">Sort: Last Updated</option>
             </select>
-            <button class="btn btn-ghost btn-sm" type="button" onclick="loadAnalytics()">Refresh</button>
+            <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="loadAnalytics()">Refresh</button>
           </div>
         </div>
 
-        <div class="card">
-          <div class="section-hdr">
-            <h3 style="color:#d97706">In Stock &#8212; No Price</h3>
-            <span class="section-count" id="an-no-price-count"></span>
+        <div class="wp-card">
+          <div class="wp-section-hdr">
+            <h3 style="color:#d97706">In Stock — No Price</h3>
+            <span class="wp-section-count" id="an-no-price-count"></span>
           </div>
-          <div class="tbl-wrap">
+          <div class="wp-tbl-wrap">
             <table>
               <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Stock</th><th>Qty</th><th>Last Updated</th><th>Categories</th></tr></thead>
               <tbody id="an-no-price-body"></tbody>
@@ -466,12 +461,12 @@ select.filter-sel:focus{border-color:var(--accent)}
           </div>
         </div>
 
-        <div class="card">
-          <div class="section-hdr">
-            <h3 style="color:var(--orange)">Has Price &#8212; Out of Stock</h3>
-            <span class="section-count" id="an-no-stock-count"></span>
+        <div class="wp-card">
+          <div class="wp-section-hdr">
+            <h3 style="color:var(--wp-orange)">Has Price — Out of Stock</h3>
+            <span class="wp-section-count" id="an-no-stock-count"></span>
           </div>
-          <div class="tbl-wrap">
+          <div class="wp-tbl-wrap">
             <table>
               <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th><th>Categories</th></tr></thead>
               <tbody id="an-no-stock-body"></tbody>
@@ -479,12 +474,12 @@ select.filter-sel:focus{border-color:var(--accent)}
           </div>
         </div>
 
-        <div class="card">
-          <div class="section-hdr">
+        <div class="wp-card">
+          <div class="wp-section-hdr">
             <h3 style="color:#dc2626">Not Updated &gt; 1 Week</h3>
-            <span class="section-count" id="an-stale-count"></span>
+            <span class="wp-section-count" id="an-stale-count"></span>
           </div>
-          <div class="tbl-wrap">
+          <div class="wp-tbl-wrap">
             <table>
               <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th><th>Categories</th></tr></thead>
               <tbody id="an-stale-body"></tbody>
@@ -494,33 +489,31 @@ select.filter-sel:focus{border-color:var(--accent)}
       </div>
 
       <!-- ── Logs ── -->
-      <div id="page-logs" class="page hidden">
-        <div class="page-header">
+      <div id="page-logs" class="wp-page wp-hidden">
+        <div class="wp-page-header">
           <div>
-            <div class="page-title">Logs</div>
-            <div class="page-sub">Audit trail and sync history</div>
+            <div class="wp-page-title">Logs</div>
+            <div class="wp-page-sub">Audit trail and sync history</div>
           </div>
-          <button class="btn btn-ghost btn-sm" type="button" onclick="loadLogs()">Refresh</button>
+          <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="loadLogs()">Refresh</button>
         </div>
 
-        <div class="card">
-          <div class="tab-bar">
-            <button class="tab-btn active" type="button" onclick="switchLogTab('audit', this)">Audit Log</button>
-            <button class="tab-btn" type="button" onclick="switchLogTab('history', this)">Sync History</button>
+        <div class="wp-card">
+          <div class="wp-tab-bar">
+            <button class="wp-tab-btn active" type="button" onclick="switchLogTab('audit', this)">Audit Log</button>
+            <button class="wp-tab-btn" type="button" onclick="switchLogTab('history', this)">Sync History</button>
           </div>
-
           <div id="tab-audit">
-            <div class="tbl-wrap">
-              <table>
+            <div class="wp-tbl-wrap">
+              <table id="audit-log-table">
                 <thead><tr><th>User</th><th>Action</th><th>Date / Time</th><th>IP</th><th>Job</th></tr></thead>
                 <tbody id="audit-tbody"></tbody>
               </table>
             </div>
           </div>
-
-          <div id="tab-history" class="hidden">
-            <div class="tbl-wrap">
-              <table>
+          <div id="tab-history" class="wp-hidden">
+            <div class="wp-tbl-wrap">
+              <table id="history-log-table">
                 <thead><tr><th>ID</th><th>Started</th><th>Completed</th><th>Status</th><th>Updated</th><th>Failed</th><th>Skipped</th><th></th></tr></thead>
                 <tbody id="history-tbody"></tbody>
               </table>
@@ -530,52 +523,52 @@ select.filter-sel:focus{border-color:var(--accent)}
       </div>
 
       <!-- ── Settings ── -->
-      <div id="page-settings" class="page hidden">
-        <div class="page-header">
+      <div id="page-settings" class="wp-page wp-hidden">
+        <div class="wp-page-header">
           <div>
-            <div class="page-title">Settings</div>
-            <div class="page-sub">Super admin configuration</div>
+            <div class="wp-page-title">Settings</div>
+            <div class="wp-page-sub">Super admin configuration</div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-title">WooCommerce</div>
+        <div class="wp-card">
+          <div class="wp-card-title">WooCommerce</div>
           <div id="settings-wc"></div>
         </div>
-
-        <div class="card">
-          <div class="card-title">Nextcloud</div>
+        <div class="wp-card">
+          <div class="wp-card-title">Nextcloud</div>
           <div id="settings-nc"></div>
         </div>
-
-        <div class="card">
-          <div class="card-title">Price Alarm Thresholds</div>
-          <p style="color:var(--muted);font-size:12.5px;margin-bottom:14px">Warn before applying changes that exceed these percentages.</p>
+        <div class="wp-card">
+          <div class="wp-card-title">Price Alarm Thresholds</div>
+          <p style="color:var(--wp-muted);font-size:12.5px;margin-bottom:14px">Warn before applying changes that exceed these percentages.</p>
           <div id="threshold-list"></div>
           <div style="margin-top:14px">
-            <button class="btn btn-blue btn-sm" type="button" onclick="saveThresholds()">Save Thresholds</button>
+            <button class="wp-btn wp-btn-blue wp-btn-sm" type="button" onclick="saveThresholds()">Save Thresholds</button>
           </div>
         </div>
       </div>
 
     </main>
-  </div><!-- end content-wrapper -->
-</div><!-- end app -->
 
-<!-- ── Alarm Modal ── -->
-<div class="modal-backdrop hidden" id="alarm-modal">
-  <div class="modal">
+    <div data-shell-footer></div>
+  </div>
+</div>
+
+<!-- ══ Alarm Modal ══ -->
+<div class="wp-modal-backdrop wp-hidden" id="alarm-modal">
+  <div class="wp-modal">
     <h3>Large Price Change Warning</h3>
     <p>The following items exceed the alarm threshold. Review before applying.</p>
-    <div class="tbl-wrap" style="max-height:260px;overflow-y:auto">
+    <div class="wp-tbl-wrap" style="max-height:260px;overflow-y:auto">
       <table>
         <thead><tr><th>Name</th><th>Old Price</th><th>New Price</th><th>Change</th></tr></thead>
         <tbody id="alarm-tbody"></tbody>
       </table>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" type="button" onclick="closeAlarm()">Cancel</button>
-      <button class="btn btn-red" type="button" onclick="runApplyStream()">Apply Anyway</button>
+    <div class="wp-modal-footer">
+      <button class="wp-btn wp-btn-ghost" type="button" onclick="closeAlarm()">Cancel</button>
+      <button class="wp-btn wp-btn-red" type="button" onclick="runApplyStream()">Apply Anyway</button>
     </div>
   </div>
 </div>
@@ -629,24 +622,172 @@ function logout() {
   currentUser = null;
   localStorage.removeItem('wp_token');
   localStorage.removeItem('wp_user');
-  document.getElementById('app').classList.add('hidden');
-  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('app').classList.add('wp-hidden');
+  document.getElementById('login-overlay').classList.remove('wp-hidden');
 }
 
 document.getElementById('login-pass').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
 
 // ══ Boot ═══════════════════════════════════════════════════════════════════
-function bootApp() {
-  document.getElementById('login-overlay').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  document.getElementById('user-name-label').textContent = currentUser.username;
-  document.getElementById('user-role-label').textContent = currentUser.role === 'admin' ? 'Admin' : 'User';
-  var initial = currentUser.username[0].toUpperCase();
-  document.getElementById('user-avatar').textContent = initial;
-  document.getElementById('topbar-avatar').textContent = initial;
-  if (currentUser.role === 'admin') {
-    document.querySelectorAll('.admin-nav').forEach(function(el) { el.classList.remove('hidden'); });
+function _updateAdminatorUser() {
+  // Wait for Adminator shell to render, then fill in user info
+  var attempts = 0;
+  var interval = setInterval(function() {
+    var wsAvatar = document.getElementById('adm-ws-avatar');
+    var wsName   = document.getElementById('adm-ws-name');
+    var wsRole   = document.getElementById('adm-ws-role');
+    var tbName   = document.getElementById('adm-tb-name');
+    var tbEmail  = document.getElementById('adm-tb-email');
+    var tbAvatar = document.getElementById('adm-topbar-avatar');
+    if (wsAvatar && wsName && wsRole && currentUser) {
+      var initial = currentUser.username[0].toUpperCase();
+      wsAvatar.textContent = initial;
+      wsName.textContent   = currentUser.username;
+      wsRole.textContent   = currentUser.role === 'admin' ? 'Admin' : 'User';
+      if (tbName)   tbName.textContent  = currentUser.username;
+      if (tbEmail)  tbEmail.textContent = currentUser.username + '@wooprice';
+      if (tbAvatar) tbAvatar.textContent = initial;
+      clearInterval(interval);
+
+      // Wire up nav clicks + replace SVG nav icons with glassmorphism images
+      _wireNavClicks();
+      _replaceNavIcons();
+
+      // Add logout to profile dropdown + health indicator to topbar
+      _injectTopbarExtras();
+
+      // Hide settings nav for non-admin
+      if (currentUser.role !== 'admin') {
+        var settingsLink = document.querySelector('.d-sidebar [data-nav-key="settings"], .nav-link[href="javascript:void(0)"]');
+        // handled differently — hide page via showPage logic
+      }
+    }
+    if (++attempts > 50) clearInterval(interval);
+  }, 100);
+}
+
+function _replaceNavIcons() {
+  var iconMap = {
+    'dashboard': '/static/icons/icons8-home-96.png',
+    'workspace': '/static/icons/icons8-workspace-96.png',
+    'analytics': '/static/icons/icons8-analytics-96.png',
+    'logs':      '/static/icons/icons8-logs-100.png',
+    'settings':  '/static/icons/icons8-settings-96.png'
+  };
+  document.querySelectorAll('.d-sidebar .nav-link').forEach(function(link) {
+    var text = (link.querySelector('span') || link).textContent.trim().toLowerCase();
+    var key = Object.keys(iconMap).find(function(k) { return text.includes(k); });
+    if (!key) return;
+    var svg = link.querySelector('svg');
+    if (!svg) return;
+    var img = document.createElement('img');
+    img.src = iconMap[key];
+    img.alt = '';
+    img.style.cssText = 'width:26px;height:26px;object-fit:contain;flex-shrink:0';
+    svg.parentNode.replaceChild(img, svg);
+  });
+}
+
+function _wireNavClicks() {
+  // Intercept all nav-link clicks in the sidebar
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.nav-link');
+    if (!link) return;
+    var href = link.getAttribute('href');
+    if (!href || href === 'javascript:void(0)' || href === '#') {
+      e.preventDefault();
+      // Determine page from text content
+      var text = (link.textContent || '').trim().toLowerCase();
+      var pageMap = {
+        'dashboard': 'home',
+        'workspace': 'workspace',
+        'analytics': 'analytics',
+        'logs': 'logs',
+        'settings': 'settings'
+      };
+      var key = Object.keys(pageMap).find(function(k) { return text.includes(k); });
+      if (key) showPage(pageMap[key]);
+    }
+  });
+}
+
+function _injectTopbarExtras() {
+  var ICON_SUN  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+  var ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+
+  var topbarActions = document.querySelector('.topbar-actions');
+  if (!topbarActions) return;
+
+  // ── Health indicator ──
+  if (!document.getElementById('wp-health-wrap')) {
+    var hw = document.createElement('div');
+    hw.id = 'wp-health-wrap';
+    hw.innerHTML = '<span id="wp-health-dot"></span><span id="wp-health-text">Checking…</span>';
+    topbarActions.insertBefore(hw, topbarActions.firstChild);
   }
+
+  // ── Theme toggle ──
+  var themeBtn = document.getElementById('themeToggle');
+  if (!themeBtn) {
+    themeBtn = document.createElement('button');
+    themeBtn.id = 'themeToggle';
+    themeBtn.className = 'icon-btn';
+    themeBtn.setAttribute('aria-label', 'Toggle theme');
+    topbarActions.insertBefore(themeBtn, topbarActions.lastElementChild);
+  }
+  if (!themeBtn._wpInited) {
+    themeBtn._wpInited = true;
+    var _updateThemeIcon = function() {
+      themeBtn.innerHTML = document.documentElement.getAttribute('data-theme') === 'dark' ? ICON_SUN : ICON_MOON;
+    };
+    _updateThemeIcon();
+    themeBtn.addEventListener('click', function() {
+      var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('dash26-theme', next); } catch(e) {}
+      _updateThemeIcon();
+    });
+  }
+
+  // ── Profile dropdown (fully custom, independent of Adminator CSS) ──
+  var avatar = document.getElementById('adm-topbar-avatar');
+  if (avatar && !avatar._wpDropInited) {
+    avatar._wpDropInited = true;
+
+    var ddDiv = document.createElement('div');
+    ddDiv.id = 'wp-profile-dd';
+    ddDiv.innerHTML =
+      '<div style="padding:10px 12px;border-bottom:1px solid var(--border,#E8EAED);margin-bottom:6px">' +
+        '<div style="font-weight:600;font-size:13px">' + esc(currentUser ? currentUser.username : '') + '</div>' +
+        '<div style="font-size:11px;color:var(--wp-muted)">' + (currentUser && currentUser.role === 'admin' ? 'Admin' : 'User') + '</div>' +
+      '</div>' +
+      '<button id="wp-signout-btn" style="width:100%;padding:8px 12px;text-align:left;background:none;border:none;border-radius:6px;color:#dc2626;font-size:13px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:8px">' +
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>' +
+        'Sign Out' +
+      '</button>';
+
+    var avatarParent = avatar.closest('.dd-wrap') || avatar.parentNode;
+    avatarParent.style.position = 'relative';
+    avatarParent.appendChild(ddDiv);
+
+    document.getElementById('wp-signout-btn').addEventListener('click', function() { logout(); });
+
+    avatar.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var open = ddDiv.style.display !== 'none';
+      ddDiv.style.display = open ? 'none' : 'block';
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!ddDiv.contains(e.target) && e.target !== avatar) ddDiv.style.display = 'none';
+    });
+  }
+}
+
+function bootApp() {
+  document.getElementById('login-overlay').classList.add('wp-hidden');
+  document.getElementById('app').classList.remove('wp-hidden');
+  _updateAdminatorUser();
   checkHealth();
   setInterval(checkHealth, 30000);
   loadCategories();
@@ -655,13 +796,15 @@ function bootApp() {
 }
 
 async function checkHealth() {
+  var dot  = document.getElementById('wp-health-dot')  || document.getElementById('health-dot');
+  var text = document.getElementById('wp-health-text') || document.getElementById('health-text');
   try {
     var d = await api('GET', '/api/health');
-    document.getElementById('health-dot').style.background = d.status === 'ok' ? '#22c55e' : '#ef4444';
-    document.getElementById('health-text').textContent = d.status === 'ok' ? 'Connected' : 'Error';
+    if (dot)  dot.style.background = d.status === 'ok' ? '#22c55e' : '#ef4444';
+    if (text) text.textContent = d.status === 'ok' ? 'Connected' : 'Error';
   } catch(e) {
-    document.getElementById('health-dot').style.background = '#ef4444';
-    document.getElementById('health-text').textContent = 'Offline';
+    if (dot)  dot.style.background = '#ef4444';
+    if (text) text.textContent = 'Offline';
   }
 }
 
@@ -680,40 +823,72 @@ async function loadAlarmThresholds() {
 }
 
 // ══ Navigation ═════════════════════════════════════════════════════════════
-var _pageTitles = {home:'Home', workspace:'Workspace', analytics:'Analytics', logs:'Logs', settings:'Settings'};
+var _pageTitles = {
+  home: 'Dashboard', workspace: 'Workspace', analytics: 'Analytics',
+  logs: 'Logs', settings: 'Settings'
+};
+var _pageCrumbs = {
+  home: 'WooPrice | Dashboard', workspace: 'WooPrice | Workspace',
+  analytics: 'WooPrice | Analytics', logs: 'WooPrice | Logs',
+  settings: 'WooPrice | Settings'
+};
+var _pageNavKeys = {
+  home: 'home', workspace: 'workspace', analytics: 'analytics',
+  logs: 'logs', settings: 'settings'
+};
 
 function showPage(name) {
-  document.querySelectorAll('.page').forEach(function(p) { p.classList.add('hidden'); });
-  document.getElementById('page-' + name).classList.remove('hidden');
-  document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
-  var navBtn = document.querySelector('[data-page="' + name + '"]');
-  if (navBtn) navBtn.classList.add('active');
-  document.getElementById('topbar-page-title').textContent = _pageTitles[name] || name;
-  closeSidebar();
+  document.querySelectorAll('.wp-page').forEach(function(p) { p.classList.add('wp-hidden'); });
+  var page = document.getElementById('page-' + name);
+  if (page) page.classList.remove('wp-hidden');
+
+  // Update Adminator active nav state
+  document.body.setAttribute('data-active', _pageNavKeys[name] || name);
+  document.body.setAttribute('data-crumbs', _pageCrumbs[name] || 'WooPrice | ' + name);
+
+  // Manually update nav-link active class (Adminator sets this at render time, not dynamically)
+  document.querySelectorAll('.nav-link').forEach(function(link) {
+    link.classList.remove('is-active');
+  });
+  var activeLink = null;
+  document.querySelectorAll('.nav-link').forEach(function(link) {
+    var text = (link.textContent || '').trim().toLowerCase();
+    var pageMap = {home:'dashboard', workspace:'workspace', analytics:'analytics', logs:'logs', settings:'settings'};
+    if (text === (pageMap[name] || name)) activeLink = link;
+    // Also match by page name
+    if (text === name) activeLink = link;
+  });
+  if (activeLink) activeLink.classList.add('is-active');
+
+  // Update breadcrumbs
+  var crumbsEl = document.querySelector('.crumbs');
+  if (crumbsEl) {
+    var parts = (_pageCrumbs[name] || 'WooPrice | ' + name).split('|').map(function(s){return s.trim();});
+    var html = parts.map(function(p, i) {
+      return (i > 0 ? '<svg class="sep" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>' : '') +
+        '<span' + (i === parts.length-1 ? ' class="current"' : '') + '>' + esc(p) + '</span>';
+    }).join('');
+    // preserve hamburger button
+    var hamburger = crumbsEl.querySelector('.hamburger');
+    crumbsEl.innerHTML = '';
+    if (hamburger) crumbsEl.appendChild(hamburger);
+    crumbsEl.insertAdjacentHTML('beforeend', html);
+  }
+
   if (name === 'home') loadHome();
   else if (name === 'analytics') loadAnalytics();
   else if (name === 'logs') loadLogs();
   else if (name === 'settings') loadSettings();
 }
 
-// ══ Sidebar mobile ═════════════════════════════════════════════════════════
-function toggleSidebar() {
-  document.querySelector('.sidebar').classList.toggle('mobile-open');
-  document.getElementById('sidebar-overlay').classList.toggle('open');
-}
-function closeSidebar() {
-  document.querySelector('.sidebar').classList.remove('mobile-open');
-  document.getElementById('sidebar-overlay').classList.remove('open');
-}
-
 // ══ Home ═══════════════════════════════════════════════════════════════════
 async function loadHome() {
   try {
     var d = await api('GET', '/api/dashboard');
-    document.getElementById('hs-syncs').textContent = d.total_syncs;
-    document.getElementById('hs-total').textContent = d.product_stats.total;
+    document.getElementById('hs-syncs').textContent   = d.total_syncs;
+    document.getElementById('hs-total').textContent   = d.product_stats.total;
     document.getElementById('hs-instock').textContent = d.product_stats.in_stock;
-    document.getElementById('hs-outstock').textContent = d.product_stats.out_of_stock;
+    document.getElementById('hs-outstock').textContent= d.product_stats.out_of_stock;
     renderSyncChart(d.sync_chart);
     renderStockChart(d.product_stats);
     renderHomeLogs(d.recent_logs);
@@ -734,8 +909,8 @@ function renderSyncChart(data) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#8E97A7', font: { size: 10 } }, grid: { color: '#E8EAED' } },
-        y: { beginAtZero: true, ticks: { stepSize: 1, color: '#8E97A7', font: { size: 10 } }, grid: { color: '#E8EAED' } }
+        x: { ticks: { color: '#8E97A7', font: { size: 10 } }, grid: { color: 'rgba(0,0,0,.05)' } },
+        y: { beginAtZero: true, ticks: { stepSize: 1, color: '#8E97A7', font: { size: 10 } }, grid: { color: 'rgba(0,0,0,.05)' } }
       }
     }
   });
@@ -762,9 +937,9 @@ function renderStockChart(stats) {
 
 function renderHomeLogs(logs) {
   var el = document.getElementById('home-logs');
-  if (!logs || !logs.length) { el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">No activity yet</div>'; return; }
+  if (!logs || !logs.length) { el.innerHTML = '<div style="color:var(--wp-muted);text-align:center;padding:20px">No activity yet</div>'; return; }
   el.innerHTML = logs.map(function(l) {
-    return '<div class="log-item"><span class="log-action ' + esc(l.action) + '">' + esc(l.action) + '</span><span style="font-weight:500">' + esc(l.username) + '</span><span style="color:var(--muted)">' + esc(l.ip_address || '') + '</span><span class="log-ts">' + fmt(l.timestamp) + '</span></div>';
+    return '<div class="wp-log-item"><span class="log-action ' + esc(l.action) + '">' + esc(l.action) + '</span><span style="font-weight:500">' + esc(l.username) + '</span><span style="color:var(--wp-muted)">' + esc(l.ip_address || '') + '</span><span class="log-ts">' + fmt(l.timestamp) + '</span></div>';
   }).join('');
 }
 
@@ -776,6 +951,10 @@ function startPreview() {
   document.getElementById('ws-table-card').style.display = 'block';
   document.getElementById('apply-bar').style.display = 'flex';
   document.getElementById('apply-results-card').style.display = 'none';
+  document.getElementById('apply-progress-section').style.display = 'block';
+  document.getElementById('apply-result-section').style.display = 'none';
+  document.getElementById('apply-error-details').style.display = 'none';
+  document.getElementById('apply-progress-bar').style.width = '0%';
   document.getElementById('activity-card').style.display = 'block';
   setStep('excel', 'running'); setStep('wc', ''); setStep('calc', '');
   addLog('Connecting to Nextcloud...', 'info');
@@ -792,7 +971,7 @@ function startPreview() {
     var d = JSON.parse(e.data);
     if (d.step) {
       setStep(d.step, d.status);
-      addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'done' ? 'ok' : 'info');
+      if (d.msg) addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'done' ? 'ok' : 'info');
     }
     if (d.step === 'preview' && d.status === 'done') {
       evSource.close();
@@ -819,7 +998,7 @@ function startPreview() {
 function setStep(name, state) {
   var el = document.getElementById('step-' + name);
   if (!el) return;
-  el.className = 'step' + (state ? ' ' + state : '');
+  el.className = 'wp-step' + (state ? ' ' + state : '');
 }
 
 function addLog(msg, cls) {
@@ -849,19 +1028,19 @@ function renderPreview() {
     var chg = priceChange(item.old_price, item.new_price);
     var colorDotStyle = item.row_color
       ? 'background:' + item.row_color + ';border:1.5px solid rgba(0,0,0,.12)'
-      : 'background:var(--border);border:1.5px solid rgba(0,0,0,.08)';
+      : 'background:var(--border,#E8EAED);border:1.5px solid rgba(0,0,0,.08)';
     return '<tr>' +
       '<td><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
       '<td><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
-      '<td style="color:var(--muted);font-size:12px">' + item.product_id + '</td>' +
-      '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '&#8212;') + '</td>' +
-      '<td style="color:var(--muted);font-size:12px">' + esc(item.sku || '&#8212;') + '</td>' +
+      '<td style="color:var(--wp-muted);font-size:12px">' + item.product_id + '</td>' +
+      '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '—') + '</td>' +
+      '<td style="color:var(--wp-muted);font-size:12px">' + esc(item.sku || '—') + '</td>' +
       '<td class="number">' + fmtPrice(item.old_price) + '</td>' +
       '<td class="number" id="price-cell-' + item.product_id + '" onclick="editPrice(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + fmtPrice(item.new_price) + '</span></td>' +
       '<td class="number">' + chg + '</td>' +
       '<td id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
-      '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span></td>' +
-      '<td style="font-size:11.5px;color:var(--muted)">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
+      '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span></td>' +
+      '<td style="font-size:11.5px;color:var(--wp-muted)">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
       '<td>' + catsHtml(item.categories) + '</td>' +
       '</tr>';
   }).join('');
@@ -915,7 +1094,7 @@ function editPrice(pid) {
       td.innerHTML = '<span class="editable-cell">' + fmtPrice(rawVal) + '</span>';
       return;
     }
-    td.innerHTML = '<span class="saving-text">Saving&#8230;</span>';
+    td.innerHTML = '<span class="saving-text">Saving…</span>';
     try {
       await api('PUT', '/api/products/' + pid + '/price', { new_price: formatted, parent_id: item.parent_id || 0, job_id: currentJobId });
       item.new_price = formatted;
@@ -984,7 +1163,7 @@ function editQty(pid) {
       addLog('Quantity updated for #' + pid + ': ' + newQty, 'ok');
     } catch(e) { addLog('Failed qty update #' + pid + ': ' + e.message, 'err'); }
     td.onclick = function() { editQty(pid); };
-    td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span>';
+    td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span>';
   };
 
   inp.onblur = save;
@@ -992,7 +1171,7 @@ function editQty(pid) {
     if (ev.key === 'Enter') inp.blur();
     if (ev.key === 'Escape') {
       td.onclick = function() { editQty(pid); };
-      td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '&#8212;') + '</span>';
+      td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span>';
     }
   };
 }
@@ -1019,47 +1198,143 @@ function requestApply() {
       var pct = (parseFloat(i.new_price) - parseFloat(i.old_price)) / parseFloat(i.old_price) * 100;
       return '<tr><td>' + esc(i.product_name || '') + '</td><td class="number">' + fmtPrice(i.old_price) + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td class="number" style="color:' + (pct > 0 ? '#16a34a' : '#dc2626') + '">' + (pct > 0 ? '+' : '') + pct.toFixed(1) + '%</td></tr>';
     }).join('');
-    document.getElementById('alarm-modal').classList.remove('hidden');
+    document.getElementById('alarm-modal').classList.remove('wp-hidden');
   } else {
     runApplyStream();
   }
 }
 
-function closeAlarm() { document.getElementById('alarm-modal').classList.add('hidden'); }
+function closeAlarm() { document.getElementById('alarm-modal').classList.add('wp-hidden'); }
 
 function runApplyStream() {
   closeAlarm();
   if (!currentJobId) return;
+
+  // Reset UI
   document.getElementById('apply-btn').disabled = true;
-  document.getElementById('apply-results-card').style.display = 'block';
-  document.getElementById('apply-tbody').innerHTML = '';
-  addLog('Applying updates...', 'info');
+  var card = document.getElementById('apply-results-card');
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  document.getElementById('apply-progress-section').style.display = 'block';
+  document.getElementById('apply-result-section').style.display = 'none';
+  document.getElementById('apply-progress-bar').style.width = '0%';
+  document.getElementById('apply-progress-count').textContent = '0 / 0';
+  document.getElementById('apply-live-errors').innerHTML = '';
+  document.getElementById('apply-errors-tbody').innerHTML = '';
+
+  var total = 0, done = 0, failed = 0;
+  var failedItems = [];
+
+  function setProgress(n, t) {
+    var pct = t > 0 ? Math.round(n / t * 100) : 0;
+    document.getElementById('apply-progress-bar').style.width = pct + '%';
+    document.getElementById('apply-progress-count').textContent = n + ' / ' + t;
+  }
+
+  addLog('Applying updates…', 'info');
 
   var params = Array.from(selectedIds).map(function(id) { return 'sid=' + id; }).join('&');
   var evSource = new EventSource('/api/sync/' + currentJobId + '/apply-stream?token=' + encodeURIComponent(token) + '&' + params);
 
   evSource.onmessage = function(e) {
     var d = JSON.parse(e.data);
-    if (d.type === 'start') addLog('Updating ' + d.total + ' products...', 'info');
-    if (d.type === 'item') {
-      var ok = d.status === 'updated';
-      var tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + d.product_id + '</td><td>' + esc(d.product_name) + '</td><td>' + esc(d.sku) + '</td><td class="number">' + fmtPrice(d.old_price) + '</td><td class="number">' + fmtPrice(d.new_price) + '</td><td>' + (ok ? '<span class="badge badge-green">updated</span>' : '<span class="badge badge-red">failed</span>') + '</td><td style="color:#dc2626;font-size:12px">' + esc(d.error || '') + '</td>';
-      document.getElementById('apply-tbody').appendChild(tr);
+
+    if (d.type === 'start') {
+      total = d.total;
+      setProgress(0, total);
+      addLog('Updating ' + total + ' products…', 'info');
     }
+
+    if (d.type === 'item') {
+      done++;
+      setProgress(done, total);
+      if (d.status !== 'updated') {
+        failed++;
+        failedItems.push(d);
+        // Show live error line
+        var errEl = document.createElement('div');
+        errEl.className = 'wp-live-error';
+        errEl.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '<b>#' + d.product_id + '</b> ' + esc(d.product_name || '') +
+          (d.error ? ' — ' + esc(d.error) : '');
+        document.getElementById('apply-live-errors').appendChild(errEl);
+      }
+    }
+
     if (d.type === 'done') {
       evSource.close();
-      document.getElementById('apply-summary').textContent = d.updated + ' updated, ' + d.failed + ' failed, ' + d.skipped + ' skipped';
+      var updated = d.updated, skipped = d.skipped;
+      // Switch from progress to result view
+      document.getElementById('apply-progress-section').style.display = 'none';
+      document.getElementById('apply-result-section').style.display = 'block';
+
+      var kind, icon, title, sub;
+      if (failed === 0) {
+        kind = 'success';
+        icon = '<polyline points="20 6 9 17 4 12"/>';
+        title = updated + ' product' + (updated === 1 ? '' : 's') + ' updated successfully';
+        sub = skipped > 0 ? skipped + ' skipped (price unchanged)' : 'All selected items were applied.';
+      } else if (updated > 0) {
+        kind = 'warning';
+        icon = '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>';
+        title = updated + ' updated, ' + failed + ' failed';
+        sub = 'See the error details below.';
+      } else {
+        kind = 'error';
+        icon = '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>';
+        title = 'Task failed — ' + failed + ' product' + (failed === 1 ? '' : 's') + ' could not be updated';
+        sub = 'See the error details below.';
+      }
+
+      document.getElementById('apply-result-banner').innerHTML =
+        '<div class="wp-result-banner ' + kind + '">' +
+          '<div class="wp-result-banner-icon"><svg viewBox="0 0 24 24">' + icon + '</svg></div>' +
+          '<div class="wp-result-banner-body"><h4>' + esc(title) + '</h4><p>' + esc(sub) + '</p></div>' +
+        '</div>';
+
+      if (failedItems.length > 0) {
+        document.getElementById('apply-error-details').style.display = 'block';
+        document.getElementById('apply-errors-tbody').innerHTML = failedItems.map(function(f) {
+          return '<tr>' +
+            '<td style="color:var(--wp-muted)">' + f.product_id + '</td>' +
+            '<td>' + esc(f.product_name || '') + '</td>' +
+            '<td class="number">' + fmtPrice(f.old_price) + '</td>' +
+            '<td class="number">' + fmtPrice(f.new_price) + '</td>' +
+            '<td style="color:#dc2626;font-size:12px">' + esc(f.error || 'Unknown error') + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+
       document.getElementById('writeback-btn').style.display = 'inline-flex';
-      addLog('Done: ' + d.updated + ' updated, ' + d.failed + ' failed', 'ok');
+      addLog('Done: ' + updated + ' updated' + (failed > 0 ? ', ' + failed + ' failed' : ''), failed > 0 ? 'err' : 'ok');
     }
+
     if (d.type === 'error') {
       evSource.close();
-      addLog('Apply error: ' + d.msg, 'err');
+      document.getElementById('apply-progress-section').style.display = 'none';
+      document.getElementById('apply-result-section').style.display = 'block';
+      document.getElementById('apply-result-banner').innerHTML =
+        '<div class="wp-result-banner error">' +
+          '<div class="wp-result-banner-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+          '<div class="wp-result-banner-body"><h4>Apply failed</h4><p>' + esc(d.msg || 'Unexpected error') + '</p></div>' +
+        '</div>';
       document.getElementById('apply-btn').disabled = false;
+      addLog('Apply error: ' + (d.msg || 'unknown'), 'err');
     }
   };
-  evSource.onerror = function() { evSource.close(); addLog('Connection error during apply', 'err'); };
+
+  evSource.onerror = function() {
+    evSource.close();
+    document.getElementById('apply-progress-section').style.display = 'none';
+    document.getElementById('apply-result-section').style.display = 'block';
+    document.getElementById('apply-result-banner').innerHTML =
+      '<div class="wp-result-banner error">' +
+        '<div class="wp-result-banner-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+        '<div class="wp-result-banner-body"><h4>Connection lost</h4><p>The connection was interrupted. Some items may have been updated.</p></div>' +
+      '</div>';
+    document.getElementById('apply-btn').disabled = false;
+    addLog('Connection error during apply', 'err');
+  };
 }
 
 async function doWriteback() {
@@ -1101,23 +1376,23 @@ function renderAnalytics() {
 
   var noPrice = filterItems(analyticsData.in_stock_no_price);
   var noStock = filterItems(analyticsData.has_price_out_of_stock);
-  var stale = filterItems(analyticsData.stale_products);
+  var stale   = filterItems(analyticsData.stale_products);
 
   document.getElementById('an-no-price-count').textContent = noPrice.length + ' products';
   document.getElementById('an-no-stock-count').textContent = noStock.length + ' products';
-  document.getElementById('an-stale-count').textContent = stale.length + ' products';
+  document.getElementById('an-stale-count').textContent    = stale.length + ' products';
 
   document.getElementById('an-no-price-body').innerHTML = noPrice.map(function(i) {
-    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td>' + stockBadge(i.stock_status) + '</td><td>' + (i.stock_quantity != null ? i.stock_quantity : '&#8212;') + '</td><td style="font-size:12px;color:var(--muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td>' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td>' + stockBadge(i.stock_status) + '</td><td>' + (i.stock_quantity != null ? i.stock_quantity : '—') + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 
   document.getElementById('an-no-stock-body').innerHTML = noStock.map(function(i) {
-    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td>' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 
   document.getElementById('an-stale-body').innerHTML = stale.map(function(i) {
     var lu = i.wc_date_modified || i.last_price_updated || i.synced_at;
-    return '<tr><td>' + i.product_id + '</td><td>' + esc(i.product_name || '') + '</td><td style="color:var(--muted)">' + esc(i.sku || '&#8212;') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:#dc2626">' + toJalaliStr(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+    return '<tr><td>' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:#dc2626">' + toJalaliStr(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
   }).join('');
 }
 
@@ -1130,7 +1405,7 @@ async function loadAuditLog() {
   try {
     var logs = await api('GET', '/api/audit-logs?limit=200');
     document.getElementById('audit-tbody').innerHTML = logs.map(function(l) {
-      return '<tr><td><b>' + esc(l.username) + '</b></td><td><span class="log-action ' + esc(l.action) + '" style="display:inline-flex;padding:2px 8px;border-radius:4px;font-size:11px">' + esc(l.action) + '</span></td><td>' + fmt(l.timestamp) + '</td><td style="color:var(--muted);font-size:12px">' + esc(l.ip_address || '&#8212;') + '</td><td style="color:var(--muted);font-size:12px">' + (l.job_id ? '#' + l.job_id : '&#8212;') + '</td></tr>';
+      return '<tr><td><b>' + esc(l.username) + '</b></td><td><span class="log-action ' + esc(l.action) + '" style="display:inline-flex;padding:2px 8px;border-radius:4px;font-size:11px">' + esc(l.action) + '</span></td><td>' + fmt(l.timestamp) + '</td><td style="color:var(--wp-muted);font-size:12px">' + esc(l.ip_address || '—') + '</td><td style="color:var(--wp-muted);font-size:12px">' + (l.job_id ? '#' + l.job_id : '—') + '</td></tr>';
     }).join('');
   } catch(e) { console.error(e); }
 }
@@ -1139,15 +1414,15 @@ async function loadHistory() {
   try {
     var jobs = await api('GET', '/api/jobs?limit=50');
     document.getElementById('history-tbody').innerHTML = jobs.map(function(j) {
-      return '<tr><td>#' + j.id + '</td><td>' + fmt(j.created_at) + '</td><td>' + (j.completed_at ? fmt(j.completed_at) : '&#8212;') + '</td><td>' + jobBadge(j.status) + '</td><td style="color:#16a34a">' + j.updated_count + '</td><td style="color:#dc2626">' + j.failed_count + '</td><td style="color:var(--muted)">' + j.skipped_count + '</td><td>' + (j.status === 'completed' ? '<button class="btn btn-ghost btn-sm" type="button" onclick="writebackJob(' + j.id + ')">Write Back</button>' : '') + '</td></tr>';
+      return '<tr><td>#' + j.id + '</td><td>' + fmt(j.created_at) + '</td><td>' + (j.completed_at ? fmt(j.completed_at) : '—') + '</td><td>' + jobBadge(j.status) + '</td><td style="color:#16a34a">' + j.updated_count + '</td><td style="color:#dc2626">' + j.failed_count + '</td><td style="color:var(--wp-muted)">' + j.skipped_count + '</td><td>' + (j.status === 'completed' ? '<button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="writebackJob(' + j.id + ')">Write Back</button>' : '') + '</td></tr>';
     }).join('');
   } catch(e) { console.error(e); }
 }
 
 function switchLogTab(name, btn) {
-  document.getElementById('tab-audit').classList.toggle('hidden', name !== 'audit');
-  document.getElementById('tab-history').classList.toggle('hidden', name !== 'history');
-  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('tab-audit').classList.toggle('wp-hidden', name !== 'audit');
+  document.getElementById('tab-history').classList.toggle('wp-hidden', name !== 'history');
+  document.querySelectorAll('.wp-tab-btn').forEach(function(b) { b.classList.remove('active'); });
   btn.classList.add('active');
 }
 
@@ -1163,23 +1438,23 @@ async function loadSettings() {
   try {
     var s = await api('GET', '/api/settings');
     document.getElementById('settings-wc').innerHTML = settRow('URL', s.wc_url) + settRow('Key', s.wc_key) + settRow('Secret', s.wc_secret);
-    document.getElementById('settings-nc').innerHTML = settRow('URL', s.nextcloud_url) + settRow('User', s.nextcloud_user) + settRow('File Path', s.nextcloud_file_path) + settRow('Admins', (s.super_admin_users || []).join(', '));
+    document.getElementById('settings-nc').innerHTML = settRow('URL', s.nextcloud_url) + settRow('User', s.nextcloud_user) + settRow('File Path', s.nextcloud_file_path) + settRow('Admins', (s.super_admin_users || ''));
   } catch(e) { }
   await loadAlarmThresholds();
   renderThresholds();
 }
 
 function settRow(k, v) {
-  return '<div class="settings-row"><span class="settings-key">' + esc(k) + '</span><span class="settings-val">' + esc(String(v || '')) + '</span></div>';
+  return '<div class="wp-settings-row"><span class="wp-settings-key">' + esc(k) + '</span><span class="wp-settings-val">' + esc(String(v || '')) + '</span></div>';
 }
 
 function renderThresholds() {
   var list = document.getElementById('threshold-list');
   var globalT = alarmThresholds.find(function(t) { return t.category_id === null; });
-  var html = '<div class="threshold-row"><span class="threshold-label">Global (all categories)</span><input class="threshold-input" type="number" id="thresh-global" value="' + (globalT ? globalT.threshold_percent : 20) + '" min="1" max="100"><span style="font-size:12px;color:var(--muted)">%</span></div>';
+  var html = '<div class="wp-threshold-row"><span class="wp-threshold-label">Global (all categories)</span><input class="wp-threshold-input" type="number" id="thresh-global" value="' + (globalT ? globalT.threshold_percent : 20) + '" min="1" max="100"><span style="font-size:12px;color:var(--wp-muted)">%</span></div>';
   allCategories.forEach(function(cat) {
     var t = alarmThresholds.find(function(a) { return a.category_id === cat.id; });
-    html += '<div class="threshold-row"><span class="threshold-label">' + esc(cat.name) + '</span><input class="threshold-input" type="number" id="thresh-cat-' + cat.id + '" value="' + (t ? t.threshold_percent : '') + '" placeholder="&#8212;" min="1" max="100"><span style="font-size:12px;color:var(--muted)">%</span></div>';
+    html += '<div class="wp-threshold-row"><span class="wp-threshold-label">' + esc(cat.name) + '</span><input class="wp-threshold-input" type="number" id="thresh-cat-' + cat.id + '" value="' + (t ? t.threshold_percent : '') + '" placeholder="—" min="1" max="100"><span style="font-size:12px;color:var(--wp-muted)">%</span></div>';
   });
   list.innerHTML = html;
 }
@@ -1204,7 +1479,7 @@ async function saveThresholds() {
 
 // ══ Utilities ══════════════════════════════════════════════════════════════
 function fmtPrice(v) {
-  if (v === '' || v === null || v === undefined) return '<span style="color:var(--muted)">&#8212;</span>';
+  if (v === '' || v === null || v === undefined) return '<span style="color:var(--wp-muted)">—</span>';
   var n = parseFloat(v);
   if (isNaN(n)) return esc(String(v));
   return Math.round(n).toLocaleString('fa-IR');
@@ -1217,18 +1492,18 @@ function fmtPriceRaw(v) {
 }
 
 function priceChange(old, nw) {
-  if (!old || !nw) return '<span style="color:var(--muted)">&#8212;</span>';
+  if (!old || !nw) return '<span style="color:var(--wp-muted)">—</span>';
   var o = parseFloat(old), n = parseFloat(nw);
-  if (isNaN(o) || isNaN(n)) return '<span style="color:var(--muted)">&#8212;</span>';
-  if (Math.abs(o - n) < 0.001) return '<span style="color:var(--muted);font-size:13px">=</span>';
+  if (isNaN(o) || isNaN(n)) return '<span style="color:var(--wp-muted)">—</span>';
+  if (Math.abs(o - n) < 0.001) return '<span style="color:var(--wp-muted);font-size:13px">=</span>';
   var pct = ((n - o) / o * 100).toFixed(1);
-  return '<span style="color:' + (n > o ? '#16a34a' : '#dc2626') + ';font-size:12px">' + (n > o ? '&#9650;' : '&#9660;') + ' ' + Math.abs(pct) + '%</span>';
+  return '<span style="color:' + (n > o ? '#16a34a' : '#dc2626') + ';font-size:12px">' + (n > o ? '▲' : '▼') + ' ' + Math.abs(pct) + '%</span>';
 }
 
 function stockBadge(s) {
   if (s === 'instock') return '<span class="badge badge-green">In Stock</span>';
   if (s === 'outofstock') return '<span class="badge badge-red">Out of Stock</span>';
-  return '<span class="badge badge-gray">&#8212;</span>';
+  return '<span class="badge badge-gray">—</span>';
 }
 
 function jobBadge(s) {
@@ -1237,32 +1512,17 @@ function jobBadge(s) {
 }
 
 function catsHtml(cats) {
-  if (!cats || !cats.length) return '<span style="color:var(--muted);font-size:12px">&#8212;</span>';
+  if (!cats || !cats.length) return '<span style="color:var(--wp-muted);font-size:12px">—</span>';
   var html = cats.slice(0, 2).map(function(c) { return '<span class="badge badge-purple" style="margin-right:3px;font-size:10px">' + esc(c.name) + '</span>'; }).join('');
-  if (cats.length > 2) html += '<span style="color:var(--muted);font-size:11px">+' + (cats.length - 2) + '</span>';
+  if (cats.length > 2) html += '<span style="color:var(--wp-muted);font-size:11px">+' + (cats.length - 2) + '</span>';
   return html;
 }
 
 function fmt(ts) {
-  if (!ts) return '&#8212;';
+  if (!ts) return '—';
   var s = String(ts);
   var d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
   return d.toLocaleString();
-}
-
-function relTime(ts) {
-  if (!ts) return '&#8212;';
-  var s = String(ts);
-  var d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
-  var diff = Date.now() - d.getTime();
-  var mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return mins + 'm ago';
-  var hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + 'h ago';
-  var days = Math.floor(hrs / 24);
-  if (days < 7) return days + 'd ago';
-  return d.toLocaleDateString();
 }
 
 function _gregToJalali(gy, gm, gd) {
@@ -1281,10 +1541,10 @@ function _gregToJalali(gy, gm, gd) {
 }
 
 function toJalaliStr(ts) {
-  if (!ts) return '&#8212;';
+  if (!ts) return '—';
   var s = String(ts);
   var d = new Date(s.endsWith('Z') || s.includes('+') ? s : s + 'Z');
-  if (isNaN(d.getTime())) return '&#8212;';
+  if (isNaN(d.getTime())) return '—';
   var j = _gregToJalali(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate());
   var months = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
   var p = function(n){ return String(n).replace(/[0-9]/g,function(c){return '۰۱۲۳۴۵۶۷۸۹'[c];}); };
