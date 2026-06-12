@@ -911,9 +911,51 @@ function _injectTopbarExtras() {
   }
 }
 
+// ── Mobile drawer ─────────────────────────────────────────────────────────────
+// Own the drawer logic entirely so it works regardless of Adminator's 2026.js
+// init timing or topbar replacement order.
+
+function _closeDrawer() {
+  document.body.classList.remove('has-drawer-open');
+}
+
+function _initMobileDrawer() {
+  // Create backdrop once; 2026.js may have already done this — skip if present.
+  if (!document.querySelector('.drawer-backdrop')) {
+    var backdrop = document.createElement('div');
+    backdrop.className = 'drawer-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(backdrop);
+    backdrop.addEventListener('click', _closeDrawer);
+  }
+
+  // Guard: only wire once.
+  if (document.body._wpDrawerInited) return;
+  document.body._wpDrawerInited = true;
+
+  document.addEventListener('click', function(e) {
+    // Open on hamburger tap
+    if (e.target.closest('[data-drawer-open]')) {
+      e.preventDefault();
+      document.body.classList.toggle('has-drawer-open');
+      return;
+    }
+    // Close when tapping main content while drawer is open
+    if (document.body.classList.contains('has-drawer-open')) {
+      var inSidebar = e.target.closest('.d-sidebar');
+      if (!inSidebar) _closeDrawer();
+    }
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') _closeDrawer();
+  });
+}
+
 function bootApp() {
   document.getElementById('login-overlay').classList.add('wp-hidden');
   document.getElementById('app').classList.remove('wp-hidden');
+  _initMobileDrawer();
   _updateAdminatorUser();
   checkHealth();
   setInterval(checkHealth, 30000);
@@ -965,6 +1007,7 @@ var _pageNavKeys = {
 };
 
 function showPage(name) {
+  _closeDrawer();
   document.querySelectorAll('.wp-page').forEach(function(p) { p.classList.add('wp-hidden'); });
   var page = document.getElementById('page-' + name);
   if (page) page.classList.remove('wp-hidden');
@@ -1705,6 +1748,10 @@ function esc(s) {
 
 // ══ Init ═══════════════════════════════════════════════════════════════════
 if (token && currentUser) { bootApp(); }
+
+// Ensure drawer is always wired, even if bootApp() hasn't run yet
+// (e.g. fresh visit before login where the user resizes to mobile).
+document.addEventListener('DOMContentLoaded', _initMobileDrawer);
 </script>
 </body>
 </html>
