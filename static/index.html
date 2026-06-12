@@ -912,38 +912,64 @@ function _injectTopbarExtras() {
 }
 
 // ── Mobile drawer ─────────────────────────────────────────────────────────────
-// Own the drawer logic entirely so it works regardless of Adminator's 2026.js
-// init timing or topbar replacement order.
 
 function _closeDrawer() {
   document.body.classList.remove('has-drawer-open');
 }
 
+function _openDrawer() {
+  document.body.classList.add('has-drawer-open');
+  console.log('[WP] drawer opened');
+}
+
+function _toggleDrawer() {
+  var open = document.body.classList.toggle('has-drawer-open');
+  console.log('[WP] drawer toggled, now open:', open);
+}
+
+function _wireHamburger(btn) {
+  if (!btn || btn._wpWired) return;
+  btn._wpWired = true;
+  btn.onclick = function(e) {
+    e.stopPropagation();
+    _toggleDrawer();
+  };
+  console.log('[WP] hamburger wired via onclick');
+}
+
 function _initMobileDrawer() {
-  // Create backdrop once; 2026.js may have already done this — skip if present.
+  console.log('[WP] _initMobileDrawer, already_inited:', !!document.body._wpDrawerInited);
+
+  // Create backdrop once; 2026.js may also create one — skip if present.
   if (!document.querySelector('.drawer-backdrop')) {
     var backdrop = document.createElement('div');
     backdrop.className = 'drawer-backdrop';
     backdrop.setAttribute('aria-hidden', 'true');
     document.body.appendChild(backdrop);
     backdrop.addEventListener('click', _closeDrawer);
+    console.log('[WP] drawer-backdrop created');
   }
 
-  // Guard: only wire once.
+  // Wire all hamburger buttons that exist now.
+  document.querySelectorAll('[data-drawer-open]').forEach(_wireHamburger);
+
+  // Guard document-level listener to once.
   if (document.body._wpDrawerInited) return;
   document.body._wpDrawerInited = true;
 
+  // Fallback: catch any [data-drawer-open] click not yet wired (e.g. after topbar replacement).
   document.addEventListener('click', function(e) {
-    // Open on hamburger tap
-    if (e.target.closest('[data-drawer-open]')) {
+    var btn = e.target.closest('[data-drawer-open]');
+    if (btn) {
       e.preventDefault();
-      document.body.classList.toggle('has-drawer-open');
+      e.stopPropagation();
+      _wireHamburger(btn);
+      _toggleDrawer();
       return;
     }
-    // Close when tapping main content while drawer is open
-    if (document.body.classList.contains('has-drawer-open')) {
-      var inSidebar = e.target.closest('.d-sidebar');
-      if (!inSidebar) _closeDrawer();
+    // Close when tapping outside the sidebar while open.
+    if (document.body.classList.contains('has-drawer-open') && !e.target.closest('.d-sidebar')) {
+      _closeDrawer();
     }
   });
 
@@ -1041,7 +1067,12 @@ function showPage(name) {
     // preserve hamburger button
     var hamburger = crumbsEl.querySelector('.hamburger');
     crumbsEl.innerHTML = '';
-    if (hamburger) crumbsEl.appendChild(hamburger);
+    if (hamburger) {
+      // Clear the _wpWired flag so _wireHamburger re-attaches onclick after re-insert.
+      hamburger._wpWired = false;
+      crumbsEl.appendChild(hamburger);
+      _wireHamburger(hamburger);
+    }
     crumbsEl.insertAdjacentHTML('beforeend', html);
   }
 

@@ -1,10 +1,13 @@
 import io
+import logging
 import time
 
 import httpx
 from openpyxl import load_workbook
 
 from ..config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _auth() -> tuple[str, str]:
@@ -28,11 +31,15 @@ async def download_xlsx(force: bool = False) -> bytes:
         and _xlsx_cache["data"] is not None
         and time.time() - _xlsx_cache["ts"] < _XLSX_CACHE_TTL
     ):
+        logger.info("download_xlsx: returning cached xlsx (%d bytes, age=%.0fs)",
+                    len(_xlsx_cache["data"]), time.time() - _xlsx_cache["ts"])
         return _xlsx_cache["data"]
+    logger.info("download_xlsx: fetching from Nextcloud (force=%s)", force)
     async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
         resp = await client.get(_webdav_url(), timeout=httpx.Timeout(10.0, read=60.0))
         resp.raise_for_status()
         data = resp.content
+    logger.info("download_xlsx: downloaded %d bytes from Nextcloud", len(data))
     _xlsx_cache["data"] = data
     _xlsx_cache["ts"] = time.time()
     return data
@@ -57,8 +64,13 @@ def _extract_row_color(ws, row_idx: int) -> str | None:
 
 def _parse_sheet_rows(ws) -> list[dict]:
     """Parse one worksheet using the standard column mapping (B=ID, C=price, A=color)."""
+    logger.info("_parse_sheet_rows: sheet='%s' max_row=%s max_col=%s",
+                ws.title, ws.max_row, ws.max_column)
     items = []
     consecutive_empty = 0
+    skipped_no_b = 0
+    skipped_bad_id = 0
+
     for row_idx in range(3, 1001):
         col_a = ws.cell(row=row_idx, column=1).value
         col_b = ws.cell(row=row_idx, column=2).value
@@ -67,17 +79,24 @@ def _parse_sheet_rows(ws) -> list[dict]:
         if col_a is None and col_b is None and col_c is None:
             consecutive_empty += 1
             if consecutive_empty >= 30:
+                logger.info("_parse_sheet_rows: sheet='%s' stopping at row %d (30 consecutive empty rows)",
+                            ws.title, row_idx)
                 break
             continue
         consecutive_empty = 0
 
         if col_b is None:
+            skipped_no_b += 1
             continue
         try:
             pid = int(str(col_b).replace(",", "").strip())
         except (ValueError, TypeError):
+            skipped_bad_id += 1
+            logger.debug("_parse_sheet_rows: sheet='%s' row %d skipped — col B not an int: %r",
+                         ws.title, row_idx, col_b)
             continue
         if pid <= 0:
+            skipped_bad_id += 1
             continue
 
         if col_c is None or str(col_c).strip() == "":
@@ -92,6 +111,9 @@ def _parse_sheet_rows(ws) -> list[dict]:
         row_color = _extract_row_color(ws, row_idx)
         sheet_name = str(col_a).strip() if col_a is not None else ""
         items.append({"product_id": pid, "new_price": new_price, "row_color": row_color, "sheet_name": sheet_name})
+
+    logger.info("_parse_sheet_rows: sheet='%s' parsed=%d skipped(no_b=%d bad_id=%d)",
+                ws.title, len(items), skipped_no_b, skipped_bad_id)
     return items
 
 
@@ -104,12 +126,18 @@ def parse_price_list(xlsx_bytes: bytes) -> tuple[list[dict], list[dict]]:
     Each warning: {product_id, prev_sheet, final_sheet, prev_price, final_price}.
     """
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=True)
+    sheet_names = [ws.title for ws in wb.worksheets]
+    logger.info("parse_price_list: xlsx=%d bytes, %d sheet(s): %s",
+                len(xlsx_bytes), len(sheet_names), sheet_names)
+
     seen: dict[int, dict] = {}
     duplicates: list[dict] = []
 
     for ws in wb.worksheets:
         tab = ws.title
-        for item in _parse_sheet_rows(ws):
+        sheet_items = _parse_sheet_rows(ws)
+        logger.info("parse_price_list: sheet '%s' contributed %d product(s)", tab, len(sheet_items))
+        for item in sheet_items:
             pid = item["product_id"]
             if pid in seen:
                 duplicates.append({
@@ -124,38 +152,50 @@ def parse_price_list(xlsx_bytes: bytes) -> tuple[list[dict], list[dict]]:
 
     wb.close()
     items = [{k: v for k, v in i.items() if k != "_tab"} for i in seen.values()]
+    logger.info("parse_price_list: total unique products=%d duplicates=%d", len(items), len(duplicates))
     return items, duplicates
 
 
 async def write_price_to_sheet(product_id: int, new_price: str) -> None:
-    """Overwrite column C for the row whose column B matches product_id."""
+    """Overwrite column C for the row whose column B matches product_id (searches all sheets)."""
     xlsx_bytes = await download_xlsx(force=True)
     wb = load_workbook(filename=io.BytesIO(xlsx_bytes))
-    ws = wb.active
+    logger.info("write_price_to_sheet: searching all %d sheet(s) for product_id=%d",
+                len(wb.worksheets), product_id)
 
-    consecutive_empty = 0
-    for row_idx in range(3, 1001):
-        col_a = ws.cell(row=row_idx, column=1).value
-        col_b = ws.cell(row=row_idx, column=2).value
-        col_c = ws.cell(row=row_idx, column=3).value
-        if col_a is None and col_b is None and col_c is None:
-            consecutive_empty += 1
-            if consecutive_empty >= 30:
-                break
-            continue
+    found = False
+    for ws in wb.worksheets:
         consecutive_empty = 0
-        if col_b is None:
-            continue
-        try:
-            pid = int(str(col_b).replace(",", "").strip())
-        except (ValueError, TypeError):
-            continue
-        if pid == product_id:
+        for row_idx in range(3, 1001):
+            col_a = ws.cell(row=row_idx, column=1).value
+            col_b = ws.cell(row=row_idx, column=2).value
+            col_c = ws.cell(row=row_idx, column=3).value
+            if col_a is None and col_b is None and col_c is None:
+                consecutive_empty += 1
+                if consecutive_empty >= 30:
+                    break
+                continue
+            consecutive_empty = 0
+            if col_b is None:
+                continue
             try:
-                ws.cell(row=row_idx, column=3).value = float(new_price) if new_price else None
+                pid = int(str(col_b).replace(",", "").strip())
             except (ValueError, TypeError):
-                ws.cell(row=row_idx, column=3).value = new_price or None
+                continue
+            if pid == product_id:
+                try:
+                    ws.cell(row=row_idx, column=3).value = float(new_price) if new_price else None
+                except (ValueError, TypeError):
+                    ws.cell(row=row_idx, column=3).value = new_price or None
+                logger.info("write_price_to_sheet: updated sheet='%s' row=%d product_id=%d new_price=%s",
+                            ws.title, row_idx, product_id, new_price)
+                found = True
+                break
+        if found:
             break
+
+    if not found:
+        logger.warning("write_price_to_sheet: product_id=%d not found in any sheet", product_id)
 
     await _upload_wb(wb)
 
