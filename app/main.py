@@ -84,6 +84,20 @@ def _run_column_migrations():
 
 _run_column_migrations()
 
+
+def _check_jwt_secret() -> None:
+    secret = get_settings().jwt_secret
+    length = len(secret.encode())
+    if length < 32:
+        raise RuntimeError(
+            f"JWT_SECRET is only {length} bytes — minimum is 32, recommended 64+. "
+            "Set a strong value in .env and restart."
+        )
+    logger.info("startup: JWT_SECRET OK (%d bytes)", length)
+
+
+_check_jwt_secret()
+
 app = FastAPI(title="WooPrice Sync", docs_url="/docs")
 
 
