@@ -1662,6 +1662,27 @@ function runApplyStream() {
       addLog('Done: ' + updated + ' updated' + (failed > 0 ? ', ' + failed + ' failed' : ''), failed > 0 ? 'err' : 'ok');
     }
 
+    if (d.type === 'stale_preview') {
+      evSource.close();
+      document.getElementById('apply-progress-section').style.display = 'none';
+      document.getElementById('apply-result-section').style.display = 'block';
+      document.getElementById('apply-result-banner').innerHTML =
+        '<div class="wp-result-banner warning" style="flex-direction:column;align-items:flex-start;gap:12px">' +
+          '<div style="display:flex;align-items:center;gap:12px">' +
+            '<div class="wp-result-banner-icon" style="flex-shrink:0"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>' +
+            '<div class="wp-result-banner-body">' +
+              '<h4>Spreadsheet changed — Apply blocked</h4>' +
+              '<p>The price list was edited after this preview was created. Applying now would use stale product IDs from the old sheet.</p>' +
+            '</div>' +
+          '</div>' +
+          '<button class="wp-btn wp-btn-primary wp-btn-sm" onclick="startPreview()" style="align-self:flex-start">' +
+            'Re-run Fetch Preview' +
+          '</button>' +
+        '</div>';
+      document.getElementById('apply-btn').disabled = true;
+      addLog('Apply blocked — spreadsheet changed after preview was created', 'err');
+    }
+
     if (d.type === 'error') {
       evSource.close();
       document.getElementById('apply-progress-section').style.display = 'none';

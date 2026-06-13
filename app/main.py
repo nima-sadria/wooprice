@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -78,6 +79,11 @@ def _run_column_migrations():
             existing_cols = {c["name"] for c in inspector.get_columns("audit_logs")}
             if "detail" not in existing_cols:
                 conn.execute(text("ALTER TABLE audit_logs ADD COLUMN detail TEXT"))
+
+        if "sync_jobs" in existing_tables:
+            existing_cols = {c["name"] for c in inspector.get_columns("sync_jobs")}
+            if "sheet_hash" not in existing_cols:
+                conn.execute(text("ALTER TABLE sync_jobs ADD COLUMN sheet_hash TEXT"))
 
         conn.commit()
 
@@ -1058,6 +1064,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
     except Exception as exc:
         raise HTTPException(502, f"Cannot download sheet from Nextcloud: {exc}")
 
+    _sheet_hash = hashlib.md5(xlsx).hexdigest()
     sheet_items, dup_warnings = parse_price_list(xlsx)
     if not sheet_items:
         raise HTTPException(400, "No valid rows found.")
@@ -1079,7 +1086,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
 
     last_synced = _get_last_synced(db, product_ids)
 
-    job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items))
+    job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items), sheet_hash=_sheet_hash)
     db.add(job)
     db.flush()
 
@@ -1244,6 +1251,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             except Exception as exc:
                 yield ev({"step": "excel", "status": "error", "msg": str(exc)}); return
 
+            _sheet_hash = hashlib.md5(xlsx).hexdigest()
             sheet_items, dup_warnings = parse_price_list(xlsx)
             if not sheet_items:
                 yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, prices in col C from row 3)"}); return
@@ -1292,7 +1300,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             last_synced = _get_last_synced(db, product_ids)
 
             db.query(SyncJob).filter(SyncJob.status == JobStatus.preview).update({"status": JobStatus.cancelled})
-            job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items))
+            job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items), sheet_hash=_sheet_hash)
             db.add(job)
             db.flush()
 
@@ -1385,6 +1393,28 @@ async def apply_stream(
             if job.status != JobStatus.preview:
                 yield ev({"type": "error", "msg": f"Job is '{job.status}', expected 'preview'"}); return
 
+            # Stale-preview check: block Apply if xlsx was edited after this preview
+            if job.sheet_hash:
+                try:
+                    _cur_xlsx = await download_xlsx(force=False)
+                    _cur_hash = hashlib.md5(_cur_xlsx).hexdigest()
+                    if _cur_hash != job.sheet_hash:
+                        logger.warning(
+                            "apply_stream: stale preview job=%d preview_hash=%s current_hash=%s",
+                            job_id, job.sheet_hash, _cur_hash,
+                        )
+                        yield ev({
+                            "type": "stale_preview",
+                            "msg": (
+                                "The spreadsheet was modified after this preview was created. "
+                                "Applying would use stale product IDs. "
+                                "Please re-run Fetch Preview to load the current sheet."
+                            ),
+                        })
+                        return
+                except Exception as _hce:
+                    logger.warning("apply_stream: hash check failed (proceeding): %s", _hce)
+
             job.status = JobStatus.running
             db.commit()
 
@@ -1424,6 +1454,19 @@ async def apply_stream(
                     item.status = ItemStatus.updated if r.get("success") else ItemStatus.failed
                     item.error_message = r.get("error_message")
                     item.synced_at = now
+                    _ep = (
+                        f"/products/{item.parent_id}/variations/{item.product_id}"
+                        if (item.parent_id or 0) > 0
+                        else f"/products/{item.product_id}"
+                    )
+                    logger.info(
+                        "apply item: job=%d pid=%d name=%r old=%s new=%s "
+                        "parent=%d endpoint=%s status=%s err=%s",
+                        job_id, item.product_id, item.product_name or "",
+                        item.old_price or "", item.new_price,
+                        item.parent_id or 0, _ep, item.status.value,
+                        item.error_message or "",
+                    )
                     if r.get("success"):
                         item.last_price_updated = now
                         item.stock_status = _stock_from_price(item.new_price)

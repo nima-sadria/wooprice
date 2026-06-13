@@ -33,6 +33,7 @@ class SyncJob(Base):
     updated_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
     skipped_count = Column(Integer, default=0)
+    sheet_hash = Column(String, nullable=True)  # MD5 of xlsx bytes at preview creation
 
     items = relationship("SyncItem", back_populates="job", cascade="all, delete-orphan")
 
