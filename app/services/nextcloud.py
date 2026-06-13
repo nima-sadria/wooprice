@@ -1,6 +1,8 @@
 import io
 import logging
 import time
+import xml.etree.ElementTree as ET
+from datetime import datetime
 
 import httpx
 from openpyxl import load_workbook
@@ -21,7 +23,7 @@ def _webdav_url() -> str:
 
 
 # Short read-cache for preview flow; invalidated after every upload
-_xlsx_cache: dict = {"data": None, "ts": 0.0}
+_xlsx_cache: dict = {"data": None, "ts": 0.0, "etag": "", "last_modified": ""}
 _XLSX_CACHE_TTL = 60  # seconds
 
 
@@ -39,10 +41,89 @@ async def download_xlsx(force: bool = False) -> bytes:
         resp = await client.get(_webdav_url(), timeout=httpx.Timeout(10.0, read=60.0))
         resp.raise_for_status()
         data = resp.content
-    logger.info("download_xlsx: downloaded %d bytes from Nextcloud", len(data))
+    logger.info("download_xlsx: downloaded %d bytes from Nextcloud etag=%s",
+                len(data), resp.headers.get("etag", ""))
     _xlsx_cache["data"] = data
     _xlsx_cache["ts"] = time.time()
+    _xlsx_cache["etag"] = resp.headers.get("etag", "")
+    _xlsx_cache["last_modified"] = resp.headers.get("last-modified", "")
     return data
+
+
+def _parse_propfind_meta(xml_text: str) -> dict:
+    """Extract etag/last_modified/content_length from a PROPFIND multistatus XML body."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        logger.warning("_parse_propfind_meta: XML parse error: %s", exc)
+        return {"etag": "", "last_modified": "", "content_length": 0}
+    DAV = "DAV:"
+    for prop in root.iter(f"{{{DAV}}}prop"):
+        etag = (prop.findtext(f"{{{DAV}}}getetag") or "").strip()
+        last_modified = (prop.findtext(f"{{{DAV}}}getlastmodified") or "").strip()
+        cl_str = (prop.findtext(f"{{{DAV}}}getcontentlength") or "0").strip()
+        try:
+            content_length = int(cl_str)
+        except ValueError:
+            content_length = 0
+        return {"etag": etag, "last_modified": last_modified, "content_length": content_length}
+    return {"etag": "", "last_modified": "", "content_length": 0}
+
+
+async def fetch_spreadsheet_meta() -> dict:
+    """
+    Return current server metadata (etag, last_modified, content_length) without
+    downloading the file.  Tries HEAD first; falls back to PROPFIND if ETag is
+    absent from the HEAD response (some WebDAV proxies strip it).
+    """
+    url = _webdav_url()
+    auth = _auth()
+    async with httpx.AsyncClient(auth=auth, follow_redirects=True) as client:
+        # ── HEAD (preferred: no response body) ──────────────────────────────
+        try:
+            r = await client.head(url, timeout=httpx.Timeout(10.0))
+            r.raise_for_status()
+            if r.headers.get("etag"):
+                logger.debug("fetch_spreadsheet_meta: HEAD ok etag=%s", r.headers.get("etag"))
+                return {
+                    "etag": r.headers.get("etag", ""),
+                    "last_modified": r.headers.get("last-modified", ""),
+                    "content_length": int(r.headers.get("content-length") or 0),
+                }
+            logger.debug("fetch_spreadsheet_meta: HEAD response missing etag — trying PROPFIND")
+        except Exception as exc:
+            logger.debug("fetch_spreadsheet_meta: HEAD failed (%s) — trying PROPFIND", exc)
+
+        # ── PROPFIND fallback (standard WebDAV property query) ───────────────
+        body = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:getetag/><d:getlastmodified/><d:getcontentlength/>'
+            '</d:prop></d:propfind>'
+        )
+        r = await client.request(
+            "PROPFIND", url,
+            content=body.encode("utf-8"),
+            headers={"Depth": "0", "Content-Type": "application/xml; charset=utf-8"},
+            timeout=httpx.Timeout(10.0),
+        )
+        r.raise_for_status()
+        meta = _parse_propfind_meta(r.text)
+        logger.debug("fetch_spreadsheet_meta: PROPFIND ok etag=%s", meta.get("etag"))
+        return meta
+
+
+def get_cached_xlsx_meta() -> dict:
+    """Return metadata captured from the last successful download_xlsx call."""
+    return {
+        "etag": _xlsx_cache.get("etag", ""),
+        "last_modified": _xlsx_cache.get("last_modified", ""),
+        "downloaded_at": (
+            datetime.utcfromtimestamp(_xlsx_cache["ts"]).isoformat() + "Z"
+            if _xlsx_cache["ts"] > 0 else None
+        ),
+        "size": len(_xlsx_cache["data"]) if _xlsx_cache["data"] else None,
+    }
 
 
 def _extract_row_color(ws, row_idx: int) -> str | None:

@@ -26,7 +26,10 @@ from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import AlarmThreshold, AuditLog, ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob
 from .services.auth import create_token, decode_token, is_super_admin, verify_nextcloud_credentials
-from .services.nextcloud import download_xlsx, parse_price_list, write_back_to_sheet, write_price_to_sheet
+from .services.nextcloud import (
+    download_xlsx, fetch_spreadsheet_meta, get_cached_xlsx_meta,
+    parse_price_list, write_back_to_sheet, write_price_to_sheet,
+)
 from .services.product_cache import (
     clear_all as cache_clear_all,
     get_all as cache_get_all,
@@ -355,7 +358,7 @@ def _build_preview_row(
     }
 
 
-async def _sync_parent_stock(updates: list[dict], result_map: dict) -> None:
+async def _sync_parent_stock(updates: list[dict], result_map: dict, db=None) -> None:
     """After variation price sync, set parent stock_status based on all its variations."""
     parents: dict[int, dict[int, str]] = {}
     for u in updates:
@@ -379,6 +382,14 @@ async def _sync_parent_stock(updates: list[dict], result_map: dict) -> None:
                 pass
 
     await update_parent_stock_statuses(parent_statuses)
+
+    if db is not None:
+        for parent_id, status in parent_statuses.items():
+            _ch = patch_cached_product(db, parent_id, {"stock_status": status})
+            logger.info(
+                "_sync_parent_stock: patched parent cache pid=%d stock_status=%s hit=%s",
+                parent_id, status, _ch,
+            )
 
 
 def _get_last_synced(db: Session, product_ids: list[int]) -> dict[int, datetime | None]:
@@ -1064,6 +1075,12 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
     except Exception as exc:
         raise HTTPException(502, f"Cannot download sheet from Nextcloud: {exc}")
 
+    _xlsx_meta = get_cached_xlsx_meta()
+    logger.info(
+        "create_preview: xlsx downloaded size=%d etag=%s last_modified=%s",
+        len(xlsx), _xlsx_meta.get("etag") or "", _xlsx_meta.get("last_modified") or "",
+    )
+
     _sheet_hash = hashlib.md5(xlsx).hexdigest()
     sheet_items, dup_warnings = parse_price_list(xlsx)
     if not sheet_items:
@@ -1171,6 +1188,12 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
             if r.get("success"):
                 item.last_price_updated = now
                 item.stock_status = _stock_from_price(item.new_price)
+                if _is_zero_price(item.new_price):
+                    logger.info(
+                        "confirm outofstock: pid=%d name=%r parent=%d "
+                        "blank/zero price → stock_status=outofstock",
+                        item.product_id, item.product_name or "", item.parent_id or 0,
+                    )
                 _ch = patch_cached_product(db, item.product_id, {
                     "regular_price": item.new_price,
                     "final_price": item.new_price,
@@ -1181,7 +1204,7 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
                     item.product_id, item.new_price, _ch,
                 )
 
-        await _sync_parent_stock(updates, result_map)
+        await _sync_parent_stock(updates, result_map, db)
 
     job.updated_count = sum(1 for i in items if i.status == ItemStatus.updated)
     job.failed_count  = sum(1 for i in items if i.status == ItemStatus.failed)
@@ -1226,7 +1249,24 @@ async def get_job(job_id: int, user: dict = Depends(get_current_user), db: Sessi
     return {**_job_out(job), "items": [_item_out(i) for i in items]}
 
 
-# ── 6. Preview stream (SSE) ───────────────────────────────────────────────────
+# ── 6. Spreadsheet metadata (HEAD only — no download) ────────────────────────
+
+@app.get("/api/spreadsheet/meta")
+async def spreadsheet_meta_endpoint(user: dict = Depends(get_current_user)):
+    try:
+        current = await fetch_spreadsheet_meta()
+    except Exception as exc:
+        raise HTTPException(502, f"Nextcloud HEAD request failed: {exc}")
+    cached = get_cached_xlsx_meta()
+    is_fresh = bool(current["etag"] and current["etag"] == cached.get("etag"))
+    return {
+        "current": {**current, "checked_at": datetime.utcnow().isoformat() + "Z"},
+        "cached": cached,
+        "is_fresh": is_fresh,
+    }
+
+
+# ── 7. Preview stream (SSE) ───────────────────────────────────────────────────
 
 @app.get("/api/preview/stream")
 async def preview_stream(request: Request, token: str | None = Query(None)):
@@ -1250,6 +1290,12 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 xlsx = await download_xlsx(force=True)
             except Exception as exc:
                 yield ev({"step": "excel", "status": "error", "msg": str(exc)}); return
+
+            _xlsx_meta = get_cached_xlsx_meta()
+            logger.info(
+                "preview_stream: xlsx downloaded size=%d etag=%s last_modified=%s",
+                len(xlsx), _xlsx_meta.get("etag") or "", _xlsx_meta.get("last_modified") or "",
+            )
 
             _sheet_hash = hashlib.md5(xlsx).hexdigest()
             sheet_items, dup_warnings = parse_price_list(xlsx)
@@ -1470,6 +1516,12 @@ async def apply_stream(
                     if r.get("success"):
                         item.last_price_updated = now
                         item.stock_status = _stock_from_price(item.new_price)
+                        if _is_zero_price(item.new_price):
+                            logger.info(
+                                "apply outofstock: pid=%d name=%r parent=%d "
+                                "blank/zero price → stock_status=outofstock",
+                                item.product_id, item.product_name or "", item.parent_id or 0,
+                            )
                         _ch = patch_cached_product(db, item.product_id, {
                             "regular_price": item.new_price,
                             "final_price": item.new_price,
@@ -1490,7 +1542,7 @@ async def apply_stream(
                         "error": item.error_message or "",
                     })
 
-                await _sync_parent_stock(updates, result_map)
+                await _sync_parent_stock(updates, result_map, db)
 
             job.updated_count = sum(1 for i in items if i.status == ItemStatus.updated)
             job.failed_count  = sum(1 for i in items if i.status == ItemStatus.failed)

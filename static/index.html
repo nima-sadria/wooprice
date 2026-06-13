@@ -545,6 +545,32 @@ select.wp-sel:focus { border-color: var(--accent); }
           <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
         </div>
 
+        <!-- Spreadsheet freshness card -->
+        <div class="wp-card" id="sheet-meta-card" style="margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:36px;height:36px;border-radius:8px;background:rgba(72,128,255,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="#4880FF" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              </div>
+              <div>
+                <div style="font-weight:600;font-size:14px">Spreadsheet Status</div>
+                <div id="sheet-meta-summary" style="font-size:12px;color:var(--wp-muted);margin-top:2px">Not checked</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+              <button class="wp-btn wp-btn-ghost wp-btn-sm" id="sheet-check-btn" onclick="checkSheetMeta(false)">Check freshness</button>
+              <button class="wp-btn wp-btn-ghost wp-btn-sm" id="sheet-wait-btn" style="display:none" onclick="waitForSheetUpdate()">Wait for update</button>
+            </div>
+          </div>
+          <div id="sheet-meta-detail" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--wp-border)">
+            <div style="display:grid;grid-template-columns:max-content 1fr;gap:4px 24px;font-size:12px" id="sheet-meta-grid"></div>
+            <div style="margin-top:12px;padding:10px 14px;background:#fef9c3;border:1px solid #f59e0b;border-radius:8px;font-size:12px;color:#78350f;display:flex;gap:10px;align-items:flex-start">
+              <span style="flex-shrink:0">⚠</span>
+              <span><b>ONLYOFFICE</b> may display edits that have not yet been committed to Nextcloud/WebDAV storage. The ETag and Last-Modified shown here reflect what Nextcloud currently exposes — not what ONLYOFFICE is holding in memory. Use <b>Wait for update</b> to poll every 2&nbsp;s (up to 30&nbsp;s) until Nextcloud registers a new save; Fetch Preview will then start automatically.</span>
+            </div>
+          </div>
+        </div>
+
         <div class="wp-steps" id="steps-row" style="display:none">
           <div class="wp-step" id="step-excel"><span class="wp-step-dot"></span>Excel</div>
           <div class="wp-step" id="step-wc"><span class="wp-step-dot"></span>WooCommerce</div>
@@ -1208,6 +1234,7 @@ function showPage(name) {
   }
 
   if (name === 'home') loadHome();
+  else if (name === 'workspace') checkSheetMeta(true);
   else if (name === 'analytics') loadAnalytics();
   else if (name === 'logs') loadLogs();
   else if (name === 'settings') loadSettings();
@@ -1273,6 +1300,108 @@ function renderHomeLogs(logs) {
   el.innerHTML = logs.map(function(l) {
     return '<div class="wp-log-item"><span class="log-action ' + esc(l.action) + '">' + esc(l.action) + '</span><span style="font-weight:500">' + esc(l.username) + '</span><span style="color:var(--wp-muted)">' + esc(l.ip_address || '') + '</span><span class="log-ts">' + fmt(l.timestamp) + '</span></div>';
   }).join('');
+}
+
+// ══ Spreadsheet freshness ══════════════════════════════════════════════════
+var _sheetMetaRef = null;
+
+function _sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+function _shortEtag(s) {
+  if (!s) return '—';
+  s = s.replace(/"/g, '');
+  return s.length > 20 ? s.slice(0, 8) + '…' + s.slice(-6) : s;
+}
+
+function _fmtBytes(n) {
+  if (!n) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(2) + ' MB';
+}
+
+async function checkSheetMeta(silent) {
+  var btn = document.getElementById('sheet-check-btn');
+  var sum = document.getElementById('sheet-meta-summary');
+  btn.disabled = true;
+  if (!silent) { btn.textContent = 'Checking…'; sum.textContent = 'Checking…'; }
+  try {
+    var data = await api('GET', '/api/spreadsheet/meta');
+    _renderSheetMeta(data);
+  } catch(e) {
+    if (!silent) sum.textContent = 'Check failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Refresh';
+  }
+}
+
+function _renderSheetMeta(data) {
+  var cur = data.current, cached = data.cached;
+  var sum = document.getElementById('sheet-meta-summary');
+  var detail = document.getElementById('sheet-meta-detail');
+  var grid = document.getElementById('sheet-meta-grid');
+
+  _sheetMetaRef = cur.etag;
+
+  if (!cached.downloaded_at) {
+    sum.innerHTML = 'Not yet downloaded this session';
+  } else if (data.is_fresh) {
+    sum.innerHTML = '<span style="color:#16a34a;font-weight:600">&#10003; Up to date</span> &mdash; server last modified ' + esc(cur.last_modified || '—');
+  } else {
+    sum.innerHTML = '<span style="color:#d97706;font-weight:600">&#9888; File changed since last download</span>';
+  }
+
+  function mrow(label, val) {
+    return '<div style="color:var(--wp-muted);white-space:nowrap;padding:2px 0">' + esc(label) + '</div>' +
+           '<div style="font-family:monospace;font-size:11px;padding:2px 0;word-break:break-all">' + val + '</div>';
+  }
+  grid.innerHTML =
+    mrow('Server last modified', esc(cur.last_modified || '—')) +
+    mrow('Server size', esc(_fmtBytes(cur.content_length))) +
+    mrow('Server ETag', esc(_shortEtag(cur.etag))) +
+    mrow('App downloaded at', esc(cached.downloaded_at ? fmt(cached.downloaded_at) : '—')) +
+    mrow('Downloaded ETag', esc(_shortEtag(cached.etag)));
+
+  detail.style.display = 'block';
+  document.getElementById('sheet-wait-btn').style.display = '';
+}
+
+async function waitForSheetUpdate() {
+  var waitBtn = document.getElementById('sheet-wait-btn');
+  var checkBtn = document.getElementById('sheet-check-btn');
+  var sum = document.getElementById('sheet-meta-summary');
+
+  if (!_sheetMetaRef) { await checkSheetMeta(false); }
+  var refEtag = _sheetMetaRef;
+
+  waitBtn.disabled = true;
+  checkBtn.disabled = true;
+
+  var maxPolls = 15; // 15 × 2s = 30s
+  for (var i = 0; i < maxPolls; i++) {
+    var remaining = (maxPolls - i) * 2;
+    sum.innerHTML = '<span style="color:#2563eb">Watching for Nextcloud save&hellip; (' + remaining + 's remaining)</span>';
+    await _sleep(2000);
+    try {
+      var data = await api('GET', '/api/spreadsheet/meta');
+      if (data.current.etag && data.current.etag !== refEtag) {
+        _renderSheetMeta(data);
+        addLog('Spreadsheet updated on Nextcloud — auto-starting Fetch Preview', 'ok');
+        waitBtn.style.display = 'none';
+        checkBtn.disabled = false;
+        startPreview();
+        return;
+      }
+    } catch(e) {}
+  }
+
+  // Timed out without change
+  sum.innerHTML = '<span style="color:#d97706;font-weight:600">&#9888; No new save detected in 30s</span>';
+  addLog('No spreadsheet save detected in 30 seconds — proceed manually if the file is already saved', 'warn');
+  waitBtn.disabled = false;
+  waitBtn.textContent = 'Wait again';
+  checkBtn.disabled = false;
 }
 
 // ══ Workspace ══════════════════════════════════════════════════════════════
