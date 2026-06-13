@@ -867,7 +867,15 @@ async def lookup_product(
             "name": row.name or "",
             "sku": row.sku or "",
             "status": row.status or "",
+            "regular_price": row.regular_price or "",
+            "final_price": row.final_price or "",
+            "effective_price": row.final_price or row.regular_price or "",
+            "sale_price": row.sale_price or "",
+            "stock_status": row.stock_status or "",
+            "stock_quantity": row.stock_quantity,
+            "cache_version": row.cache_version or 0,
             "last_synced_at": row.last_synced_at.isoformat() if row.last_synced_at else None,
+            "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         }
     try:
         return await lookup_product_info(product_id)
@@ -1067,7 +1075,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
         cache_rows = [wc_response_to_cache_dict(pid, d) for pid, d in fresh.items()]
         upsert_products(db, cache_rows)
         db.commit()
-        wc_data.update(fresh)
+        wc_data.update(get_cached_by_ids(db, list(fresh.keys())))
 
     last_synced = _get_last_synced(db, product_ids)
 
@@ -1156,11 +1164,15 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
             if r.get("success"):
                 item.last_price_updated = now
                 item.stock_status = _stock_from_price(item.new_price)
-                patch_cached_product(db, item.product_id, {
+                _ch = patch_cached_product(db, item.product_id, {
                     "regular_price": item.new_price,
                     "final_price": item.new_price,
                     "stock_status": _stock_from_price(item.new_price),
                 })
+                logger.info(
+                    "confirm_sync: cache patched pid=%d price=%s hit=%s",
+                    item.product_id, item.new_price, _ch,
+                )
 
         await _sync_parent_stock(updates, result_map)
 
@@ -1261,7 +1273,9 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 cache_rows = [wc_response_to_cache_dict(pid, d) for pid, d in fresh_data.items()]
                 upsert_products(db, cache_rows)
                 db.commit()
-                cached_data.update(fresh_data)
+                # Re-read from DB so wc_data uses _to_dict format (final_price or regular_price)
+                # — same derivation the NEXT preview will use, preventing false "changed" rows.
+                cached_data.update(get_cached_by_ids(db, list(fresh_data.keys())))
             else:
                 yield ev({"step": "wc", "status": "running", "msg": f"Loading {len(cached_data)} products from local cache…"})
 
@@ -1413,11 +1427,15 @@ async def apply_stream(
                     if r.get("success"):
                         item.last_price_updated = now
                         item.stock_status = _stock_from_price(item.new_price)
-                        patch_cached_product(db, item.product_id, {
+                        _ch = patch_cached_product(db, item.product_id, {
                             "regular_price": item.new_price,
                             "final_price": item.new_price,
                             "stock_status": _stock_from_price(item.new_price),
                         })
+                        logger.info(
+                            "apply_stream: cache patched pid=%d price=%s hit=%s",
+                            item.product_id, item.new_price, _ch,
+                        )
                     yield ev({
                         "type": "item",
                         "product_id": item.product_id,
