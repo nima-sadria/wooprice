@@ -260,6 +260,103 @@ select.wp-sel:focus { border-color: var(--accent); }
   display: none;
 }
 #wp-signout-btn:hover { background: #fee2e2; }
+
+/* ── Workspace table card ──────────────────────────────────────────────── */
+.ws-card {
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border, #E8EAED);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  overflow: hidden;
+}
+.ws-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, #E8EAED);
+  background: var(--bg-card, #fff);
+}
+.ws-toolbar-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.ws-stats-inline { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+.ws-stats-inline span { color: var(--wp-muted); }
+.ws-stats-inline b { color: var(--text-base, #1C2434); }
+.ws-tbl-scroll { overflow-x: auto; max-height: 560px; overflow-y: auto; }
+.ws-tbl-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+.ws-tbl-scroll::-webkit-scrollbar-thumb { background: var(--border,#E8EAED); border-radius: 4px; }
+.ws-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ws-tbl thead th {
+  position: sticky; top: 0; z-index: 2;
+  padding: 8px 12px; text-align: left;
+  background: var(--bg-base, #F5F6FA);
+  color: var(--wp-muted); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1.5px solid var(--border, #E8EAED);
+  white-space: nowrap;
+}
+.ws-tbl thead th.r { text-align: right; }
+.ws-tbl tbody tr { border-bottom: 1px solid var(--border, #E8EAED); }
+.ws-tbl tbody tr:last-child { border-bottom: none; }
+.ws-tbl tbody tr:hover { background: rgba(72,128,255,.04); }
+.ws-tbl td { padding: 6px 12px; vertical-align: middle; }
+.wt-cb  { width: 32px; padding: 6px 8px 6px 14px !important; }
+.wt-clr { width: 28px; padding: 6px 6px !important; }
+.wt-id  { color: var(--wp-muted); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wt-name { max-width: 200px; min-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.wt-sku { color: var(--wp-muted); font-size: 11.5px; font-family: monospace; white-space: nowrap; }
+.wt-price { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wt-price-e {
+  text-align: right; cursor: pointer;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.wt-price-e .editable-cell {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 6px; border: 1.5px solid transparent;
+  transition: border-color .12s, background .12s;
+}
+.wt-price-e:hover .editable-cell { border-color: var(--accent); background: #EEF3FF; }
+.wt-stock { cursor: pointer; }
+.wt-stock .editable-cell { display: inline-block; padding: 2px 4px; border-radius: 6px; border: 1.5px solid transparent; transition: border-color .12s; }
+.wt-stock:hover .editable-cell { border-color: var(--accent); }
+.wt-qty { text-align: right; cursor: pointer; color: var(--wp-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wt-qty .editable-cell { display: inline-block; padding: 2px 6px; border-radius: 6px; border: 1.5px solid transparent; transition: border-color .12s, background .12s; }
+.wt-qty:hover .editable-cell { border-color: var(--accent); background: #EEF3FF; }
+.wt-date { font-size: 11.5px; color: var(--wp-muted); white-space: nowrap; }
+.wt-cats { white-space: nowrap; }
+.ws-apply-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 2px 0; }
+
+/* ── Sidebar collapse (desktop only) ──────────────────────────────────── */
+.sb-collapse-btn {
+  display: none;
+  align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: 6px; border: 1.5px solid var(--border, #E8EAED);
+  background: transparent; cursor: pointer;
+  color: var(--t-muted, #64748b);
+  transition: background .12s, color .12s;
+  flex-shrink: 0; margin-left: auto;
+}
+.sb-collapse-btn:hover { background: var(--bg-hover, #f8fafc); color: var(--accent); }
+.sb-collapse-btn svg { width: 13px; height: 13px; transition: transform .22s; }
+@media (min-width: 721px) {
+  .sb-collapse-btn { display: inline-flex; }
+  .shell.wp-sb-col { grid-template-columns: 58px 1fr !important; }
+  .d-sidebar.wp-sb-col {
+    width: 58px; min-width: 58px; max-width: 58px;
+    padding: 20px 8px !important; overflow: hidden;
+  }
+  .d-sidebar.wp-sb-col .brand-text,
+  .d-sidebar.wp-sb-col .nav-label,
+  .d-sidebar.wp-sb-col span.nav-text,
+  .d-sidebar.wp-sb-col .workspace-text,
+  .d-sidebar.wp-sb-col .workspace-chev { display: none !important; }
+  .d-sidebar.wp-sb-col .nav-link { justify-content: center !important; padding: 10px 8px !important; }
+  .d-sidebar.wp-sb-col .brand { justify-content: center; }
+  .d-sidebar.wp-sb-col .workspace { justify-content: center; }
+  .d-sidebar.wp-sb-col .sb-collapse-btn { margin: 0 auto; }
+  .shell.wp-sb-col .sb-collapse-btn svg { transform: rotate(180deg); }
+}
 </style>
 </head>
 <body data-active="home" data-crumbs="WooPrice | Dashboard">
@@ -287,28 +384,31 @@ select.wp-sel:focus { border-color: var(--accent); }
         <div class="brand-name">WooPrice</div>
         <div class="brand-tag">Price Sync</div>
       </div>
+      <button class="sb-collapse-btn" id="sb-collapse-btn" aria-label="Collapse sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
     </div>
     <nav class="nav-section">
       <div class="nav-label">WooPrice</div>
       <a class="nav-link is-active" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        <span>Dashboard</span>
+        <span class="nav-text">Dashboard</span>
       </a>
       <a class="nav-link" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        <span>Workspace</span>
+        <span class="nav-text">Workspace</span>
       </a>
       <a class="nav-link" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        <span>Analytics</span>
+        <span class="nav-text">Analytics</span>
       </a>
       <a class="nav-link" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span>Logs</span>
+        <span class="nav-text">Logs</span>
       </a>
       <a class="nav-link" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Settings</span>
+        <span class="nav-text">Settings</span>
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -466,9 +566,9 @@ select.wp-sel:focus { border-color: var(--accent); }
           </table>
         </div>
 
-        <div id="ws-controls" style="display:none;flex-direction:column;gap:10px">
-          <div class="wp-filter-bar">
-            <input class="wp-search" id="ws-search" placeholder="Search name or SKU…" oninput="renderPreview()">
+        <div class="ws-card" id="ws-table-card" style="display:none">
+          <div class="ws-toolbar">
+            <input class="wp-search" style="min-width:180px;flex:0 1 220px" id="ws-search" placeholder="Search name or SKU…" oninput="renderPreview()">
             <select class="wp-sel" id="ws-cat" onchange="renderPreview()">
               <option value="">All categories</option>
             </select>
@@ -478,27 +578,26 @@ select.wp-sel:focus { border-color: var(--accent); }
               <option value="0">Unchanged only</option>
             </select>
             <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(true)">Select All</button>
-            <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(false)">Deselect All</button>
+            <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(false)">Clear</button>
+            <div class="ws-toolbar-r">
+              <div class="ws-stats-inline" id="ws-stats"></div>
+            </div>
           </div>
-          <div class="wp-stats-bar" id="ws-stats"></div>
-        </div>
-
-        <div class="wp-card" id="ws-table-card" style="display:none">
-          <div class="wp-tbl-wrap">
-            <table id="ws-table">
+          <div class="ws-tbl-scroll">
+            <table class="ws-tbl" id="ws-table">
               <thead>
                 <tr>
-                  <th><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th>
-                  <th>Color</th>
+                  <th class="wt-cb"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th>
+                  <th class="wt-clr"></th>
                   <th>ID</th>
-                  <th>Name</th>
+                  <th>Product</th>
                   <th>SKU</th>
-                  <th>WC Price</th>
-                  <th>Sheet Price</th>
-                  <th>Change</th>
+                  <th class="r">WC Price</th>
+                  <th class="r">Sheet Price</th>
+                  <th class="r">Change</th>
                   <th>Stock</th>
-                  <th>Qty</th>
-                  <th>Last Updated</th>
+                  <th class="r">Qty</th>
+                  <th>Modified</th>
                   <th>Categories</th>
                 </tr>
               </thead>
@@ -507,7 +606,7 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
         </div>
 
-        <div id="apply-bar" style="display:none;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div id="apply-bar" class="ws-apply-bar" style="display:none">
           <span id="selected-count" style="font-size:13px;color:var(--wp-muted)"></span>
           <div style="display:flex;gap:8px">
             <button class="wp-btn wp-btn-ghost" type="button" id="writeback-btn" style="display:none" onclick="doWriteback()">Write Status to Sheet</button>
@@ -774,6 +873,7 @@ function _updateAdminatorUser() {
       if (tbEmail)  tbEmail.textContent = currentUser.username + '@wooprice';
       if (tbAvatar) tbAvatar.textContent = initial;
       clearInterval(interval);
+      _initSbCollapse();
 
       // Wire up nav clicks + replace SVG nav icons with glassmorphism images
       _wireNavClicks();
@@ -978,10 +1078,41 @@ function _initMobileDrawer() {
   });
 }
 
+// ── Desktop sidebar collapse ───────────────────────────────────────────────────
+
+function _applySbCollapse(collapse) {
+  var shell = document.querySelector('.shell');
+  var sidebar = document.querySelector('.d-sidebar');
+  if (!shell || !sidebar) return;
+  if (collapse) {
+    shell.classList.add('wp-sb-col');
+    sidebar.classList.add('wp-sb-col');
+    try { localStorage.setItem('wp-sb-col', '1'); } catch(e) {}
+  } else {
+    shell.classList.remove('wp-sb-col');
+    sidebar.classList.remove('wp-sb-col');
+    try { localStorage.setItem('wp-sb-col', '0'); } catch(e) {}
+  }
+}
+
+function _initSbCollapse() {
+  var btn = document.getElementById('sb-collapse-btn');
+  if (!btn || btn._wpSbInited) return;
+  btn._wpSbInited = true;
+  try {
+    if (localStorage.getItem('wp-sb-col') === '1') _applySbCollapse(true);
+  } catch(e) {}
+  btn.addEventListener('click', function() {
+    var collapsed = document.querySelector('.shell').classList.contains('wp-sb-col');
+    _applySbCollapse(!collapsed);
+  });
+}
+
 function bootApp() {
   document.getElementById('login-overlay').classList.add('wp-hidden');
   document.getElementById('app').classList.remove('wp-hidden');
   _initMobileDrawer();
+  _initSbCollapse();
   _updateAdminatorUser();
   checkHealth();
   setInterval(checkHealth, 30000);
@@ -1148,7 +1279,6 @@ function renderHomeLogs(logs) {
 function startPreview() {
   document.getElementById('fetch-btn').disabled = true;
   document.getElementById('steps-row').style.display = 'flex';
-  document.getElementById('ws-controls').style.display = 'flex';
   document.getElementById('ws-table-card').style.display = 'block';
   document.getElementById('apply-bar').style.display = 'flex';
   document.getElementById('apply-results-card').style.display = 'none';
@@ -1253,18 +1383,18 @@ function renderPreview() {
       ? 'background:' + item.row_color + ';border:1.5px solid rgba(0,0,0,.12)'
       : 'background:var(--border,#E8EAED);border:1.5px solid rgba(0,0,0,.08)';
     return '<tr>' +
-      '<td><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
-      '<td><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
-      '<td style="color:var(--wp-muted);font-size:12px" lang="en">' + item.product_id + '</td>' +
-      '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '—') + '</td>' +
-      '<td style="color:var(--wp-muted);font-size:12px">' + esc(item.sku || '—') + '</td>' +
-      '<td class="number">' + fmtPrice(item.old_price) + '</td>' +
-      '<td class="number" id="price-cell-' + item.product_id + '" onclick="editPrice(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + fmtPrice(item.new_price) + '</span></td>' +
-      '<td class="number">' + chg + '</td>' +
-      '<td id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')" style="cursor:pointer"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
-      '<td id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" style="cursor:pointer" lang="en"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span></td>' +
-      '<td style="font-size:11.5px;color:var(--wp-muted)">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
-      '<td>' + catsHtml(item.categories) + '</td>' +
+      '<td class="wt-cb"><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
+      '<td class="wt-clr"><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
+      '<td class="wt-id" lang="en">' + item.product_id + '</td>' +
+      '<td class="wt-name" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '—') + '</td>' +
+      '<td class="wt-sku">' + esc(item.sku || '—') + '</td>' +
+      '<td class="wt-price">' + fmtPrice(item.old_price) + '</td>' +
+      '<td class="wt-price-e" id="price-cell-' + item.product_id + '" onclick="editPrice(' + item.product_id + ')"><span class="editable-cell">' + fmtPrice(item.new_price) + '</span></td>' +
+      '<td class="wt-price">' + chg + '</td>' +
+      '<td class="wt-stock" id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
+      '<td class="wt-qty" id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" lang="en"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span></td>' +
+      '<td class="wt-date">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
+      '<td class="wt-cats">' + catsHtml(item.categories) + '</td>' +
       '</tr>';
   }).join('');
 
