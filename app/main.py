@@ -1156,6 +1156,11 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
             if r.get("success"):
                 item.last_price_updated = now
                 item.stock_status = _stock_from_price(item.new_price)
+                patch_cached_product(db, item.product_id, {
+                    "regular_price": item.new_price,
+                    "final_price": item.new_price,
+                    "stock_status": _stock_from_price(item.new_price),
+                })
 
         await _sync_parent_stock(updates, result_map)
 
@@ -1241,6 +1246,7 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             product_ids = [i["product_id"] for i in sheet_items]
             cached_data = get_cached_by_ids(db, product_ids)
             missing_ids = [pid for pid in product_ids if pid not in cached_data]
+            freshly_fetched_ids: set[int] = set(missing_ids)
 
             if missing_ids:
                 yield ev({"step": "wc", "status": "running", "msg": f"{len(cached_data)} products from cache, fetching {len(missing_ids)} from WooCommerce…"})
@@ -1262,6 +1268,11 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             wc_data = cached_data
             yield ev({"step": "wc", "status": "done", "msg": f"Loaded {len(wc_data)} products ({len(product_ids) - len(missing_ids)} from cache, {len(missing_ids)} from WooCommerce)"})
 
+            # Cache-meta for debug logging
+            _cmeta: dict[int, tuple] = {}
+            for _cr in db.query(ProductCache).filter(ProductCache.wc_id.in_(product_ids)).all():
+                _cmeta[_cr.wc_id] = (_cr.cache_version, _cr.last_synced_at)
+
             yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
 
             last_synced = _get_last_synced(db, product_ids)
@@ -1277,6 +1288,19 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
                 wc = wc_data.get(pid, {})
                 old_price = wc.get("price") or None
                 sname = row.get("sheet_name") or wc.get("name") or None
+                _cver, _csync = _cmeta.get(pid, (None, None))
+                _src = "live_wc" if pid in freshly_fetched_ids else "cache"
+                logger.debug(
+                    "preview pid=%d sheet=%s wc_source=%s wc_price=%s cv=%s synced=%s",
+                    pid, row["new_price"], _src, old_price or "",
+                    _cver, _csync.isoformat() if _csync else None,
+                )
+                if _price_differs(old_price, row["new_price"]):
+                    logger.info(
+                        "preview[changed] pid=%d sheet=%s wc=%s wc_source=%s cv=%s synced=%s",
+                        pid, row["new_price"], old_price or "", _src, _cver,
+                        _csync.isoformat() if _csync else None,
+                    )
                 db.add(SyncItem(
                     job_id=job.id, product_id=pid,
                     parent_id=wc.get("parent_id") or 0,
@@ -1389,6 +1413,11 @@ async def apply_stream(
                     if r.get("success"):
                         item.last_price_updated = now
                         item.stock_status = _stock_from_price(item.new_price)
+                        patch_cached_product(db, item.product_id, {
+                            "regular_price": item.new_price,
+                            "final_price": item.new_price,
+                            "stock_status": _stock_from_price(item.new_price),
+                        })
                     yield ev({
                         "type": "item",
                         "product_id": item.product_id,
