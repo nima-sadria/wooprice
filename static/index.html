@@ -326,6 +326,23 @@ select.wp-sel:focus { border-color: var(--accent); }
 .wt-cats { white-space: nowrap; }
 .ws-apply-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 2px 0; }
 
+/* Image thumbnail column */
+.wt-img { width: 52px; padding: 4px 8px !important; }
+.wt-thumb { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; display: block; background: var(--bg-base,#F5F6FA); }
+.wt-thumb-placeholder { width: 44px; height: 44px; border-radius: 6px; background: var(--bg-base,#F5F6FA); border: 1.5px dashed var(--border,#E8EAED); display: flex; align-items: center; justify-content: center; }
+.wt-thumb-placeholder svg { width: 16px; height: 16px; stroke: var(--wp-muted); fill: none; stroke-width: 1.5; }
+
+/* Pre-fetch filter bar */
+.pf-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pf-mode-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.pf-mode-badge.full { background: #dcfce7; color: #16a34a; }
+.pf-mode-badge.filtered { background: #dbeafe; color: #2563eb; }
+
+/* Hide image column on very small screens */
+@media (max-width: 600px) {
+  .wt-img, .ws-tbl thead th:nth-child(3), .ws-tbl tbody td:nth-child(3) { display: none; }
+}
+
 /* ── Sidebar collapse (desktop only) ──────────────────────────────────── */
 .sb-collapse-btn {
   display: none;
@@ -542,7 +559,25 @@ select.wp-sel:focus { border-color: var(--accent); }
             <div class="wp-page-title">Workspace</div>
             <div class="wp-page-sub">Fetch, review, and apply price updates</div>
           </div>
-          <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span id="fetch-mode-badge" class="pf-mode-badge full" style="display:none">&#9679; Full</span>
+            <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
+          </div>
+        </div>
+
+        <!-- Pre-fetch filter card -->
+        <div class="wp-card" id="pre-fetch-card" style="padding:14px 18px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--wp-muted);font-weight:600;margin-bottom:10px">Pre-Fetch Filters <span style="font-weight:400;text-transform:none;letter-spacing:0">(applied before fetching — reduces WooCommerce API calls)</span></div>
+          <div class="pf-bar">
+            <input class="wp-search" id="pf-search" placeholder="Filter by name or SKU…" style="flex:0 1 220px" oninput="updateFetchModeBadge()">
+            <select class="wp-sel" id="pf-cat" onchange="updateFetchModeBadge()">
+              <option value="">All categories</option>
+            </select>
+            <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="clearPreFetchFilters()">Clear</button>
+            <span id="pf-active-label" style="font-size:12px;color:var(--wp-muted);display:none">
+              Filters active — Fetch Preview will only process matching products
+            </span>
+          </div>
         </div>
 
         <!-- Spreadsheet freshness card -->
@@ -615,6 +650,7 @@ select.wp-sel:focus { border-color: var(--accent); }
                 <tr>
                   <th class="wt-cb"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th>
                   <th class="wt-clr"></th>
+                  <th class="wt-img"></th>
                   <th>ID</th>
                   <th>Product</th>
                   <th>SKU</th>
@@ -1162,12 +1198,13 @@ async function checkHealth() {
 
 async function loadCategories() {
   try { allCategories = await api('GET', '/api/categories'); } catch(e) { allCategories = []; }
-  ['ws-cat', 'an-cat'].forEach(function(id) {
+  ['ws-cat', 'an-cat', 'pf-cat'].forEach(function(id) {
     var sel = document.getElementById(id);
     if (!sel) return;
     sel.innerHTML = '<option value="">All categories</option>' +
       allCategories.map(function(c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
   });
+  updateFetchModeBadge();
 }
 
 async function loadAlarmThresholds() {
@@ -1234,7 +1271,7 @@ function showPage(name) {
   }
 
   if (name === 'home') loadHome();
-  else if (name === 'workspace') checkSheetMeta(true);
+  else if (name === 'workspace') { checkSheetMeta(true); updateFetchModeBadge(); }
   else if (name === 'analytics') loadAnalytics();
   else if (name === 'logs') loadLogs();
   else if (name === 'settings') loadSettings();
@@ -1405,6 +1442,30 @@ async function waitForSheetUpdate() {
 }
 
 // ══ Workspace ══════════════════════════════════════════════════════════════
+function updateFetchModeBadge() {
+  var s = (document.getElementById('pf-search').value || '').trim();
+  var c = document.getElementById('pf-cat').value || '';
+  var isFiltered = !!(s || c);
+  var badge = document.getElementById('fetch-mode-badge');
+  var label = document.getElementById('pf-active-label');
+  badge.style.display = 'inline-flex';
+  if (isFiltered) {
+    badge.className = 'pf-mode-badge filtered';
+    badge.textContent = '⊙ Filtered';
+    label.style.display = 'inline';
+  } else {
+    badge.className = 'pf-mode-badge full';
+    badge.textContent = '● Full';
+    label.style.display = 'none';
+  }
+}
+
+function clearPreFetchFilters() {
+  document.getElementById('pf-search').value = '';
+  document.getElementById('pf-cat').value = '';
+  updateFetchModeBadge();
+}
+
 function startPreview() {
   document.getElementById('fetch-btn').disabled = true;
   document.getElementById('steps-row').style.display = 'flex';
@@ -1426,12 +1487,36 @@ function startPreview() {
   document.getElementById('apply-btn').disabled = true;
   currentJobId = null;
 
-  var evSource = new EventSource('/api/preview/stream?token=' + encodeURIComponent(token));
+  var pfSearch = (document.getElementById('pf-search').value || '').trim();
+  var pfCat    = document.getElementById('pf-cat').value || '';
+  var streamUrl = '/api/preview/stream?token=' + encodeURIComponent(token);
+  if (pfSearch) streamUrl += '&pre_search=' + encodeURIComponent(pfSearch);
+  if (pfCat)    streamUrl += '&pre_cat='    + encodeURIComponent(pfCat);
+
+  addLog(
+    pfSearch || pfCat
+      ? 'Starting filtered Fetch Preview' + (pfSearch ? ' — search: "' + pfSearch + '"' : '') + (pfCat ? ' — category filtered' : '') + '…'
+      : 'Starting full Fetch Preview…',
+    'info'
+  );
+
+  var evSource = new EventSource(streamUrl);
   evSource.onmessage = function(e) {
     var d = JSON.parse(e.data);
     if (d.step) {
       setStep(d.step, d.status);
       if (d.msg) addLog(d.msg, d.status === 'error' ? 'err' : d.status === 'warning' ? 'warn' : d.status === 'done' ? 'ok' : 'info');
+    }
+    if (d.step === 'excel' && d.filter_mode) {
+      var badge = document.getElementById('fetch-mode-badge');
+      badge.style.display = 'inline-flex';
+      if (d.filter_mode === 'filtered') {
+        badge.className = 'pf-mode-badge filtered';
+        badge.textContent = '⊙ Filtered';
+      } else {
+        badge.className = 'pf-mode-badge full';
+        badge.textContent = '● Full';
+      }
     }
     if (d.step === 'preview' && d.status === 'done') {
       evSource.close();
@@ -1514,6 +1599,7 @@ function renderPreview() {
     return '<tr>' +
       '<td class="wt-cb"><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
       '<td class="wt-clr"><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
+      '<td class="wt-img">' + thumbCell(item.product_id) + '</td>' +
       '<td class="wt-id" lang="en">' + item.product_id + '</td>' +
       '<td class="wt-name" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '—') + '</td>' +
       '<td class="wt-sku">' + esc(item.sku || '—') + '</td>' +
@@ -2019,6 +2105,10 @@ function catsHtml(cats) {
   var html = cats.slice(0, 2).map(function(c) { return '<span class="badge badge-purple" style="margin-right:3px;font-size:10px">' + esc(c.name) + '</span>'; }).join('');
   if (cats.length > 2) html += '<span style="color:var(--wp-muted);font-size:11px">+' + (cats.length - 2) + '</span>';
   return html;
+}
+
+function thumbCell(pid) {
+  return '<img class="wt-thumb" src="/api/products/' + pid + '/thumb" loading="lazy" width="44" height="44" alt="" onerror="this.style.display=\'none\'">';
 }
 
 function fmt(ts) {

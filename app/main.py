@@ -1,11 +1,18 @@
 import asyncio
 import hashlib
+import io as _io
 import json
 import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+
+try:
+    from PIL import Image as _PilImage
+    _PIL_OK = True
+except ImportError:
+    _PIL_OK = False
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +23,7 @@ _SSE_HEADERS = {
 }
 
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import func, inspect as sa_inspect, text
@@ -87,6 +94,16 @@ def _run_column_migrations():
             existing_cols = {c["name"] for c in inspector.get_columns("sync_jobs")}
             if "sheet_hash" not in existing_cols:
                 conn.execute(text("ALTER TABLE sync_jobs ADD COLUMN sheet_hash TEXT"))
+
+        if "products_cache" in existing_tables:
+            existing_cols = {c["name"] for c in inspector.get_columns("products_cache")}
+            for col_name, col_type in [
+                ("image_url", "TEXT"),
+                ("image_source", "TEXT"),
+                ("image_last_synced_at", "TIMESTAMP"),
+            ]:
+                if col_name not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE products_cache ADD COLUMN {col_name} {col_type}"))
 
         conn.commit()
 
@@ -183,6 +200,30 @@ class StockUpdateRequest(BaseModel):
     stock_quantity: int | None = None
     parent_id: int = 0
     job_id: int | None = None
+
+
+# ── Thumbnail helpers ─────────────────────────────────────────────────────────
+
+def _get_thumb_dir() -> Path:
+    db_path_str = get_settings().database_url.removeprefix("sqlite:///")
+    db_path = Path(db_path_str)
+    if not db_path.is_absolute():
+        db_path = (Path(__file__).parent.parent / db_path_str).resolve()
+    return db_path.parent / "thumbs"
+
+
+# 1×1 transparent PNG used as placeholder when no image is available
+_EMPTY_THUMB = bytes([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+    0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+    0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+])
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -472,6 +513,52 @@ async def db_cache_clear(user: dict = Depends(require_admin), db: Session = Depe
     count = cache_clear_all(db)
     db.commit()
     return {"message": f"Cleared {count} products from DB cache"}
+
+
+@app.get("/api/products/{wc_id}/thumb")
+async def product_thumb(wc_id: int, db: Session = Depends(get_db)):
+    """Return a 96×96 JPEG thumbnail for a product.
+    Served from disk cache; generated on first request using Pillow."""
+    thumb_dir = _get_thumb_dir()
+    thumb_path = thumb_dir / f"{wc_id}.jpg"
+
+    if thumb_path.exists():
+        return Response(content=thumb_path.read_bytes(), media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+    row = db.query(ProductCache).filter(ProductCache.wc_id == wc_id).first()
+    if not row or not row.image_url:
+        return Response(content=_EMPTY_THUMB, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+    if not _PIL_OK:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=row.image_url)
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(row.image_url)
+            resp.raise_for_status()
+        img = _PilImage.open(_io.BytesIO(resp.content))
+        img.thumbnail((96, 96), _PilImage.LANCZOS)
+        canvas = _PilImage.new("RGB", (96, 96), (248, 248, 248))
+        offset = ((96 - img.width) // 2, (96 - img.height) // 2)
+        paste_img = img.convert("RGBA") if img.mode in ("P", "LA") else img
+        if paste_img.mode == "RGBA":
+            canvas.paste(paste_img, offset, paste_img)
+        else:
+            canvas.paste(paste_img.convert("RGB"), offset)
+        buf = _io.BytesIO()
+        canvas.save(buf, format="JPEG", quality=85, optimize=True)
+        thumb_bytes = buf.getvalue()
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        thumb_path.write_bytes(thumb_bytes)
+        return Response(content=thumb_bytes, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
+    except Exception as exc:
+        logger.warning("thumb generation failed for wc_id=%d: %s", wc_id, exc)
+        return Response(content=_EMPTY_THUMB, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=60"})
 
 
 @app.get("/api/fetch/full")
@@ -1269,8 +1356,15 @@ async def spreadsheet_meta_endpoint(user: dict = Depends(get_current_user)):
 # ── 7. Preview stream (SSE) ───────────────────────────────────────────────────
 
 @app.get("/api/preview/stream")
-async def preview_stream(request: Request, token: str | None = Query(None)):
+async def preview_stream(
+    request: Request,
+    token: str | None = Query(None),
+    pre_search: str | None = Query(None),
+    pre_cat: str | None = Query(None),
+):
     ip = _client_ip(request)
+    _pre_search = (pre_search or "").strip().lower()
+    _pre_cat = (pre_cat or "").strip()
 
     async def generate():
         db = SessionLocal()
@@ -1301,7 +1395,50 @@ async def preview_stream(request: Request, token: str | None = Query(None)):
             sheet_items, dup_warnings = parse_price_list(xlsx)
             if not sheet_items:
                 yield ev({"step": "excel", "status": "error", "msg": "No valid rows found (IDs in col B, prices in col C from row 3)"}); return
-            yield ev({"step": "excel", "status": "done", "msg": f"Found {len(sheet_items)} products in price list"})
+
+            # ── Pre-fetch filters ─────────────────────────────────────────────
+            total_in_sheet = len(sheet_items)
+            filter_mode = "full"
+            if _pre_search or _pre_cat:
+                all_ids = [i["product_id"] for i in sheet_items]
+                filter_meta = get_cached_by_ids(db, all_ids)
+                filtered_items = []
+                skipped_no_cache = []
+                for item in sheet_items:
+                    pid = item["product_id"]
+                    cached = filter_meta.get(pid)
+                    if cached is None:
+                        # Not in cache: include so we don't silently drop unknown products
+                        filtered_items.append(item)
+                        skipped_no_cache.append(pid)
+                        continue
+                    if _pre_search:
+                        name = (cached.get("name") or "").lower()
+                        sku  = (cached.get("sku") or "").lower()
+                        if _pre_search not in name and _pre_search not in sku:
+                            continue
+                    if _pre_cat:
+                        cats = cached.get("categories") or []
+                        if not any(str(c.get("id", "")) == _pre_cat for c in cats):
+                            continue
+                    filtered_items.append(item)
+                sheet_items = filtered_items
+                filter_mode = "filtered"
+                logger.info(
+                    "preview_stream: pre-filter applied search=%r cat=%r "
+                    "total=%d matched=%d no_cache=%d",
+                    _pre_search, _pre_cat, total_in_sheet, len(sheet_items), len(skipped_no_cache),
+                )
+                if not sheet_items:
+                    yield ev({"step": "excel", "status": "error",
+                              "msg": "No products match the selected filters. Clear filters or run a full fetch."}); return
+
+            yield ev({
+                "step": "excel", "status": "done",
+                "msg": f"Found {len(sheet_items)} products in price list"
+                       + (f" (filtered from {total_in_sheet} total)" if filter_mode == "filtered" else ""),
+                "filter_mode": filter_mode,
+            })
             if dup_warnings:
                 yield ev({
                     "step": "excel", "status": "warning",

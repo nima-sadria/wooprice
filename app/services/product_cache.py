@@ -32,6 +32,8 @@ def _to_dict(p: ProductCache) -> dict:
         "wc_date_modified": p.date_modified_gmt or None,
         "product_type": p.product_type or "simple",
         "last_synced_at": p.last_synced_at.isoformat() if p.last_synced_at else None,
+        "image_url": p.image_url or None,
+        "image_source": p.image_source or "none",
     }
 
 
@@ -72,6 +74,10 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int]:
             row.final_price = p.get("final_price", "") or row.final_price
             row.categories = cats or row.categories
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
+            if p.get("image_url") is not None:
+                row.image_url = p["image_url"] or None
+                row.image_source = p.get("image_source") or "none"
+                row.image_last_synced_at = now
             row.last_synced_at = now
             row.last_seen_at = now
             row.cache_version = (row.cache_version or 0) + 1
@@ -91,6 +97,9 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int]:
                 final_price=p.get("final_price", ""),
                 categories=cats,
                 date_modified_gmt=p.get("date_modified_gmt"),
+                image_url=p.get("image_url"),
+                image_source=p.get("image_source", "none"),
+                image_last_synced_at=now if p.get("image_url") is not None else None,
                 last_synced_at=now,
                 last_seen_at=now,
                 cache_version=1,
@@ -175,4 +184,5 @@ def wc_response_to_cache_dict(pid: int, data: dict) -> dict:
         "final_price": data.get("price") or data.get("regular_price", ""),
         "categories": json.dumps(data.get("categories", [])),
         "date_modified_gmt": data.get("wc_date_modified") or "",
+        # image_url intentionally absent — do not overwrite existing thumbnail cache
     }

@@ -92,6 +92,9 @@ class ProductCache(Base):
     last_synced_at = Column(DateTime, nullable=True)
     last_seen_at = Column(DateTime, nullable=True)
     cache_version = Column(Integer, default=1)
+    image_url = Column(String, nullable=True)
+    image_source = Column(String, nullable=True)    # simple | variation | parent | none
+    image_last_synced_at = Column(DateTime, nullable=True)
 
 
 class AuditLog(Base):

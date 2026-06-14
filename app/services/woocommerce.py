@@ -358,15 +358,38 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
     return results
 
 
-_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,categories,date_modified_gmt,status"
-_VAR_FIELDS = "id,sku,regular_price,sale_price,price,stock_status,stock_quantity,date_modified_gmt"
+_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,categories,date_modified_gmt,status,images"
+_VAR_FIELDS = "id,sku,regular_price,sale_price,price,stock_status,stock_quantity,date_modified_gmt,image"
 
 
-def _parse_full_product(p: dict, parent_id: int = 0, parent_cats: list | None = None) -> dict:
+def _extract_image(p: dict, parent_id: int, parent_image: str | None) -> tuple[str | None, str]:
+    """Return (image_url, image_source) for a product or variation."""
+    if parent_id > 0:
+        # Variation: WC uses singular 'image' key
+        var_img = p.get("image") or {}
+        url = var_img.get("src") or ""
+        if url:
+            return url, "variation"
+        if parent_image:
+            return parent_image, "parent"
+        return None, "none"
+    # Simple or variable parent: WC uses plural 'images' array
+    images = p.get("images") or []
+    url = images[0].get("src", "") if images else ""
+    return (url or None), ("simple" if url else "none")
+
+
+def _parse_full_product(
+    p: dict,
+    parent_id: int = 0,
+    parent_cats: list | None = None,
+    parent_image: str | None = None,
+) -> dict:
     cats = parent_cats if parent_cats is not None else [
         {"id": c["id"], "name": c["name"]} for c in p.get("categories", [])
     ]
     ptype = "variation" if parent_id > 0 else (p.get("type") or "simple")
+    img_url, img_source = _extract_image(p, parent_id, parent_image)
     return {
         "wc_id": p["id"],
         "parent_id": parent_id,
@@ -381,10 +404,18 @@ def _parse_full_product(p: dict, parent_id: int = 0, parent_cats: list | None = 
         "final_price": p.get("regular_price") or p.get("price", ""),
         "categories": cats,
         "date_modified_gmt": p.get("date_modified_gmt", ""),
+        "image_url": img_url,
+        "image_source": img_source,
     }
 
 
-async def _fetch_variations_for_parent(client: httpx.AsyncClient, parent_id: int, parent_name: str, parent_cats: list) -> list[dict]:
+async def _fetch_variations_for_parent(
+    client: httpx.AsyncClient,
+    parent_id: int,
+    parent_name: str,
+    parent_cats: list,
+    parent_image: str | None = None,
+) -> list[dict]:
     variations = []
     page = 1
     while True:
@@ -397,7 +428,9 @@ async def _fetch_variations_for_parent(client: httpx.AsyncClient, parent_id: int
             break
         for v in data:
             v["name"] = parent_name
-            variations.append(_parse_full_product(v, parent_id=parent_id, parent_cats=parent_cats))
+            variations.append(_parse_full_product(
+                v, parent_id=parent_id, parent_cats=parent_cats, parent_image=parent_image,
+            ))
         if len(data) < 100:
             break
         page += 1
@@ -424,9 +457,11 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
                 break
             for p in data:
                 cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
+                images = p.get("images") or []
+                parent_img = images[0].get("src", "") if images else ""
                 all_products.append(_parse_full_product(p))
                 if p.get("type") == "variable":
-                    variable_parents.append((p["id"], p.get("name", ""), cats))
+                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None))
             if len(data) < 100:
                 break
             page += 1
@@ -434,8 +469,8 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats)
-                for pid, name, cats in batch
+                _fetch_variations_for_parent(client, pid, name, cats, parent_img)
+                for pid, name, cats, parent_img in batch
             ], return_exceptions=True)
             for j, r in enumerate(results):
                 if isinstance(r, list):
@@ -453,7 +488,7 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
     """Fetch products modified after the given ISO timestamp (light sync).
     Returns (products, variation_warnings)."""
     all_products: list[dict] = []
-    variable_parents: list[tuple[int, str, list]] = []
+    variable_parents: list[tuple[int, str, list, str | None]] = []
     var_warnings: list[str] = []
 
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
@@ -472,9 +507,11 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
                 break
             for p in data:
                 cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
+                images = p.get("images") or []
+                parent_img = images[0].get("src", "") if images else ""
                 all_products.append(_parse_full_product(p))
                 if p.get("type") == "variable":
-                    variable_parents.append((p["id"], p.get("name", ""), cats))
+                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None))
             if len(data) < 100:
                 break
             page += 1
@@ -482,8 +519,8 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats)
-                for pid, name, cats in batch
+                _fetch_variations_for_parent(client, pid, name, cats, parent_img)
+                for pid, name, cats, parent_img in batch
             ], return_exceptions=True)
             for j, r in enumerate(results):
                 if isinstance(r, list):
