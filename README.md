@@ -73,31 +73,31 @@ The application treats WooCommerce as the source of truth while using a local ca
 
 ---
 
-# Architecture
+## Architecture
 
 ```text
-                    WooCommerce
-                         │
-                         │ REST API
-                         ▼
-                 WooPrice Backend
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
- Product Cache      Sync Engine      Update Engine
-(PostgreSQL)                          (Prices/Stock)
+ Spreadsheet / Excel / OnlyOffice
         │
         ▼
    Frontend UI
         │
         ▼
- Spreadsheet / Excel / OnlyOffice
+ WooPrice Backend
+        │
+        ┌────────────────┼────────────────┐
+        │                │                │
+        ▼                ▼                ▼
+ Product Cache      Sync Engine      Update Engine
+(PostgreSQL)             │            (Prices/Stock)
+                         │
+                         ▼
+                    WooCommerce
+                    (REST API)
 ```
 
 ---
 
-# Product Name Strategy
+## Product Name Strategy
 
 WooPrice intentionally separates display names from WooCommerce names.
 
@@ -129,9 +129,9 @@ without affecting WooCommerce synchronization.
 
 ---
 
-# Smart Cache System
+## Smart Cache System
 
-## First Fetch
+### First Fetch
 
 ```text
 User clicks Fetch
@@ -145,7 +145,7 @@ Build variation mappings
 Return products to UI
 ```
 
-## Normal Operation
+### Normal Operation
 
 ```text
 User opens product page
@@ -161,9 +161,9 @@ Only changed products updated
 
 ---
 
-# Synchronization Strategy
+## Synchronization Strategy
 
-## Full Synchronization
+### Full Synchronization
 
 Used for:
 
@@ -178,7 +178,7 @@ GET /wp-json/wc/v3/products
 GET /wp-json/wc/v3/products/{parent_id}/variations
 ```
 
-## Incremental Synchronization
+### Incremental Synchronization
 
 Used during normal operation.
 
@@ -192,42 +192,42 @@ Only modified products are refreshed.
 
 ---
 
-# Technology Stack
+## Technology Stack
 
-Backend
+**Backend**
 
 * Python
 * FastAPI
 
-Database
+**Database**
 
 * PostgreSQL (recommended)
 * SQLite (small deployments)
 
-Caching / Jobs
+**Caching / Jobs**
 
 * Redis (optional)
 
-Frontend
+**Frontend**
 
 * HTML
 * CSS
 * JavaScript
 
-Integration
+**Integration**
 
 * WooCommerce REST API
 * Excel
 * OnlyOffice
 
-Deployment
+**Deployment**
 
 * Docker
 * Docker Compose
 
 ---
 
-# Docker Deployment
+## Docker Deployment
 
 Start:
 
@@ -255,7 +255,7 @@ docker compose logs -f
 
 ---
 
-# Project Structure
+## Project Structure
 
 ```text
 wooprice/
@@ -275,7 +275,7 @@ wooprice/
 
 ---
 
-# Performance Goals
+## Performance Goals
 
 WooPrice is designed to support large WooCommerce stores.
 
@@ -290,7 +290,7 @@ Goals:
 
 ---
 
-# Roadmap
+## Roadmap
 
 ### Planned
 
@@ -315,7 +315,7 @@ Goals:
 
 ---
 
-# License
+## License
 
 Private project.
 
