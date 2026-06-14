@@ -225,6 +225,55 @@ _EMPTY_THUMB = bytes([
     0x42, 0x60, 0x82,
 ])
 
+# Max 4 concurrent image downloads — avoids hammering the CDN
+_THUMB_SEM = asyncio.Semaphore(4)
+
+_THUMB_SIZES = {96, 128, 256}
+
+
+def _thumb_path(thumb_dir: Path, wc_id: int, size: int) -> Path:
+    return thumb_dir / str(size) / f"{wc_id}.jpg"
+
+
+def _delete_all_thumbs(thumb_dir: Path, wc_id: int) -> None:
+    """Remove cached thumbnails for a product at all known sizes."""
+    for size in _THUMB_SIZES:
+        p = _thumb_path(thumb_dir, wc_id, size)
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    # Also remove old flat-layout file (pre-size-keyed scheme) if it exists
+    old = thumb_dir / f"{wc_id}.jpg"
+    try:
+        old.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _invalidate_thumbs(changed_ids: set[int], db: Session) -> None:
+    """Delete disk thumbnails for changed_ids plus any variations that inherit their image."""
+    if not changed_ids:
+        return
+    thumb_dir = _get_thumb_dir()
+    to_delete = set(changed_ids)
+    # Cascade: find variations whose image_source == "parent" and parent_id in changed_ids
+    variation_rows = (
+        db.query(ProductCache.wc_id)
+        .filter(
+            ProductCache.image_source == "parent",
+            ProductCache.parent_id.in_(changed_ids),
+        )
+        .all()
+    )
+    for (vid,) in variation_rows:
+        to_delete.add(vid)
+    if to_delete:
+        logger.info("thumb invalidation: deleting %d thumbnails (direct=%d, cascaded=%d)",
+                    len(to_delete), len(changed_ids), len(to_delete) - len(changed_ids))
+    for wc_id in to_delete:
+        _delete_all_thumbs(thumb_dir, wc_id)
+
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -516,11 +565,16 @@ async def db_cache_clear(user: dict = Depends(require_admin), db: Session = Depe
 
 
 @app.get("/api/products/{wc_id}/thumb")
-async def product_thumb(wc_id: int, db: Session = Depends(get_db)):
-    """Return a 96×96 JPEG thumbnail for a product.
-    Served from disk cache; generated on first request using Pillow."""
+async def product_thumb(
+    wc_id: int,
+    size: int = Query(96),
+    db: Session = Depends(get_db),
+):
+    """Return a JPEG thumbnail for a product (96×96 by default; also 128, 256).
+    Served from disk cache; generated lazily on first request using Pillow."""
+    size = min(_THUMB_SIZES, key=lambda s: abs(s - size))  # snap to nearest valid size
     thumb_dir = _get_thumb_dir()
-    thumb_path = thumb_dir / f"{wc_id}.jpg"
+    thumb_path = _thumb_path(thumb_dir, wc_id, size)
 
     if thumb_path.exists():
         return Response(content=thumb_path.read_bytes(), media_type="image/jpeg",
@@ -536,13 +590,19 @@ async def product_thumb(wc_id: int, db: Session = Depends(get_db)):
         return RedirectResponse(url=row.image_url)
 
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(row.image_url)
-            resp.raise_for_status()
+        async with _THUMB_SEM:
+            t0 = time.monotonic()
+            async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
+                resp = await client.get(row.image_url)
+                resp.raise_for_status()
+            elapsed = time.monotonic() - t0
+            if elapsed > 2:
+                logger.warning("thumb download slow: wc_id=%d size=%d took %.1fs url=%s",
+                               wc_id, size, elapsed, row.image_url)
         img = _PilImage.open(_io.BytesIO(resp.content))
-        img.thumbnail((96, 96), _PilImage.LANCZOS)
-        canvas = _PilImage.new("RGB", (96, 96), (248, 248, 248))
-        offset = ((96 - img.width) // 2, (96 - img.height) // 2)
+        img.thumbnail((size, size), _PilImage.LANCZOS)
+        canvas = _PilImage.new("RGB", (size, size), (248, 248, 248))
+        offset = ((size - img.width) // 2, (size - img.height) // 2)
         paste_img = img.convert("RGBA") if img.mode in ("P", "LA") else img
         if paste_img.mode == "RGBA":
             canvas.paste(paste_img, offset, paste_img)
@@ -551,12 +611,12 @@ async def product_thumb(wc_id: int, db: Session = Depends(get_db)):
         buf = _io.BytesIO()
         canvas.save(buf, format="JPEG", quality=85, optimize=True)
         thumb_bytes = buf.getvalue()
-        thumb_dir.mkdir(parents=True, exist_ok=True)
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
         thumb_path.write_bytes(thumb_bytes)
         return Response(content=thumb_bytes, media_type="image/jpeg",
                         headers={"Cache-Control": "public, max-age=86400"})
     except Exception as exc:
-        logger.warning("thumb generation failed for wc_id=%d: %s", wc_id, exc)
+        logger.warning("thumb generation failed for wc_id=%d size=%d: %s", wc_id, size, exc)
         return Response(content=_EMPTY_THUMB, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=60"})
 
@@ -614,8 +674,9 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
             yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} products to local cache…"})
             _db = SessionLocal()
             try:
-                inserted, updated = upsert_products(_db, products)
+                inserted, updated, img_changed = upsert_products(_db, products)
                 _db.commit()
+                _invalidate_thumbs(img_changed, _db)
             finally:
                 _db.close()
 
@@ -697,8 +758,9 @@ async def fetch_light_stream(
             yield ev({"step": "upsert", "status": "running", "msg": f"Updating {len(products)} products in local cache…"})
             _db = SessionLocal()
             try:
-                inserted, updated = upsert_products(_db, products)
+                inserted, updated, img_changed = upsert_products(_db, products)
                 _db.commit()
+                _invalidate_thumbs(img_changed, _db)
             finally:
                 _db.close()
 
@@ -1399,6 +1461,8 @@ async def preview_stream(
             # ── Pre-fetch filters ─────────────────────────────────────────────
             total_in_sheet = len(sheet_items)
             filter_mode = "full"
+            _filter_skipped = 0
+            _filter_no_cache = 0
             if _pre_search or _pre_cat:
                 all_ids = [i["product_id"] for i in sheet_items]
                 filter_meta = get_cached_by_ids(db, all_ids)
@@ -1422,12 +1486,15 @@ async def preview_stream(
                         if not any(str(c.get("id", "")) == _pre_cat for c in cats):
                             continue
                     filtered_items.append(item)
+                _filter_no_cache = len(skipped_no_cache)
+                _filter_skipped = total_in_sheet - len(filtered_items)
                 sheet_items = filtered_items
                 filter_mode = "filtered"
                 logger.info(
                     "preview_stream: pre-filter applied search=%r cat=%r "
-                    "total=%d matched=%d no_cache=%d",
-                    _pre_search, _pre_cat, total_in_sheet, len(sheet_items), len(skipped_no_cache),
+                    "total=%d matched=%d skipped=%d no_cache=%d",
+                    _pre_search, _pre_cat, total_in_sheet, len(sheet_items),
+                    _filter_skipped, _filter_no_cache,
                 )
                 if not sheet_items:
                     yield ev({"step": "excel", "status": "error",
@@ -1462,7 +1529,7 @@ async def preview_stream(
                 except Exception as exc:
                     yield ev({"step": "wc", "status": "error", "msg": str(exc)}); return
                 cache_rows = [wc_response_to_cache_dict(pid, d) for pid, d in fresh_data.items()]
-                upsert_products(db, cache_rows)
+                upsert_products(db, cache_rows)  # image_url absent in cache_rows; discard return value
                 db.commit()
                 # Re-read from DB so wc_data uses _to_dict format (final_price or regular_price)
                 # — same derivation the NEXT preview will use, preventing false "changed" rows.
@@ -1532,12 +1599,23 @@ async def preview_stream(
 
             changed = sum(1 for r in preview_rows if r["changed"])
             yield ev({"step": "calc", "status": "done", "msg": f"{changed} prices will change, {len(preview_rows) - changed} unchanged"})
+            _wc_lookups = len(missing_ids) if missing_ids else 0
+            _cache_hits = len(product_ids) - _wc_lookups
             yield ev({
                 "step": "preview", "status": "done",
                 "job_id": job.id, "total": len(preview_rows),
                 "changed_count": changed, "unchanged_count": len(preview_rows) - changed,
                 "items": preview_rows,
                 "duplicate_warnings": dup_warnings,
+                "filter_stats": {
+                    "filter_mode": filter_mode,
+                    "sheet_rows_scanned": total_in_sheet,
+                    "rows_matched": len(preview_rows),
+                    "rows_skipped": _filter_skipped,
+                    "rows_no_cache": _filter_no_cache,
+                    "wc_lookups": _wc_lookups,
+                    "cache_hits": _cache_hits,
+                },
             })
         finally:
             db.close()

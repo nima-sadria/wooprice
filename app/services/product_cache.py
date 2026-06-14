@@ -45,10 +45,16 @@ def get_cached_by_ids(db: Session, product_ids: list[int]) -> dict[int, dict]:
     return {r.wc_id: _to_dict(r) for r in rows}
 
 
-def upsert_products(db: Session, products: list[dict]) -> tuple[int, int]:
-    """Insert or update products in the cache. Returns (inserted, updated)."""
+def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[int]]:
+    """Insert or update products in the cache. Returns (inserted, updated, image_changed_ids).
+
+    image_changed_ids: wc_ids of existing rows whose image_url changed — callers
+    should invalidate disk thumbnails for these IDs (and cascade to variations that
+    inherit the parent's image).
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     inserted = updated = 0
+    image_changed_ids: set[int] = set()
     ids = [p["wc_id"] for p in products if "wc_id" in p]
     existing = {r.wc_id: r for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(ids)).all()}
 
@@ -74,8 +80,11 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int]:
             row.final_price = p.get("final_price", "") or row.final_price
             row.categories = cats or row.categories
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
-            if p.get("image_url") is not None:
-                row.image_url = p["image_url"] or None
+            new_img = p.get("image_url")
+            if new_img is not None:
+                if new_img != row.image_url:
+                    image_changed_ids.add(wc_id)
+                row.image_url = new_img or None
                 row.image_source = p.get("image_source") or "none"
                 row.image_last_synced_at = now
             row.last_synced_at = now
@@ -106,7 +115,7 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int]:
             )
             db.add(row)
             inserted += 1
-    return inserted, updated
+    return inserted, updated, image_changed_ids
 
 
 def get_all(db: Session) -> list[dict]:

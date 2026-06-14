@@ -627,6 +627,15 @@ select.wp-sel:focus { border-color: var(--accent); }
           </table>
         </div>
 
+        <div id="filter-stats-bar" style="display:none;background:#f0f6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;font-size:12px;color:#1e40af;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+          <span id="fst-mode" style="font-weight:700"></span>
+          <span id="fst-scanned"></span>
+          <span id="fst-matched"></span>
+          <span id="fst-skipped"></span>
+          <span id="fst-wc"></span>
+          <span id="fst-cache"></span>
+        </div>
+
         <div class="ws-card" id="ws-table-card" style="display:none">
           <div class="ws-toolbar">
             <input class="wp-search" style="min-width:180px;flex:0 1 220px" id="ws-search" placeholder="Search name or SKU…" oninput="renderPreview()">
@@ -1483,6 +1492,7 @@ function startPreview() {
   selectedIds.clear();
   document.getElementById('ws-tbody').innerHTML = '';
   showDupWarnings([]);
+  document.getElementById('filter-stats-bar').style.display = 'none';
   document.getElementById('writeback-btn').style.display = 'none';
   document.getElementById('apply-btn').disabled = true;
   currentJobId = null;
@@ -1528,6 +1538,28 @@ function startPreview() {
       document.getElementById('fetch-btn').disabled = false;
       addLog('Preview ready: ' + d.changed_count + ' changed, ' + d.unchanged_count + ' unchanged', 'ok');
       showDupWarnings(d.duplicate_warnings || []);
+      // Filter statistics bar
+      var fs = d.filter_stats;
+      if (fs) {
+        var bar = document.getElementById('filter-stats-bar');
+        document.getElementById('fst-mode').textContent = fs.filter_mode === 'filtered' ? '⊙ Filtered fetch' : '● Full fetch';
+        document.getElementById('fst-scanned').textContent = 'Scanned: ' + fs.sheet_rows_scanned;
+        document.getElementById('fst-matched').textContent = 'Matched: ' + fs.rows_matched;
+        if (fs.filter_mode === 'filtered') {
+          document.getElementById('fst-skipped').textContent = 'Skipped: ' + fs.rows_skipped;
+          bar.style.background = '#f0f6ff';
+          bar.style.borderColor = '#bfdbfe';
+          bar.style.color = '#1e40af';
+        } else {
+          document.getElementById('fst-skipped').textContent = '';
+          bar.style.background = '#f0fdf4';
+          bar.style.borderColor = '#bbf7d0';
+          bar.style.color = '#166534';
+        }
+        document.getElementById('fst-wc').textContent = 'WC lookups: ' + fs.wc_lookups;
+        document.getElementById('fst-cache').textContent = 'Cache hits: ' + fs.cache_hits;
+        bar.style.display = 'flex';
+      }
     }
     if (d.status === 'error') {
       evSource.close();
@@ -1613,6 +1645,7 @@ function renderPreview() {
       '</tr>';
   }).join('');
 
+  observeThumbImages();
   updateStats(filtered.length);
   document.getElementById('apply-btn').disabled = selectedIds.size === 0;
   document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
@@ -2108,7 +2141,32 @@ function catsHtml(cats) {
 }
 
 function thumbCell(pid) {
-  return '<img class="wt-thumb" src="/api/products/' + pid + '/thumb" loading="lazy" width="44" height="44" alt="" onerror="this.style.display=\'none\'">';
+  // src intentionally absent — IntersectionObserver swaps data-src→src when near viewport
+  return '<img class="wt-thumb" data-src="/api/products/' + pid + '/thumb" width="44" height="44" alt="" onerror="this.style.display=\'none\'">';
+}
+
+var _thumbObs = null;
+
+function _getThumbObserver() {
+  if (_thumbObs) return _thumbObs;
+  _thumbObs = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (!entry.isIntersecting) return;
+      var img = entry.target;
+      var src = img.dataset.src;
+      if (src) { img.src = src; delete img.dataset.src; }
+      _thumbObs.unobserve(img);
+    });
+  }, { rootMargin: '100px' });
+  return _thumbObs;
+}
+
+function observeThumbImages() {
+  var obs = _getThumbObserver();
+  obs.disconnect(); // unobserve stale rows from previous render
+  document.querySelectorAll('.wt-thumb[data-src]').forEach(function(img) {
+    obs.observe(img);
+  });
 }
 
 function fmt(ts) {
