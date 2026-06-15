@@ -4,6 +4,8 @@ import io as _io
 import json
 import logging
 import time
+
+import httpx
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
