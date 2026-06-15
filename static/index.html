@@ -1055,7 +1055,8 @@ function _replaceNavIcons() {
     'workspace': '/static/icons/icons8-workspace-96.png',
     'analytics': '/static/icons/icons8-analytics-96.png',
     'logs':      '/static/icons/icons8-logs-100.png',
-    'settings':  '/static/icons/icons8-settings-96.png'
+    'settings':  '/static/icons/icons8-settings-96.png',
+    'admin':     '/static/icons/icons8-tools-96.png'
   };
   document.querySelectorAll('.d-sidebar .nav-link').forEach(function(link) {
     var text = (link.querySelector('span') || link).textContent.trim().toLowerCase();
@@ -2532,9 +2533,9 @@ function renderUserTable() {
       '<td style="padding:8px 12px">' + statusBadge + '</td>' +
       '<td style="padding:8px 12px">' + permIcons + '</td>' +
       '<td style="padding:8px 12px;white-space:nowrap">' +
-        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="margin-right:4px" onclick="openEditUserModal(' + JSON.stringify(u.username) + ')">Edit</button>' +
-        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="margin-right:4px;color:#d97706;border-color:#d97706" onclick="revokeAdminTokens(' + JSON.stringify(u.username) + ')">Revoke</button>' +
-        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="color:#dc2626;border-color:#dc2626" onclick="deleteAdminUser(' + JSON.stringify(u.username) + ')">Delete</button>' +
+        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="margin-right:4px" onclick="openEditUserModal(' + esc(JSON.stringify(u.username)) + ')">Edit</button>' +
+        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="margin-right:4px;color:#d97706;border-color:#d97706" onclick="revokeAdminTokens(' + esc(JSON.stringify(u.username)) + ')">Revoke</button>' +
+        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="color:#dc2626;border-color:#dc2626" onclick="deleteAdminUser(' + esc(JSON.stringify(u.username)) + ')">Delete</button>' +
       '</td></tr>';
   }).join('');
 }
