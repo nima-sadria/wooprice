@@ -16,8 +16,13 @@ class Settings(BaseSettings):
 
     # Auth — set JWT_SECRET to a long random string in production
     jwt_secret: str = "change-me-in-production"
-    # Comma-separated Nextcloud usernames that get the "admin" role, e.g. "alice,bob"
+    # Comma-separated Nextcloud usernames that are always super-admin, bypass app_users table.
     super_admin_users: str = ""
+
+    # Bootstrap seed — users created in app_users on startup if not already present.
+    # Never overwrites existing rows. Comma-separated Nextcloud usernames.
+    bootstrap_app_admins: str = ""   # seeded with is_admin=True
+    bootstrap_app_users: str = ""    # seeded with is_admin=False (price operators)
 
     # Product cache TTL in hours (default 6h). Set to 0 to disable caching.
     wc_cache_ttl_hours: int = 6

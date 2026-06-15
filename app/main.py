@@ -137,6 +137,43 @@ def _run_column_migrations():
 _run_column_migrations()
 
 
+def _run_bootstrap_users() -> None:
+    """Idempotent startup seed: creates app_users rows from BOOTSTRAP_APP_ADMINS /
+    BOOTSTRAP_APP_USERS env vars.  Never overwrites existing rows."""
+    s = get_settings()
+    admin_names = [u.strip() for u in s.bootstrap_app_admins.split(",") if u.strip()]
+    user_names = [u.strip() for u in s.bootstrap_app_users.split(",") if u.strip()]
+    if not admin_names and not user_names:
+        return
+    db = SessionLocal()
+    try:
+        seeded: list[str] = []
+        for username in admin_names:
+            if not db.query(AppUser).filter(AppUser.username == username).first():
+                db.add(AppUser(username=username, display_name=username, is_admin=True, is_active=True))
+                seeded.append(f"{username}(admin)")
+        for username in user_names:
+            if not db.query(AppUser).filter(AppUser.username == username).first():
+                db.add(AppUser(username=username, display_name=username, is_admin=False, is_active=True))
+                seeded.append(f"{username}(user)")
+        if seeded:
+            db.commit()
+            logger.warning("startup: bootstrap seeded app_users: %s", ", ".join(seeded))
+        else:
+            logger.info("startup: bootstrap: all configured users already present")
+    except Exception as exc:
+        logger.error("startup: bootstrap seeding failed: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+_run_bootstrap_users()
+
+
 def _check_jwt_secret() -> None:
     secret = get_settings().jwt_secret
     length = len(secret.encode())
@@ -345,6 +382,20 @@ def _validate_active_user_sync(user_data: dict, db: Session) -> None:
         raise HTTPException(403, "Access denied — contact your administrator")
     if user_data.get("pv", -1) != app_user.permission_version:
         raise HTTPException(401, "Token has been revoked — please log in again")
+
+
+def validate_sse_token(token: str | None, db: Session) -> dict:
+    """Validate a query-param SSE token: decode JWT → is_active → permission_version.
+    Raises HTTPException on any failure. All SSE routes must call this instead of
+    decode_token() directly so revoked/inactive users are rejected consistently."""
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        user_data = decode_token(token)
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token")
+    _validate_active_user_sync(user_data, db)
+    return user_data
 
 
 async def get_current_active_user(
@@ -773,25 +824,10 @@ async def product_thumb(
 async def fetch_full_stream(request: Request, token: str | None = Query(None)):
     """Stream a full WooCommerce product sync into the DB cache."""
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/full mode=full_sync ip=%s", _client_ip(request))
-    creds = None
-    raw = token
-    if not raw:
-        raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
-    if not raw:
-        return StreamingResponse(
-            iter(['data: {"error":"Not authenticated"}\n\n']),
-            media_type="text/event-stream",
-        )
-    try:
-        creds = decode_token(raw)
-    except Exception:
-        return StreamingResponse(
-            iter(['data: {"error":"Invalid token"}\n\n']),
-            media_type="text/event-stream",
-        )
+    raw = token or request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
     _auth_db = SessionLocal()
     try:
-        _validate_active_user_sync(creds, _auth_db)
+        creds = validate_sse_token(raw, _auth_db)
     except HTTPException as _exc:
         return StreamingResponse(
             iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
@@ -872,24 +908,10 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
 async def fetch_deep_variations_stream(request: Request, token: str | None = Query(None)):
     """Stream a full variation sync for all variable parents. Slow admin-only job."""
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/deep-variations mode=deep_variation_sync ip=%s", _client_ip(request))
-    raw = token
-    if not raw:
-        raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
-    if not raw:
-        return StreamingResponse(
-            iter(['data: {"error":"Not authenticated"}\n\n']),
-            media_type="text/event-stream",
-        )
-    try:
-        _deep_creds = decode_token(raw)
-    except Exception:
-        return StreamingResponse(
-            iter(['data: {"error":"Invalid token"}\n\n']),
-            media_type="text/event-stream",
-        )
+    raw = token or request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
     _auth_db = SessionLocal()
     try:
-        _validate_active_user_sync(_deep_creds, _auth_db)
+        validate_sse_token(raw, _auth_db)
     except HTTPException as _exc:
         return StreamingResponse(
             iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
@@ -960,23 +982,9 @@ async def fetch_light_stream(
 ):
     """Stream a light sync (only products modified since last sync) into the DB cache."""
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/light mode=light_sync ip=%s", _client_ip(request))
-    raw = token
-    if not raw:
-        raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
-    if not raw:
-        return StreamingResponse(
-            iter(['data: {"error":"Not authenticated"}\n\n']),
-            media_type="text/event-stream",
-        )
+    raw = token or request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
     try:
-        _light_creds = decode_token(raw)
-    except Exception:
-        return StreamingResponse(
-            iter(['data: {"error":"Invalid token"}\n\n']),
-            media_type="text/event-stream",
-        )
-    try:
-        _validate_active_user_sync(_light_creds, db)
+        validate_sse_token(raw, db)
     except HTTPException as _exc:
         return StreamingResponse(
             iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
@@ -1153,6 +1161,21 @@ async def update_app_user(
     row = db.query(AppUser).filter(AppUser.username == username).first()
     if row is None:
         raise HTTPException(404, "User not found")
+    caller = user.get("sub", "")
+    # Lockout guards: prevent accidental self-lockout
+    if username == caller:
+        if body.is_active is False:
+            raise HTTPException(400, "Cannot deactivate your own account — ask another admin")
+        if body.is_admin is False:
+            active_admin_count = (
+                db.query(AppUser)
+                .filter(AppUser.is_admin == True, AppUser.is_active == True)
+                .count()
+            )
+            if active_admin_count <= 1:
+                raise HTTPException(
+                    400, "Cannot remove admin from the last active DB admin — add another admin first"
+                )
     if body.display_name is not None:
         row.display_name = body.display_name
     if body.is_active is not None:
@@ -1172,9 +1195,22 @@ async def delete_app_user(
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    caller = user.get("sub", "")
+    if username == caller:
+        raise HTTPException(400, "Cannot delete your own account")
     row = db.query(AppUser).filter(AppUser.username == username).first()
     if row is None:
         raise HTTPException(404, "User not found")
+    if row.is_admin:
+        active_admin_count = (
+            db.query(AppUser)
+            .filter(AppUser.is_admin == True, AppUser.is_active == True)
+            .count()
+        )
+        if active_admin_count <= 1:
+            raise HTTPException(
+                400, "Cannot delete the last active DB admin — add another admin first"
+            )
     db.delete(row)
     db.commit()
     return Response(status_code=204)
@@ -1186,6 +1222,9 @@ async def revoke_user_tokens(
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    caller = user.get("sub", "")
+    if username == caller:
+        raise HTTPException(400, "Cannot revoke your own tokens — log out instead")
     row = db.query(AppUser).filter(AppUser.username == username).first()
     if row is None:
         raise HTTPException(404, "User not found")
@@ -1808,14 +1847,8 @@ async def preview_stream(
             def ev(data: dict) -> str:
                 return f"data: {json.dumps(data)}\n\n"
 
-            if not token:
-                yield ev({"step": "excel", "status": "error", "msg": "Not authenticated"}); return
             try:
-                user_data = decode_token(token)
-            except Exception:
-                yield ev({"step": "excel", "status": "error", "msg": "Invalid or expired token"}); return
-            try:
-                _validate_active_user_sync(user_data, db)
+                user_data = validate_sse_token(token, db)
             except HTTPException as _exc:
                 yield ev({"step": "excel", "status": "error", "msg": _exc.detail}); return
 
@@ -2072,14 +2105,8 @@ async def apply_stream(
             def ev(data: dict) -> str:
                 return f"data: {json.dumps(data)}\n\n"
 
-            if not token:
-                yield ev({"type": "error", "msg": "Not authenticated"}); return
             try:
-                user_data = decode_token(token)
-            except Exception:
-                yield ev({"type": "error", "msg": "Invalid or expired token"}); return
-            try:
-                _validate_active_user_sync(user_data, db)
+                user_data = validate_sse_token(token, db)
             except HTTPException as _exc:
                 yield ev({"type": "error", "msg": _exc.detail}); return
 
