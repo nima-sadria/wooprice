@@ -659,7 +659,7 @@ select.wp-sel:focus { border-color: var(--accent); }
                 <tr>
                   <th class="wt-cb"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th>
                   <th class="wt-clr"></th>
-                  <th class="wt-img"></th>
+                  <th class="wt-img">Image</th>
                   <th>ID</th>
                   <th>Product</th>
                   <th>SKU</th>
@@ -2140,22 +2140,47 @@ function catsHtml(cats) {
   return html;
 }
 
+var _THUMB_PH = '<div class="wt-thumb-placeholder">' +
+  '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/>' +
+  '<circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>';
+
 function thumbCell(pid) {
-  // src intentionally absent — IntersectionObserver swaps data-src→src when near viewport
-  return '<img class="wt-thumb" data-src="/api/products/' + pid + '/thumb" width="44" height="44" alt="" onerror="this.style.display=\'none\'">';
+  return '<div class="wt-thumb-cell" data-pid="' + pid + '">' + _THUMB_PH + '</div>';
 }
 
 var _thumbObs = null;
+var WP_DEBUG_THUMB = !!(location.search.includes('debug=1') || localStorage.getItem('wp_debug') === '1');
+
+function _loadThumb(cell, pid) {
+  if (WP_DEBUG_THUMB) console.log('[Thumb] placeholder product_id=' + pid);
+  var img = new Image();
+  img.className = 'wt-thumb';
+  img.width = 44;
+  img.height = 44;
+  img.alt = '';
+  img.onload = function() {
+    if (WP_DEBUG_THUMB) console.log('[Thumb] loaded product_id=' + pid);
+    cell.innerHTML = '';
+    cell.appendChild(img);
+  };
+  img.onerror = function() {
+    if (WP_DEBUG_THUMB) console.log('[Thumb] failed product_id=' + pid);
+    // placeholder already visible — nothing to change
+  };
+  img.src = '/api/products/' + pid + '/thumb';
+}
 
 function _getThumbObserver() {
   if (_thumbObs) return _thumbObs;
   _thumbObs = new IntersectionObserver(function(entries) {
     entries.forEach(function(entry) {
       if (!entry.isIntersecting) return;
-      var img = entry.target;
-      var src = img.dataset.src;
-      if (src) { img.src = src; delete img.dataset.src; }
-      _thumbObs.unobserve(img);
+      var cell = entry.target;
+      var pid = cell.getAttribute('data-pid');
+      if (!pid) return;
+      cell.removeAttribute('data-pid');
+      _thumbObs.unobserve(cell);
+      _loadThumb(cell, pid);
     });
   }, { rootMargin: '100px' });
   return _thumbObs;
@@ -2163,9 +2188,9 @@ function _getThumbObserver() {
 
 function observeThumbImages() {
   var obs = _getThumbObserver();
-  obs.disconnect(); // unobserve stale rows from previous render
-  document.querySelectorAll('.wt-thumb[data-src]').forEach(function(img) {
-    obs.observe(img);
+  obs.disconnect();
+  document.querySelectorAll('.wt-thumb-cell[data-pid]').forEach(function(cell) {
+    obs.observe(cell);
   });
 }
 
