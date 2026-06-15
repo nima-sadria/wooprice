@@ -5,11 +5,14 @@ Stores WooCommerce product data in the local database so the preview
 flow can return results instantly without hitting WooCommerce every time.
 """
 import json
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from ..models import ProductCache
+
+logger = logging.getLogger(__name__)
 
 
 def _to_dict(p: ProductCache) -> dict:
@@ -81,12 +84,16 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[in
             row.categories = cats or row.categories
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
             new_img = p.get("image_url")
-            if new_img is not None:
+            if "image_url" in p:
                 if new_img != row.image_url:
                     image_changed_ids.add(wc_id)
                 row.image_url = new_img or None
                 row.image_source = p.get("image_source") or "none"
                 row.image_last_synced_at = now
+            logger.debug(
+                "product_image: wc_id=%s type=%s image_source=%s image_url=%s",
+                wc_id, p.get("product_type", "?"), p.get("image_source", "—"), new_img or "NULL",
+            )
             row.last_synced_at = now
             row.last_seen_at = now
             row.cache_version = (row.cache_version or 0) + 1
@@ -114,6 +121,10 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[in
                 cache_version=1,
             )
             db.add(row)
+            logger.debug(
+                "product_image: wc_id=%s type=%s image_source=%s image_url=%s",
+                wc_id, p.get("product_type", "?"), p.get("image_source", "—"), p.get("image_url") or "NULL",
+            )
             inserted += 1
     return inserted, updated, image_changed_ids
 
