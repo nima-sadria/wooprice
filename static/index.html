@@ -561,6 +561,8 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span id="fetch-mode-badge" class="pf-mode-badge full" style="display:none">&#9679; Full</span>
+            <span id="fetch-route-badge" style="font-size:10px;font-family:monospace;background:#1e2433;color:#7dd3fc;border:1px solid #334155;border-radius:4px;padding:2px 7px;display:inline-block" title="Backend route this button calls">&#8594; /api/preview/stream (Preview Fetch)</span>
+            <button class="wp-btn wp-btn-ghost" type="button" id="wc-refresh-btn" onclick="startFullFetch()" title="Route: GET /api/fetch/full — syncs all products, variations, and images from WooCommerce into the local DB cache">&#8635; Refresh WooCommerce Cache</button>
             <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
           </div>
         </div>
@@ -604,6 +606,15 @@ select.wp-sel:focus { border-color: var(--accent); }
               <span><b>ONLYOFFICE</b> may display edits that have not yet been committed to Nextcloud/WebDAV storage. The ETag and Last-Modified shown here reflect what Nextcloud currently exposes — not what ONLYOFFICE is holding in memory. Use <b>Wait for update</b> to poll every 2&nbsp;s (up to 30&nbsp;s) until Nextcloud registers a new save; Fetch Preview will then start automatically.</span>
             </div>
           </div>
+        </div>
+
+        <!-- WooCommerce full cache refresh card — shown while/after startFullFetch() runs -->
+        <div class="wp-card" id="wc-refresh-card" style="display:none;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+            <div style="font-weight:600;font-size:14px">&#8635; Refresh WooCommerce Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span></div>
+            <span id="wc-refresh-status" style="font-size:12px;color:var(--wp-muted)">Running…</span>
+          </div>
+          <div id="wc-refresh-log" style="font-family:monospace;font-size:12px;max-height:180px;overflow-y:auto;background:var(--bg-base,#F5F6FA);border:1px solid var(--wp-border,#E8EAED);border-radius:6px;padding:10px 14px;line-height:1.6"></div>
         </div>
 
         <div class="wp-steps" id="steps-row" style="display:none">
@@ -1503,6 +1514,7 @@ function startPreview() {
   if (pfSearch) streamUrl += '&pre_search=' + encodeURIComponent(pfSearch);
   if (pfCat)    streamUrl += '&pre_cat='    + encodeURIComponent(pfCat);
 
+  addLog('[ROUTE] GET /api/preview/stream → Preview Fetch (NOT Full Fetch, NOT Light Fetch)', 'info');
   addLog(
     pfSearch || pfCat
       ? 'Starting filtered Fetch Preview' + (pfSearch ? ' — search: "' + pfSearch + '"' : '') + (pfCat ? ' — category filtered' : '') + '…'
@@ -1607,6 +1619,72 @@ function addLog(msg, cls) {
   line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
   log.appendChild(line);
   log.scrollTop = log.scrollHeight;
+}
+
+function startFullFetch() {
+  var btn = document.getElementById('wc-refresh-btn');
+  var card = document.getElementById('wc-refresh-card');
+  var logEl = document.getElementById('wc-refresh-log');
+  var statusEl = document.getElementById('wc-refresh-status');
+
+  btn.disabled = true;
+  card.style.display = 'block';
+  logEl.innerHTML = '';
+  statusEl.textContent = 'Running…';
+  statusEl.style.color = 'var(--wp-muted)';
+
+  function wcLog(msg, color) {
+    var line = document.createElement('div');
+    if (color) line.style.color = color;
+    line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  wcLog('[ROUTE] GET /api/fetch/full → Full WooCommerce Cache Sync (products + variations + images)', '#3b82f6');
+
+  var evSource = new EventSource('/api/fetch/full?token=' + encodeURIComponent(token));
+
+  evSource.onmessage = function(e) {
+    var d;
+    try { d = JSON.parse(e.data); } catch(_) { return; }
+
+    if (d.error) {
+      wcLog('Error: ' + d.error, '#dc2626');
+      statusEl.textContent = 'Failed: ' + d.error;
+      statusEl.style.color = '#dc2626';
+      evSource.close();
+      btn.disabled = false;
+      return;
+    }
+
+    var color = null;
+    if (d.status === 'error') color = '#dc2626';
+    else if (d.status === 'done' || d.status === 'ok') color = '#16a34a';
+    else if (d.status === 'warning') color = '#d97706';
+    if (d.msg) wcLog(d.msg, color);
+
+    if (d.step === 'done' && (d.status === 'ok' || d.status === 'done')) {
+      statusEl.textContent = 'Done — ' + (d.total || 0) + ' products (' + (d.inserted || 0) + ' new, ' + (d.updated || 0) + ' updated)';
+      statusEl.style.color = '#16a34a';
+      evSource.close();
+      btn.disabled = false;
+    }
+    if (d.step === 'error' || d.status === 'error') {
+      statusEl.textContent = 'Failed';
+      statusEl.style.color = '#dc2626';
+      evSource.close();
+      btn.disabled = false;
+    }
+  };
+
+  evSource.onerror = function() {
+    wcLog('SSE connection closed or error — check server logs for FETCH_ROUTE_ENTERED', '#dc2626');
+    statusEl.textContent = 'Connection error';
+    statusEl.style.color = '#dc2626';
+    evSource.close();
+    btn.disabled = false;
+  };
 }
 
 function renderPreview() {

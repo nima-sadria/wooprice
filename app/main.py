@@ -624,6 +624,7 @@ async def product_thumb(
 @app.get("/api/fetch/full")
 async def fetch_full_stream(request: Request, token: str | None = Query(None)):
     """Stream a full WooCommerce product sync into the DB cache."""
+    logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/full mode=full_sync ip=%s", _client_ip(request))
     creds = None
     raw = token
     if not raw:
@@ -706,6 +707,7 @@ async def fetch_light_stream(
     db: Session = Depends(get_db),
 ):
     """Stream a light sync (only products modified since last sync) into the DB cache."""
+    logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/light mode=light_sync ip=%s", _client_ip(request))
     raw = token
     if not raw:
         raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
@@ -1219,6 +1221,7 @@ async def system_diagnostics(user: dict = Depends(get_current_user), db: Session
 
 @app.post("/api/preview")
 async def create_preview(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    logger.warning("FETCH_ROUTE_ENTERED: route=/api/preview mode=create_preview user=%s", user.get("sub", "?"))
     try:
         xlsx = await download_xlsx(force=True)
     except Exception as exc:
@@ -1427,6 +1430,10 @@ async def preview_stream(
     ip = _client_ip(request)
     _pre_search = (pre_search or "").strip().lower()
     _pre_cat = (pre_cat or "").strip()
+    logger.warning(
+        "FETCH_ROUTE_ENTERED: route=/api/preview/stream mode=preview_stream ip=%s pre_search=%r pre_cat=%r",
+        ip, _pre_search, _pre_cat,
+    )
 
     async def generate():
         db = SessionLocal()

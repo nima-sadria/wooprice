@@ -450,6 +450,7 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
     """Fetch ALL products and their variations from WooCommerce for full cache population.
     Returns (products, variation_warnings) where warnings list is non-empty if any
     variation fetches failed after all retries."""
+    logger.warning("FETCH_ROUTE_ENTERED: route=fetch_all_products_full mode=wc_full_api_sync")
     all_products: list[dict] = []
     variable_parents: list[tuple[int, str, list]] = []
     var_warnings: list[str] = []
