@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
-from .models import AlarmThreshold, AuditLog, ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob
+from .models import AlarmThreshold, AppUser, AuditLog, ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob
 from .services.auth import create_token, decode_token, is_super_admin, verify_nextcloud_credentials
 from .services.nextcloud import (
     download_xlsx, fetch_spreadsheet_meta, get_cached_xlsx_meta,
@@ -114,6 +114,24 @@ def _run_column_migrations():
 
 
 _run_column_migrations()
+
+
+def _run_alembic_migrations() -> None:
+    from alembic.config import Config as AlembicConfig
+    from alembic import command as alembic_command
+    root = Path(__file__).parent.parent
+    cfg = AlembicConfig(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", get_settings().database_url)
+    try:
+        alembic_command.upgrade(cfg, "head")
+        logger.info("startup: Alembic migrations applied")
+    except Exception as exc:
+        logger.error("startup: Alembic migration failed: %s", exc)
+        raise
+
+
+_run_alembic_migrations()
 
 
 def _check_jwt_secret() -> None:
@@ -205,6 +223,20 @@ class StockUpdateRequest(BaseModel):
     stock_quantity: int | None = None
     parent_id: int = 0
     job_id: int | None = None
+
+
+class AppUserCreate(BaseModel):
+    username: str
+    display_name: str | None = None
+    is_admin: bool = False
+    notes: str | None = None
+
+
+class AppUserUpdate(BaseModel):
+    display_name: str | None = None
+    is_active: bool | None = None
+    is_admin: bool | None = None
+    notes: str | None = None
 
 
 # ── Thumbnail helpers ─────────────────────────────────────────────────────────
@@ -299,10 +331,60 @@ async def get_current_user(
         raise HTTPException(401, "Invalid or expired token")
 
 
-async def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if user.get("role") != "admin":
+def _get_app_user_or_raise(
+    db: Session,
+    username: str,
+    token_pv: int,
+    audit_action: str | None = None,
+) -> AppUser:
+    """Shared helper: load AppUser, check is_active, validate permission_version."""
+    app_user = db.query(AppUser).filter(AppUser.username == username).first()
+    if app_user is None or not app_user.is_active:
+        if audit_action:
+            _audit(username, "login_denied_not_in_access_list")
+        raise HTTPException(403, "Access denied — contact your administrator")
+    if token_pv != app_user.permission_version:
+        raise HTTPException(401, "Token has been revoked — please log in again")
+    return app_user
+
+
+async def get_current_app_user(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> AppUser | None:
+    """Returns AppUser row for non-super-admins; None for super admins."""
+    username = user.get("sub", "")
+    if is_super_admin(username):
+        return None
+    return _get_app_user_or_raise(db, username, user.get("pv", -1))
+
+
+async def require_admin(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    username = user.get("sub", "")
+    if is_super_admin(username):
+        return user
+    app_user = _get_app_user_or_raise(db, username, user.get("pv", -1))
+    if not app_user.is_admin:
+        _audit(username, "permission_denied", detail={"reason": "not_admin"})
         raise HTTPException(403, "Admin access required")
     return user
+
+
+def require_permission(permission: str):
+    """Dependency factory. Phase 0: any active, authenticated user has all permissions."""
+    async def _check(
+        db: Session = Depends(get_db),
+        user: dict = Depends(get_current_user),
+    ) -> dict:
+        username = user.get("sub", "")
+        if is_super_admin(username):
+            return user
+        _get_app_user_or_raise(db, username, user.get("pv", -1))
+        return user
+    return _check
 
 
 # ── Audit logging ─────────────────────────────────────────────────────────────
@@ -960,15 +1042,123 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
         raise HTTPException(503, f"Nextcloud unreachable: {exc}")
     if not valid:
         raise HTTPException(401, "Invalid Nextcloud credentials")
-    token = create_token(body.username)
-    role = "admin" if is_super_admin(body.username) else "user"
-    _audit(body.username, "login", _client_ip(request))
+    ip = _client_ip(request)
+    # Super admins bypass the app_users table entirely
+    if is_super_admin(body.username):
+        token = create_token(body.username, permission_version=0, role="admin")
+        _audit(body.username, "login", ip)
+        return {"token": token, "username": body.username, "role": "admin"}
+    # Regular users: must exist in app_users and be active
+    app_user = db.query(AppUser).filter(AppUser.username == body.username).first()
+    if app_user is None or not app_user.is_active:
+        _audit(body.username, "login_denied_not_in_access_list", ip)
+        raise HTTPException(403, "Access not granted — contact your administrator")
+    role = "admin" if app_user.is_admin else "user"
+    token = create_token(body.username, permission_version=app_user.permission_version, role=role)
+    _audit(body.username, "login_allowed_user_access", ip)
     return {"token": token, "username": body.username, "role": role}
 
 
 @app.get("/api/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return {"username": user["sub"], "role": user["role"]}
+
+
+# ── App Users (admin) ─────────────────────────────────────────────────────────
+
+def _app_user_dict(row: AppUser) -> dict:
+    return {
+        "id": row.id,
+        "username": row.username,
+        "display_name": row.display_name,
+        "is_active": row.is_active,
+        "is_admin": row.is_admin,
+        "permission_version": row.permission_version,
+        "notes": row.notes,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+@app.get("/api/admin/app-users")
+async def list_app_users(
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    rows = db.query(AppUser).order_by(AppUser.username).all()
+    return [_app_user_dict(r) for r in rows]
+
+
+@app.post("/api/admin/app-users", status_code=201)
+async def create_app_user(
+    body: AppUserCreate,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if db.query(AppUser).filter(AppUser.username == body.username).first():
+        raise HTTPException(409, "User already exists")
+    row = AppUser(
+        username=body.username,
+        display_name=body.display_name,
+        is_admin=body.is_admin,
+        notes=body.notes,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _app_user_dict(row)
+
+
+@app.patch("/api/admin/app-users/{username}")
+async def update_app_user(
+    username: str,
+    body: AppUserUpdate,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    row = db.query(AppUser).filter(AppUser.username == username).first()
+    if row is None:
+        raise HTTPException(404, "User not found")
+    if body.display_name is not None:
+        row.display_name = body.display_name
+    if body.is_active is not None:
+        row.is_active = body.is_active
+    if body.is_admin is not None:
+        row.is_admin = body.is_admin
+    if body.notes is not None:
+        row.notes = body.notes
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    return _app_user_dict(row)
+
+
+@app.delete("/api/admin/app-users/{username}", status_code=204)
+async def delete_app_user(
+    username: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    row = db.query(AppUser).filter(AppUser.username == username).first()
+    if row is None:
+        raise HTTPException(404, "User not found")
+    db.delete(row)
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.post("/api/admin/app-users/{username}/revoke-tokens")
+async def revoke_user_tokens(
+    username: str,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    row = db.query(AppUser).filter(AppUser.username == username).first()
+    if row is None:
+        raise HTTPException(404, "User not found")
+    row.permission_version = (row.permission_version or 1) + 1
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    return {"username": username, "permission_version": row.permission_version}
 
 
 # ── Settings (admin) ──────────────────────────────────────────────────────────

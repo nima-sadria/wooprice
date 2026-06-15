@@ -28,11 +28,17 @@ def is_super_admin(username: str) -> bool:
     return username in admins
 
 
-def create_token(username: str) -> str:
+def create_token(
+    username: str,
+    permission_version: int = 0,
+    role: str | None = None,
+) -> str:
     s = get_settings()
+    resolved_role = role or ("admin" if is_super_admin(username) else "user")
     payload = {
         "sub": username,
-        "role": "admin" if is_super_admin(username) else "user",
+        "role": resolved_role,
+        "pv": permission_version,
         "exp": datetime.utcnow() + timedelta(hours=24),
     }
     return jwt.encode(payload, s.jwt_secret, algorithm="HS256")

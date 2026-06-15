@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -95,6 +95,21 @@ class ProductCache(Base):
     image_url = Column(String, nullable=True)
     image_source = Column(String, nullable=True)    # simple | variation | parent | none
     image_last_synced_at = Column(DateTime, nullable=True)
+
+
+class AppUser(Base):
+    """DB-backed access list. Super-admin users (SUPER_ADMIN_USERS env) bypass this table."""
+    __tablename__ = "app_users"
+
+    id = Column(Integer, primary_key=True)
+    username = Column(String, nullable=False, unique=True, index=True)
+    display_name = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_admin = Column(Boolean, nullable=False, default=False)
+    permission_version = Column(Integer, nullable=False, default=1)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=True)
 
 
 class AuditLog(Base):
