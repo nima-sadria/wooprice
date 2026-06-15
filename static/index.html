@@ -343,6 +343,15 @@ select.wp-sel:focus { border-color: var(--accent); }
   .wt-img, .ws-tbl thead th:nth-child(3), .ws-tbl tbody td:nth-child(3) { display: none; }
 }
 
+/* ── Phase B: Change-status badges ───────────────────────────────────────── */
+.cs-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:10.5px; font-weight:600; white-space:nowrap; }
+.cs-changed   { background:#dbeafe; color:#2563eb; }
+.cs-unchanged { background:#f1f5f9; color:#64748b; }
+.cs-new       { background:#dcfce7; color:#16a34a; }
+.cs-invalid   { background:#fee2e2; color:#dc2626; }
+.cs-missing   { background:#ffedd5; color:#c2410c; }
+.wt-status    { width:96px; min-width:80px; }
+
 /* ── Sidebar collapse (desktop only) ──────────────────────────────────── */
 .sb-collapse-btn {
   display: none;
@@ -660,9 +669,18 @@ select.wp-sel:focus { border-color: var(--accent); }
             </select>
             <select class="wp-sel" id="ws-changed" onchange="renderPreview()">
               <option value="">All rows</option>
-              <option value="1">Changed only</option>
-              <option value="0">Unchanged only</option>
+              <option value="changed">Changed</option>
+              <option value="new">New</option>
+              <option value="unchanged">Unchanged</option>
+              <option value="invalid">Invalid</option>
+              <option value="missing_from_wc_cache">Missing WC Cache</option>
             </select>
+            <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;white-space:nowrap;color:var(--t-base,#1a2233)">
+              <input type="checkbox" id="ws-filter-no-image" onchange="renderPreview()"> Missing Images
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;white-space:nowrap;color:var(--t-base,#1a2233)">
+              <input type="checkbox" id="ws-filter-outofstock" onchange="renderPreview()"> Out of Stock
+            </label>
             <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(true)">Select All</button>
             <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="selectAll(false)">Clear</button>
             <div class="ws-toolbar-r">
@@ -675,6 +693,7 @@ select.wp-sel:focus { border-color: var(--accent); }
                 <tr>
                   <th class="wt-cb"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th>
                   <th class="wt-clr"></th>
+                  <th class="wt-status">Status</th>
                   <th class="wt-img">Image</th>
                   <th>ID</th>
                   <th>Product</th>
@@ -697,7 +716,25 @@ select.wp-sel:focus { border-color: var(--accent); }
           <span id="selected-count" style="font-size:13px;color:var(--wp-muted)"></span>
           <div style="display:flex;gap:8px">
             <button class="wp-btn wp-btn-ghost" type="button" id="writeback-btn" style="display:none" onclick="doWriteback()">Write Status to Sheet</button>
-            <button class="wp-btn wp-btn-green" type="button" id="apply-btn" onclick="requestApply()" disabled>Apply Selected</button>
+            <button class="wp-btn wp-btn-ghost" type="button" id="dry-run-btn" style="display:none" onclick="runDryRun()">Run Dry Run</button>
+            <button class="wp-btn wp-btn-green" type="button" id="apply-btn" onclick="requestApply()" disabled title="Run a dry run first">Apply Selected</button>
+          </div>
+        </div>
+
+        <!-- ── Dry Run Panel ── -->
+        <div class="wp-card" id="dry-run-panel" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+            <div style="font-weight:600;font-size:14px">Dry Run Results</div>
+            <span id="dr-status-badge"></span>
+          </div>
+          <div id="dr-stats-row" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
+          <div id="dr-critical-section" style="display:none;margin-bottom:14px">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#dc2626;font-weight:600;margin-bottom:8px">Critical Errors — Apply Blocked</div>
+            <div id="dr-critical-list" style="display:flex;flex-direction:column;gap:4px"></div>
+          </div>
+          <div id="dr-warnings-section" style="display:none">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#d97706;font-weight:600;margin-bottom:8px">Warnings</div>
+            <div id="dr-warnings-list" style="display:flex;flex-direction:column;gap:4px"></div>
           </div>
         </div>
 
@@ -910,7 +947,20 @@ select.wp-sel:focus { border-color: var(--accent); }
     </div>
     <div class="wp-modal-footer">
       <button class="wp-btn wp-btn-ghost" type="button" onclick="closeAlarm()">Cancel</button>
-      <button class="wp-btn wp-btn-red" type="button" onclick="runApplyStream()">Apply Anyway</button>
+      <button class="wp-btn wp-btn-red" type="button" onclick="closeAlarm();showDryRunConfirm()">Apply Anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Dry Run Confirm Modal ══ -->
+<div class="wp-modal-backdrop wp-hidden" id="dry-run-confirm-modal">
+  <div class="wp-modal">
+    <h3>Confirm Apply</h3>
+    <p>This will update <b id="dr-confirm-count">0</b> products in WooCommerce. No rollback is available yet.</p>
+    <div id="dr-confirm-warnings-summary" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400e;margin-bottom:8px"></div>
+    <div class="wp-modal-footer">
+      <button class="wp-btn wp-btn-ghost" type="button" onclick="closeDryRunConfirm()">Cancel</button>
+      <button class="wp-btn wp-btn-green" type="button" onclick="runApplyStream()">Apply to WooCommerce</button>
     </div>
   </div>
 </div>
@@ -962,6 +1012,7 @@ var currentUser = JSON.parse(localStorage.getItem('wp_user') || 'null');
 var currentJobId = null;
 var previewItems = [];
 var selectedIds = new Set();
+var dryRunResult = null;  // Phase B: stores last dry run response
 var allCategories = [];
 var alarmThresholds = [];
 var analyticsData = null;
@@ -1669,11 +1720,26 @@ function startPreview() {
       evSource.close();
       currentJobId = d.job_id;
       previewItems = d.items;
-      selectedIds = new Set(d.items.filter(function(i) { return i.changed; }).map(function(i) { return i.product_id; }));
+      // Auto-select changed + new items
+      selectedIds = new Set(d.items.filter(function(i) {
+        return _itemShouldApply(i);
+      }).map(function(i) { return i.product_id; }));
+      // Reset dry run state for new preview
+      dryRunResult = null;
+      document.getElementById('dry-run-panel').style.display = 'none';
+      document.getElementById('dry-run-btn').style.display = 'inline-flex';
+      document.getElementById('apply-btn').disabled = true;
+      document.getElementById('apply-btn').title = 'Run a dry run first';
       renderPreview();
       updateStats();
       document.getElementById('fetch-btn').disabled = false;
-      addLog('Preview ready: ' + d.changed_count + ' changed, ' + d.unchanged_count + ' unchanged', 'ok');
+      var _newC = d.new_count || 0;
+      var _invC = d.invalid_count || 0;
+      var _logMsg = 'Preview ready: ' + (d.changed_count || 0) + ' changed' +
+                    (_newC  ? ', ' + _newC + ' new'     : '') +
+                    ', ' + (d.unchanged_count || 0) + ' unchanged' +
+                    (_invC  ? ', ' + _invC + ' invalid' : '');
+      addLog(_logMsg, 'ok');
       showDupWarnings(d.duplicate_warnings || []);
       // Filter statistics bar
       var fs = d.filter_stats;
@@ -1859,21 +1925,49 @@ function startDeepVariationsSync() {
   };
 }
 
+// Phase B: derive change_status with fallback for old items that lack it
+function _itemChangeStatus(item) {
+  return item.change_status || (item.changed ? 'changed' : 'unchanged');
+}
+
+function _itemShouldApply(item) {
+  var cs = _itemChangeStatus(item);
+  return cs === 'changed' || cs === 'new';
+}
+
 function renderPreview() {
-  var search = document.getElementById('ws-search').value.toLowerCase();
-  var catFilter = document.getElementById('ws-cat').value;
-  var changedFilter = document.getElementById('ws-changed').value;
-  var tbody = document.getElementById('ws-tbody');
+  var search         = document.getElementById('ws-search').value.toLowerCase();
+  var catFilter      = document.getElementById('ws-cat').value;
+  var changedFilter  = document.getElementById('ws-changed').value;
+  var noImageOnly    = document.getElementById('ws-filter-no-image').checked;
+  var outOfStockOnly = document.getElementById('ws-filter-outofstock').checked;
+  var tbody          = document.getElementById('ws-tbody');
 
   var filtered = previewItems.filter(function(item) {
-    if (search && !((item.product_name || '').toLowerCase().includes(search) || (item.sku || '').toLowerCase().includes(search))) return false;
+    if (search && !((item.product_name || '').toLowerCase().includes(search) ||
+                    (item.sku || '').toLowerCase().includes(search))) return false;
     if (catFilter && !((item.categories || []).some(function(c) { return String(c.id) === catFilter; }))) return false;
-    if (changedFilter === '1' && !item.changed) return false;
-    if (changedFilter === '0' && item.changed) return false;
+    if (changedFilter && _itemChangeStatus(item) !== changedFilter) return false;
+    if (noImageOnly && !item.missing_image) return false;
+    if (outOfStockOnly) {
+      var np = parseFloat(item.new_price || '1');
+      if (np > 0) return false;
+    }
     return true;
   });
 
+  var _csBadge = {
+    changed:              ['cs-changed',   'Changed'],
+    new:                  ['cs-new',       'New'],
+    unchanged:            ['cs-unchanged', 'Unchanged'],
+    invalid:              ['cs-invalid',   'Invalid'],
+    missing_from_wc_cache:['cs-missing',   'Missing WC'],
+  };
+
   tbody.innerHTML = filtered.map(function(item) {
+    var cs = _itemChangeStatus(item);
+    var bdg = _csBadge[cs] || ['cs-unchanged', cs];
+    var statusBadge = '<span class="cs-badge ' + bdg[0] + '">' + bdg[1] + '</span>';
     var chg = priceChange(item.old_price, item.new_price);
     var colorDotStyle = item.row_color
       ? 'background:' + item.row_color + ';border:1.5px solid rgba(0,0,0,.12)'
@@ -1881,6 +1975,7 @@ function renderPreview() {
     return '<tr>' +
       '<td class="wt-cb"><input type="checkbox" data-pid="' + item.product_id + '" ' + (selectedIds.has(item.product_id) ? 'checked' : '') + ' onchange="toggleItem(' + item.product_id + ', this.checked)"></td>' +
       '<td class="wt-clr"><span class="color-dot" style="' + colorDotStyle + '" title="' + esc(item.row_color || 'No color') + '"></span></td>' +
+      '<td class="wt-status">' + statusBadge + '</td>' +
       '<td class="wt-img">' + thumbCell(item.product_id) + '</td>' +
       '<td class="wt-id" lang="en">' + item.product_id + '</td>' +
       '<td class="wt-name" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || '—') + '</td>' +
@@ -1897,14 +1992,29 @@ function renderPreview() {
 
   observeThumbImages();
   updateStats(filtered.length);
-  document.getElementById('apply-btn').disabled = selectedIds.size === 0;
+  // Apply button enabled only when dry run has passed and items are selected
+  var drOk = dryRunResult && dryRunResult.dry_run_status !== 'blocked';
+  document.getElementById('apply-btn').disabled = selectedIds.size === 0 || !drOk;
   document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
 }
 
 function updateStats(visCount) {
-  var total = previewItems.length;
-  var changed = previewItems.filter(function(i) { return i.changed; }).length;
-  var html = '<span>Total: <b>' + total + '</b></span><span>Changed: <b>' + changed + '</b></span><span>Unchanged: <b>' + (total - changed) + '</b></span><span>Selected: <b>' + selectedIds.size + '</b></span>';
+  var total     = previewItems.length;
+  var changed   = previewItems.filter(function(i){ return i.change_status === 'changed'; }).length;
+  var newItems  = previewItems.filter(function(i){ return i.change_status === 'new'; }).length;
+  var unchanged = previewItems.filter(function(i){ return i.change_status === 'unchanged'; }).length;
+  var invalid   = previewItems.filter(function(i){ return i.change_status === 'invalid' || i.change_status === 'missing_from_wc_cache'; }).length;
+  // Fallback for legacy items without change_status
+  if (!changed && !newItems && !unchanged) {
+    changed   = previewItems.filter(function(i){ return i.changed; }).length;
+    unchanged = total - changed;
+  }
+  var html = '<span>Total: <b>' + total + '</b></span>' +
+             '<span>Changed: <b>' + changed + '</b></span>' +
+             (newItems   ? '<span>New: <b>' + newItems + '</b></span>' : '') +
+             '<span>Unchanged: <b>' + unchanged + '</b></span>' +
+             (invalid    ? '<span style="color:#dc2626">Issues: <b>' + invalid + '</b></span>' : '') +
+             '<span>Selected: <b>' + selectedIds.size + '</b></span>';
   if (visCount !== undefined && visCount !== total) html += '<span>Showing: <b>' + visCount + '</b></span>';
   document.getElementById('ws-stats').innerHTML = html;
 }
@@ -2041,7 +2151,16 @@ function getThreshold(categories) {
 }
 
 function requestApply() {
-  var toApply = previewItems.filter(function(i) { return selectedIds.has(i.product_id) && i.changed; });
+  // Phase B dry-run gate
+  if (!dryRunResult) {
+    addLog('Run a dry run before applying.', 'warn');
+    return;
+  }
+  if (dryRunResult.dry_run_status === 'blocked') {
+    addLog('Apply blocked — fix critical errors shown in dry run panel.', 'err');
+    return;
+  }
+  var toApply = previewItems.filter(function(i) { return selectedIds.has(i.product_id) && _itemShouldApply(i); });
   var flagged = toApply.filter(function(i) {
     if (!i.old_price || !i.new_price) return false;
     var pct = Math.abs((parseFloat(i.new_price) - parseFloat(i.old_price)) / parseFloat(i.old_price) * 100);
@@ -2054,13 +2173,126 @@ function requestApply() {
     }).join('');
     document.getElementById('alarm-modal').classList.remove('wp-hidden');
   } else {
-    runApplyStream();
+    showDryRunConfirm();
   }
 }
 
-function closeAlarm() { document.getElementById('alarm-modal').classList.add('wp-hidden'); }
+function closeAlarm() {
+  document.getElementById('alarm-modal').classList.add('wp-hidden');
+}
+
+// ── Phase B: Dry Run JS ───────────────────────────────────────────────────────
+
+async function runDryRun() {
+  if (!currentJobId) return;
+  var btn = document.getElementById('dry-run-btn');
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  addLog('Running dry run…', 'info');
+  try {
+    var result = await api('POST', '/api/sync/' + currentJobId + '/dry-run');
+    dryRunResult = result;
+    renderDryRunPanel(result);
+    var level = result.dry_run_status === 'blocked' ? 'err' : result.dry_run_status === 'warnings' ? 'warn' : 'ok';
+    addLog('Dry run: ' + result.dry_run_status + ' — ' + result.products_to_update + ' products to update', level);
+    // Update apply button
+    var applyBtn = document.getElementById('apply-btn');
+    if (result.dry_run_status === 'blocked') {
+      applyBtn.disabled = true;
+      applyBtn.title = 'Apply blocked by critical errors — fix and re-run preview + dry run';
+    } else {
+      applyBtn.disabled = selectedIds.size === 0;
+      applyBtn.title = '';
+    }
+  } catch(e) {
+    addLog('Dry run failed: ' + e.message, 'err');
+    dryRunResult = null;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Re-run Dry Run';
+  }
+}
+
+function renderDryRunPanel(result) {
+  var panel = document.getElementById('dry-run-panel');
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Status badge
+  var badge = document.getElementById('dr-status-badge');
+  var bMap = {
+    passed:   ['background:#dcfce7;color:#16a34a', 'Passed ✓'],
+    warnings: ['background:#fef3c7;color:#92400e', 'Warnings ⚠'],
+    blocked:  ['background:#fee2e2;color:#dc2626',  'Blocked ✗'],
+  };
+  var bStyle = bMap[result.dry_run_status] || ['background:#f1f5f9;color:#64748b', result.dry_run_status];
+  badge.setAttribute('style', 'display:inline-flex;align-items:center;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;' + bStyle[0]);
+  badge.textContent = bStyle[1];
+
+  // Stat pills
+  var statsRow = document.getElementById('dr-stats-row');
+  statsRow.innerHTML = [
+    ['To Update',      result.products_to_update,  '#4880FF'],
+    ['Price ↑',        result.price_increases,     '#16a34a'],
+    ['Price ↓',        result.price_decreases,     '#dc2626'],
+    ['→ In Stock',     result.stock_to_instock,    '#16a34a'],
+    ['→ Out of Stock', result.stock_to_outofstock, '#d97706'],
+  ].map(function(x) {
+    return '<div style="background:var(--bg-base,#F5F6FA);border:1.5px solid var(--border,#E8EAED);border-radius:8px;padding:10px 16px;text-align:center;min-width:90px">' +
+      '<div style="font-size:20px;font-weight:700;color:' + x[2] + '">' + x[1] + '</div>' +
+      '<div style="font-size:11px;color:var(--wp-muted)">' + x[0] + '</div></div>';
+  }).join('');
+
+  // Critical errors
+  var critSec  = document.getElementById('dr-critical-section');
+  var critList = document.getElementById('dr-critical-list');
+  if (result.critical_errors && result.critical_errors.length) {
+    critSec.style.display = 'block';
+    critList.innerHTML = result.critical_errors.map(function(e) {
+      return '<div style="background:#fee2e2;border-radius:6px;padding:6px 12px;font-size:12.5px;color:#dc2626">' +
+        '<b>#' + e.product_id + '</b> ' + esc(e.name) + ' — ' + esc((e.type||'').replace(/_/g,' ')) + '</div>';
+    }).join('');
+  } else {
+    critSec.style.display = 'none';
+  }
+
+  // Warnings
+  var warnSec  = document.getElementById('dr-warnings-section');
+  var warnList = document.getElementById('dr-warnings-list');
+  if (result.warnings && result.warnings.length) {
+    warnSec.style.display = 'block';
+    var shown = result.warnings.slice(0, 20);
+    warnList.innerHTML = shown.map(function(w) {
+      return '<div style="background:#fef3c7;border-radius:6px;padding:6px 12px;font-size:12.5px;color:#92400e">' +
+        '<b>#' + w.product_id + '</b> ' + esc(w.name) + ' — ' + esc((w.type||'').replace(/_/g,' ')) +
+        (w.change_pct ? ' (' + w.change_pct + '%)' : '') + '</div>';
+    }).join('') + (result.warnings.length > 20
+      ? '<div style="font-size:11px;color:var(--wp-muted);padding:4px 12px">… and ' + (result.warnings.length - 20) + ' more</div>'
+      : '');
+  } else {
+    warnSec.style.display = 'none';
+  }
+}
+
+function showDryRunConfirm() {
+  var count = dryRunResult ? dryRunResult.products_to_update : 0;
+  document.getElementById('dr-confirm-count').textContent = count;
+  var warnSummary = document.getElementById('dr-confirm-warnings-summary');
+  if (dryRunResult && dryRunResult.warnings && dryRunResult.warnings.length) {
+    warnSummary.style.display = 'block';
+    warnSummary.textContent = dryRunResult.warnings.length + ' warning(s) detected. Review the dry run panel before proceeding.';
+  } else {
+    warnSummary.style.display = 'none';
+  }
+  document.getElementById('dry-run-confirm-modal').classList.remove('wp-hidden');
+}
+
+function closeDryRunConfirm() {
+  document.getElementById('dry-run-confirm-modal').classList.add('wp-hidden');
+}
 
 function runApplyStream() {
+  closeDryRunConfirm();
   closeAlarm();
   if (!currentJobId) return;
 
@@ -2188,13 +2420,20 @@ function runApplyStream() {
       evSource.close();
       document.getElementById('apply-progress-section').style.display = 'none';
       document.getElementById('apply-result-section').style.display = 'block';
+      var _eMsg = d.msg || 'Unexpected error';
+      var _isDrErr = _eMsg.indexOf('dry_run_required') === 0 || _eMsg.indexOf('apply_blocked_by_dry_run') === 0;
+      var _eBody = _eMsg.replace(/^[^:]+:\s*/, '');
       document.getElementById('apply-result-banner').innerHTML =
-        '<div class="wp-result-banner error">' +
-          '<div class="wp-result-banner-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
-          '<div class="wp-result-banner-body"><h4>Apply failed</h4><p>' + esc(d.msg || 'Unexpected error') + '</p></div>' +
+        '<div class="wp-result-banner ' + (_isDrErr ? 'warning' : 'error') + '">' +
+          '<div class="wp-result-banner-icon"><svg viewBox="0 0 24 24">' +
+          (_isDrErr
+            ? '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'
+            : '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>') +
+          '</svg></div>' +
+          '<div class="wp-result-banner-body"><h4>' + (_isDrErr ? 'Dry Run Required' : 'Apply failed') + '</h4><p>' + esc(_eBody) + '</p></div>' +
         '</div>';
       document.getElementById('apply-btn').disabled = false;
-      addLog('Apply error: ' + (d.msg || 'unknown'), 'err');
+      addLog('Apply error: ' + _eMsg, 'err');
     }
   };
 

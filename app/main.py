@@ -107,6 +107,14 @@ def _run_column_migrations():
                 ("row_color", "TEXT"),
                 ("last_price_updated", "TIMESTAMP"),
                 ("wc_date_modified", "TIMESTAMP"),
+                # Phase B — granular change flags
+                ("change_status",    "TEXT"),
+                ("price_changed",    "INTEGER DEFAULT 0"),
+                ("stock_changed",    "INTEGER DEFAULT 0"),
+                ("name_changed",     "INTEGER DEFAULT 0"),
+                ("category_changed", "INTEGER DEFAULT 0"),
+                ("missing_cost",     "INTEGER DEFAULT 0"),
+                ("missing_image",    "INTEGER DEFAULT 0"),
             ]:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_items ADD COLUMN {col_name} {col_type}"))
@@ -118,8 +126,23 @@ def _run_column_migrations():
 
         if "sync_jobs" in existing_tables:
             existing_cols = {c["name"] for c in inspector.get_columns("sync_jobs")}
-            if "sheet_hash" not in existing_cols:
-                conn.execute(text("ALTER TABLE sync_jobs ADD COLUMN sheet_hash TEXT"))
+            for col_name, col_type in [
+                ("sheet_hash",           "TEXT"),
+                # Phase B — change detection summary counts
+                ("changed_count",        "INTEGER DEFAULT 0"),
+                ("unchanged_count",      "INTEGER DEFAULT 0"),
+                ("new_count",            "INTEGER DEFAULT 0"),
+                ("invalid_count",        "INTEGER DEFAULT 0"),
+                ("price_changed_count",  "INTEGER DEFAULT 0"),
+                ("stock_changed_count",  "INTEGER DEFAULT 0"),
+                ("missing_image_count",  "INTEGER DEFAULT 0"),
+                # Phase B — dry run
+                ("dry_run_summary",      "TEXT"),
+                ("dry_run_status",       "TEXT"),
+                ("dry_run_completed_at", "TIMESTAMP"),
+            ]:
+                if col_name not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE sync_jobs ADD COLUMN {col_name} {col_type}"))
 
         if "products_cache" in existing_tables:
             existing_cols = {c["name"] for c in inspector.get_columns("products_cache")}
@@ -616,9 +639,178 @@ def _parse_wc_dt(s: str | None) -> datetime | None:
         return None
 
 
+# ── Phase B: Change classification helpers ────────────────────────────────────
+
+def _is_valid_price(price: str | None) -> bool:
+    """True for any numeric string (including '0'). False for None/empty/non-numeric."""
+    if price is None or str(price).strip() == "":
+        return False
+    try:
+        float(price)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _classify_row(
+    pid: int,
+    new_price: str,
+    wc: dict,
+    last_price_updated,
+    cache_row,
+) -> dict:
+    """Classify one preview row. Returns change_status + boolean flags.
+
+    change_status values:
+      'invalid'              — price non-numeric or product_id missing
+      'missing_from_wc_cache'— product not found in WooCommerce
+      'new'                  — found in WC, has changes, never synced by WooPrice
+      'changed'              — found in WC, has changes, previously synced
+      'unchanged'            — found in WC, price and stock match exactly
+    """
+    if not _is_valid_price(new_price):
+        return {
+            "change_status": "invalid",
+            "price_changed": 0, "stock_changed": 0,
+            "name_changed": 0, "category_changed": 0,
+            "missing_cost": 0, "missing_image": 0,
+        }
+
+    if not wc:
+        return {
+            "change_status": "missing_from_wc_cache",
+            "price_changed": 0, "stock_changed": 0,
+            "name_changed": 0, "category_changed": 0,
+            "missing_cost": 0,
+            "missing_image": 1 if (not cache_row or not getattr(cache_row, "image_url", None)) else 0,
+        }
+
+    old_price = wc.get("price") or None
+    wc_stock  = wc.get("stock_status") or "instock"
+    new_stock = _stock_from_price(new_price)
+
+    price_chg     = 1 if _price_differs(old_price, new_price) else 0
+    stock_chg     = 1 if new_stock != wc_stock else 0
+    missing_cost  = 1 if (not old_price or str(old_price).strip() == "") else 0
+    missing_image = 1 if (not cache_row or not getattr(cache_row, "image_url", None)) else 0
+
+    if price_chg or stock_chg:
+        cs = "new" if last_price_updated is None else "changed"
+    else:
+        cs = "unchanged"
+
+    return {
+        "change_status": cs,
+        "price_changed": price_chg,
+        "stock_changed": stock_chg,
+        "name_changed": 0,
+        "category_changed": 0,
+        "missing_cost": missing_cost,
+        "missing_image": missing_image,
+    }
+
+
+def _should_apply(item: "SyncItem") -> bool:  # type: ignore[name-defined]
+    """True if item should be sent to WooCommerce. Uses stored change_status when available."""
+    cs = getattr(item, "change_status", None)
+    if cs:
+        return cs in ("changed", "new")
+    return _price_differs(item.old_price, item.new_price)
+
+
+def _compute_dry_run_summary(items: list, alarm_threshold: float) -> dict:
+    """Pure computation — no WooCommerce calls. Returns dry-run summary dict."""
+    to_apply = [i for i in items if getattr(i, "change_status", None) in ("changed", "new")]
+
+    critical_errors: list[dict] = []
+    warnings_list: list[dict] = []
+    price_increases = price_decreases = 0
+    stock_to_instock = stock_to_outofstock = 0
+    price_chg_count = stock_chg_count = 0
+
+    for item in to_apply:
+        pid = item.product_id
+        name = item.product_name or ""
+
+        # Critical: product_id invalid
+        if not pid or pid <= 0:
+            critical_errors.append({"type": "invalid_product_id", "product_id": pid, "name": name})
+
+        # Critical: new_price invalid
+        if not _is_valid_price(item.new_price):
+            critical_errors.append({"type": "invalid_price", "product_id": pid, "name": name, "value": item.new_price})
+            continue  # skip further checks for this row
+
+        # Critical: not found in WooCommerce
+        cs = getattr(item, "change_status", None)
+        if cs == "missing_from_wc_cache":
+            critical_errors.append({"type": "missing_woocommerce_product", "product_id": pid, "name": name})
+
+        # Pricing direction
+        try:
+            new_f = float(item.new_price)
+            old_f = float(item.old_price or 0)
+            if new_f > old_f:
+                price_increases += 1
+            elif new_f < old_f:
+                price_decreases += 1
+        except (ValueError, TypeError):
+            pass
+
+        # Stock transitions
+        new_stock = _stock_from_price(item.new_price)
+        old_stock = item.stock_status or "instock"
+        if new_stock == "instock" and old_stock == "outofstock":
+            stock_to_instock += 1
+        elif new_stock == "outofstock" and old_stock == "instock":
+            stock_to_outofstock += 1
+
+        if getattr(item, "price_changed", 0):
+            price_chg_count += 1
+        if getattr(item, "stock_changed", 0):
+            stock_chg_count += 1
+
+        # Warnings
+        if getattr(item, "missing_image", 0):
+            warnings_list.append({"type": "missing_image", "product_id": pid, "name": name})
+        if getattr(item, "missing_cost", 0):
+            warnings_list.append({"type": "missing_cost", "product_id": pid, "name": name})
+        if _is_zero_price(item.new_price):
+            warnings_list.append({"type": "zero_price", "product_id": pid, "name": name})
+        if alarm_threshold < float("inf") and item.old_price and item.new_price:
+            try:
+                old_f2 = float(item.old_price)
+                if old_f2 > 0:
+                    pct = abs(float(item.new_price) - old_f2) / old_f2 * 100
+                    if pct > alarm_threshold:
+                        warnings_list.append({
+                            "type": "large_price_change",
+                            "product_id": pid, "name": name,
+                            "change_pct": round(pct, 1), "threshold": alarm_threshold,
+                        })
+            except (ValueError, TypeError, ZeroDivisionError):
+                pass
+
+    dr_status = "blocked" if critical_errors else ("warnings" if warnings_list else "passed")
+
+    return {
+        "products_to_update":   len(to_apply),
+        "price_increases":      price_increases,
+        "price_decreases":      price_decreases,
+        "stock_to_instock":     stock_to_instock,
+        "stock_to_outofstock":  stock_to_outofstock,
+        "price_changed_count":  price_chg_count,
+        "stock_changed_count":  stock_chg_count,
+        "critical_errors":      critical_errors,
+        "warnings":             warnings_list,
+        "dry_run_status":       dr_status,
+    }
+
+
 # ── Serialisers ───────────────────────────────────────────────────────────────
 
 def _job_out(job: SyncJob) -> dict:
+    dr_raw = getattr(job, "dry_run_summary", None)
     return {
         "id": job.id,
         "created_at": job.created_at,
@@ -628,6 +820,18 @@ def _job_out(job: SyncJob) -> dict:
         "updated_count": job.updated_count,
         "failed_count": job.failed_count,
         "skipped_count": job.skipped_count,
+        # Phase B — change detection counts
+        "changed_count":       getattr(job, "changed_count", 0) or 0,
+        "unchanged_count":     getattr(job, "unchanged_count", 0) or 0,
+        "new_count":           getattr(job, "new_count", 0) or 0,
+        "invalid_count":       getattr(job, "invalid_count", 0) or 0,
+        "price_changed_count": getattr(job, "price_changed_count", 0) or 0,
+        "stock_changed_count": getattr(job, "stock_changed_count", 0) or 0,
+        "missing_image_count": getattr(job, "missing_image_count", 0) or 0,
+        # Phase B — dry run
+        "dry_run_status":       getattr(job, "dry_run_status", None),
+        "dry_run_completed_at": getattr(job, "dry_run_completed_at", None),
+        "dry_run_summary":      json.loads(dr_raw) if dr_raw else None,
     }
 
 
@@ -636,6 +840,7 @@ def _item_out(item: SyncItem) -> dict:
         cats = json.loads(item.categories) if item.categories else []
     except Exception:
         cats = []
+    cs = getattr(item, "change_status", None)
     return {
         "product_id": item.product_id,
         "product_name": item.product_name,
@@ -652,7 +857,14 @@ def _item_out(item: SyncItem) -> dict:
         "synced_at": item.synced_at,
         "last_price_updated": item.last_price_updated,
         "wc_date_modified": item.wc_date_modified,
-        "changed": _price_differs(item.old_price, item.new_price),
+        # Phase B — granular change fields
+        "change_status":    cs,
+        "price_changed":    bool(getattr(item, "price_changed", 0)),
+        "stock_changed":    bool(getattr(item, "stock_changed", 0)),
+        "missing_cost":     bool(getattr(item, "missing_cost", 0)),
+        "missing_image":    bool(getattr(item, "missing_image", 0)),
+        # backward compat: "changed" is True for anything that will be applied
+        "changed": (cs in ("changed", "new")) if cs else _price_differs(item.old_price, item.new_price),
     }
 
 
@@ -663,12 +875,13 @@ def _build_preview_row(
     row_color: str | None = None,
     last_price_updated=None,
     sheet_name: str = "",
+    classification: dict | None = None,
 ) -> dict:
     old_price = wc.get("price") or None
     lpu = last_price_updated
     if isinstance(lpu, datetime):
         lpu = lpu.isoformat()
-    return {
+    result = {
         "product_id": pid,
         "product_name": sheet_name or wc.get("name", ""),
         "sku": wc.get("sku", ""),
@@ -685,6 +898,12 @@ def _build_preview_row(
         "changed": _price_differs(old_price, new_price),
         "found_in_wc": bool(wc),
     }
+    if classification:
+        result.update(classification)
+        cs = classification.get("change_status")
+        result["changed"] = cs in ("changed", "new")
+        result["found_in_wc"] = cs not in ("missing_from_wc_cache", "invalid")
+    return result
 
 
 async def _sync_parent_stock(updates: list[dict], result_map: dict, db=None) -> None:
@@ -1873,17 +2092,21 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
         wc_data.update(get_cached_by_ids(db, list(fresh.keys())))
 
     last_synced = _get_last_synced(db, product_ids)
+    cache_by_id = {r.wc_id: r for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(product_ids)).all()}
 
     job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items), sheet_hash=_sheet_hash)
     db.add(job)
     db.flush()
 
     preview_rows = []
+    clfs = []
     for row in sheet_items:
         pid = row["product_id"]
-        wc = wc_data.get(pid, {})
+        wc = wc_data.get(pid) or {}
         old_price = wc.get("price") or None
         sname = row.get("sheet_name") or wc.get("name") or None
+        clf = _classify_row(pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid))
+        clfs.append(clf)
         db.add(SyncItem(
             job_id=job.id, product_id=pid,
             parent_id=wc.get("parent_id") or 0,
@@ -1897,19 +2120,42 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
             row_color=row.get("row_color"),
             last_price_updated=last_synced.get(pid),
             wc_date_modified=_parse_wc_dt(wc.get("wc_date_modified")),
+            change_status=clf["change_status"],
+            price_changed=clf["price_changed"],
+            stock_changed=clf["stock_changed"],
+            name_changed=clf["name_changed"],
+            category_changed=clf["category_changed"],
+            missing_cost=clf["missing_cost"],
+            missing_image=clf["missing_image"],
         ))
         preview_rows.append(_build_preview_row(
             pid, wc, row["new_price"],
             row_color=row.get("row_color"),
             last_price_updated=last_synced.get(pid),
             sheet_name=row.get("sheet_name", ""),
+            classification=clf,
         ))
 
+    # Accumulate summary counts on job
+    job.changed_count       = sum(1 for c in clfs if c["change_status"] == "changed")
+    job.new_count           = sum(1 for c in clfs if c["change_status"] == "new")
+    job.unchanged_count     = sum(1 for c in clfs if c["change_status"] == "unchanged")
+    job.invalid_count       = sum(1 for c in clfs if c["change_status"] == "invalid")
+    job.price_changed_count = sum(1 for c in clfs if c["price_changed"])
+    job.stock_changed_count = sum(1 for c in clfs if c["stock_changed"])
+    job.missing_image_count = sum(1 for c in clfs if c["missing_image"])
+
     db.commit()
-    changed = sum(1 for r in preview_rows if r["changed"])
+    _changed = job.changed_count + job.new_count
     return {
         "job_id": job.id, "total": len(preview_rows),
-        "changed_count": changed, "unchanged_count": len(preview_rows) - changed,
+        "changed_count":   _changed,
+        "unchanged_count": job.unchanged_count,
+        "new_count":       job.new_count,
+        "invalid_count":   job.invalid_count,
+        "price_changed_count": job.price_changed_count,
+        "stock_changed_count": job.stock_changed_count,
+        "missing_image_count": job.missing_image_count,
         "items": preview_rows,
         "duplicate_warnings": dup_warnings,
     }
@@ -1929,8 +2175,8 @@ async def confirm_sync(job_id: int, user: dict = Depends(require_permission("can
     db.commit()
 
     items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
-    to_update = [i for i in items if _price_differs(i.old_price, i.new_price)]
-    to_skip   = [i for i in items if not _price_differs(i.old_price, i.new_price)]
+    to_update = [i for i in items if _should_apply(i)]
+    to_skip   = [i for i in items if not _should_apply(i)]
 
     for item in to_skip:
         item.status = ItemStatus.skipped
@@ -1999,6 +2245,59 @@ async def cancel_sync(job_id: int, user: dict = Depends(require_permission("can_
     job.status = JobStatus.cancelled
     db.commit()
     return {"job_id": job_id, "status": "cancelled"}
+
+
+# ── 3b. Dry run ───────────────────────────────────────────────────────────────
+
+@app.post("/api/sync/{job_id}/dry-run")
+async def dry_run_sync(
+    job_id: int,
+    request: Request,
+    user: dict = Depends(require_permission("can_apply")),
+    db: Session = Depends(get_db),
+):
+    ip = _client_ip(request)
+    username = user["sub"]
+
+    job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != JobStatus.preview:
+        raise HTTPException(400, f"Job is '{job.status}', expected 'preview'")
+
+    _audit(username, "dry_run_started", ip, job_id)
+
+    try:
+        items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
+
+        global_thr = (
+            db.query(AlarmThreshold)
+            .filter(AlarmThreshold.category_id.is_(None))
+            .first()
+        )
+        alarm_threshold = global_thr.threshold_percent if global_thr else float("inf")
+
+        summary = _compute_dry_run_summary(items, alarm_threshold)
+        dr_status = summary["dry_run_status"]
+
+        job.dry_run_summary      = json.dumps(summary, ensure_ascii=False)
+        job.dry_run_status       = dr_status
+        job.dry_run_completed_at = datetime.utcnow()
+        db.commit()
+
+        _audit(username, "dry_run_completed", ip, job_id, {
+            "status": dr_status,
+            "products_to_update": summary["products_to_update"],
+            "critical_errors": len(summary["critical_errors"]),
+            "warnings": len(summary["warnings"]),
+        })
+
+        return {"job_id": job_id, **summary}
+
+    except Exception as exc:
+        logger.error("dry_run_sync: job=%d error=%s", job_id, exc)
+        _audit(username, "dry_run_failed", ip, job_id, {"error": str(exc)})
+        raise HTTPException(500, f"Dry run computation failed: {exc}")
 
 
 # ── 4. List jobs ──────────────────────────────────────────────────────────────
@@ -2218,10 +2517,12 @@ async def preview_stream(
 
             yield ev({"step": "wc", "status": "done", "msg": f"Loaded {len(wc_data)} products ({len(product_ids) - len(missing_ids)} from cache, {len(missing_ids)} from WooCommerce)"})
 
-            # Cache-meta for debug logging
+            # Cache-meta for debug logging + image check
             _cmeta: dict[int, tuple] = {}
+            cache_by_id: dict[int, "ProductCache"] = {}  # type: ignore[name-defined]
             for _cr in db.query(ProductCache).filter(ProductCache.wc_id.in_(product_ids)).all():
                 _cmeta[_cr.wc_id] = (_cr.cache_version, _cr.last_synced_at)
+                cache_by_id[_cr.wc_id] = _cr
 
             yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
 
@@ -2233,22 +2534,25 @@ async def preview_stream(
             db.flush()
 
             preview_rows = []
+            clfs = []
             for row in sheet_items:
                 pid = row["product_id"]
-                wc = wc_data.get(pid, {})
+                wc = wc_data.get(pid) or {}
                 old_price = wc.get("price") or None
                 sname = row.get("sheet_name") or wc.get("name") or None
                 _cver, _csync = _cmeta.get(pid, (None, None))
                 _src = "live_wc" if pid in freshly_fetched_ids else "cache"
+                clf = _classify_row(pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid))
+                clfs.append(clf)
                 logger.debug(
-                    "preview pid=%d sheet=%s wc_source=%s wc_price=%s cv=%s synced=%s",
+                    "preview pid=%d sheet=%s wc_source=%s wc_price=%s cv=%s synced=%s change_status=%s",
                     pid, row["new_price"], _src, old_price or "",
-                    _cver, _csync.isoformat() if _csync else None,
+                    _cver, _csync.isoformat() if _csync else None, clf["change_status"],
                 )
-                if _price_differs(old_price, row["new_price"]):
+                if clf["change_status"] in ("changed", "new"):
                     logger.info(
-                        "preview[changed] pid=%d sheet=%s wc=%s wc_source=%s cv=%s synced=%s",
-                        pid, row["new_price"], old_price or "", _src, _cver,
+                        "preview[%s] pid=%d sheet=%s wc=%s wc_source=%s cv=%s synced=%s",
+                        clf["change_status"], pid, row["new_price"], old_price or "", _src, _cver,
                         _csync.isoformat() if _csync else None,
                     )
                 db.add(SyncItem(
@@ -2264,25 +2568,49 @@ async def preview_stream(
                     row_color=row.get("row_color"),
                     last_price_updated=last_synced.get(pid),
                     wc_date_modified=_parse_wc_dt(wc.get("wc_date_modified")),
+                    change_status=clf["change_status"],
+                    price_changed=clf["price_changed"],
+                    stock_changed=clf["stock_changed"],
+                    name_changed=clf["name_changed"],
+                    category_changed=clf["category_changed"],
+                    missing_cost=clf["missing_cost"],
+                    missing_image=clf["missing_image"],
                 ))
                 preview_rows.append(_build_preview_row(
                     pid, wc, row["new_price"],
                     row_color=row.get("row_color"),
                     last_price_updated=last_synced.get(pid),
                     sheet_name=row.get("sheet_name", ""),
+                    classification=clf,
                 ))
+
+            # Accumulate summary counts on job
+            job.changed_count       = sum(1 for c in clfs if c["change_status"] == "changed")
+            job.new_count           = sum(1 for c in clfs if c["change_status"] == "new")
+            job.unchanged_count     = sum(1 for c in clfs if c["change_status"] == "unchanged")
+            job.invalid_count       = sum(1 for c in clfs if c["change_status"] == "invalid")
+            job.price_changed_count = sum(1 for c in clfs if c["price_changed"])
+            job.stock_changed_count = sum(1 for c in clfs if c["stock_changed"])
+            job.missing_image_count = sum(1 for c in clfs if c["missing_image"])
             db.commit()
 
             _audit(user_data["sub"], "fetch", ip, job.id)
 
-            changed = sum(1 for r in preview_rows if r["changed"])
-            yield ev({"step": "calc", "status": "done", "msg": f"{changed} prices will change, {len(preview_rows) - changed} unchanged"})
+            _changed = job.changed_count + job.new_count
+            yield ev({"step": "calc", "status": "done",
+                      "msg": f"{_changed} will change ({job.changed_count} changed, {job.new_count} new), {job.unchanged_count} unchanged"})
             _wc_lookups = len(missing_ids) if missing_ids else 0
             _cache_hits = len(product_ids) - _wc_lookups
             yield ev({
                 "step": "preview", "status": "done",
                 "job_id": job.id, "total": len(preview_rows),
-                "changed_count": changed, "unchanged_count": len(preview_rows) - changed,
+                "changed_count":       _changed,
+                "unchanged_count":     job.unchanged_count,
+                "new_count":           job.new_count,
+                "invalid_count":       job.invalid_count,
+                "price_changed_count": job.price_changed_count,
+                "stock_changed_count": job.stock_changed_count,
+                "missing_image_count": job.missing_image_count,
                 "items": preview_rows,
                 "duplicate_warnings": dup_warnings,
                 "filter_stats": {
@@ -2353,6 +2681,17 @@ async def apply_stream(
                 except Exception as _hce:
                     logger.warning("apply_stream: hash check failed (proceeding): %s", _hce)
 
+            # Dry-run guard (Phase B)
+            dr_status = getattr(job, "dry_run_status", None)
+            if dr_status is None:
+                yield ev({"type": "error", "msg": "dry_run_required: Run a dry run before applying."}); return
+            if dr_status == "blocked":
+                _audit(user_data["sub"], "apply_blocked_by_dry_run", ip, job_id,
+                       {"dry_run_status": dr_status})
+                yield ev({"type": "error", "msg": "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run preview + dry run."}); return
+            _audit(user_data["sub"], "apply_confirmed_after_dry_run", ip, job_id,
+                   {"dry_run_status": dr_status})
+
             job.status = JobStatus.running
             db.commit()
 
@@ -2360,11 +2699,11 @@ async def apply_stream(
 
             selected_set = set(sid) if sid else None
             if selected_set:
-                to_update = [i for i in items if _price_differs(i.old_price, i.new_price) and i.product_id in selected_set]
-                to_skip   = [i for i in items if not _price_differs(i.old_price, i.new_price) or i.product_id not in selected_set]
+                to_update = [i for i in items if _should_apply(i) and i.product_id in selected_set]
+                to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_set]
             else:
-                to_update = [i for i in items if _price_differs(i.old_price, i.new_price)]
-                to_skip   = [i for i in items if not _price_differs(i.old_price, i.new_price)]
+                to_update = [i for i in items if _should_apply(i)]
+                to_skip   = [i for i in items if not _should_apply(i)]
 
             yield ev({"type": "start", "total": len(to_update), "skipped": len(to_skip)})
 

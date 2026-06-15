@@ -33,7 +33,19 @@ class SyncJob(Base):
     updated_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
     skipped_count = Column(Integer, default=0)
-    sheet_hash = Column(String, nullable=True)  # MD5 of xlsx bytes at preview creation
+    sheet_hash = Column(String, nullable=True)
+    # Phase B — change detection summary counts
+    changed_count = Column(Integer, nullable=True)
+    unchanged_count = Column(Integer, nullable=True)
+    new_count = Column(Integer, nullable=True)
+    invalid_count = Column(Integer, nullable=True)
+    price_changed_count = Column(Integer, nullable=True)
+    stock_changed_count = Column(Integer, nullable=True)
+    missing_image_count = Column(Integer, nullable=True)
+    # Phase B — dry run
+    dry_run_summary = Column(Text, nullable=True)       # JSON blob
+    dry_run_status = Column(String, nullable=True)      # passed | warnings | blocked
+    dry_run_completed_at = Column(DateTime, nullable=True)
 
     items = relationship("SyncItem", back_populates="job", cascade="all, delete-orphan")
 
@@ -53,8 +65,16 @@ class SyncItem(Base):
     stock_status = Column(String, nullable=True)
     stock_quantity = Column(Integer, nullable=True)
     categories = Column(String, nullable=True)  # JSON: [{"id":1,"name":"..."}]
-    row_color = Column(String, nullable=True)   # hex color from Excel row, e.g. #4472C4
+    row_color = Column(String, nullable=True)
     status = Column(SAEnum(ItemStatus), default=ItemStatus.pending)
+    # Phase B — granular change flags
+    change_status = Column(String, nullable=True)       # changed | unchanged | new | missing_from_wc_cache | invalid
+    price_changed = Column(Integer, nullable=True)      # 0/1
+    stock_changed = Column(Integer, nullable=True)      # 0/1
+    name_changed = Column(Integer, nullable=True)       # 0/1 (always 0; sheet has no name column)
+    category_changed = Column(Integer, nullable=True)   # 0/1 (always 0; sheet has no category column)
+    missing_cost = Column(Integer, nullable=True)       # 0/1
+    missing_image = Column(Integer, nullable=True)      # 0/1
     error_message = Column(String, nullable=True)
     synced_at = Column(DateTime, nullable=True)
     last_price_updated = Column(DateTime, nullable=True)
