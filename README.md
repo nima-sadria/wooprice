@@ -255,6 +255,61 @@ docker compose logs -f
 
 ---
 
+## Configuration
+
+Copy `.env.example` to `.env` and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+### Required variables
+
+| Variable | Description |
+|----------|-------------|
+| `NEXTCLOUD_URL` | Nextcloud server URL |
+| `NEXTCLOUD_USER` | Nextcloud username for WebDAV |
+| `NEXTCLOUD_PASSWORD` | Nextcloud password |
+| `NEXTCLOUD_FILE_PATH` | WebDAV path to the Excel price list |
+| `WC_URL` | WooCommerce store URL |
+| `WC_KEY` | WooCommerce consumer key |
+| `WC_SECRET` | WooCommerce consumer secret |
+| `JWT_SECRET` | Random secret ≥ 32 bytes — generate with `python -c "import secrets; print(secrets.token_hex(48))"` |
+
+### Access control variables (Phase 0)
+
+| Variable | Description |
+|----------|-------------|
+| `SUPER_ADMIN_USERS` | Comma-separated Nextcloud usernames that are always super-admin. Bypass the `app_users` DB table entirely. Can log in even if `app_users` is empty. |
+| `BOOTSTRAP_APP_ADMINS` | Comma-separated usernames seeded as admins in `app_users` on first startup. Idempotent — never overwrites existing rows. |
+| `BOOTSTRAP_APP_USERS` | Comma-separated usernames seeded as operators (non-admin) in `app_users` on first startup. |
+
+**Minimum production access control configuration:**
+
+```env
+SUPER_ADMIN_USERS=woo,admin
+BOOTSTRAP_APP_ADMINS=woo,admin
+BOOTSTRAP_APP_USERS=az1328,farshadkh,soheil
+```
+
+### How access control works
+
+```
+Login attempt
+    │
+    ├─ Is username in SUPER_ADMIN_USERS?
+    │      └─ YES → Nextcloud verify → issue admin token (pv=0)
+    │                 (app_users table is never consulted)
+    │
+    └─ NO → Nextcloud verify → look up app_users
+               ├─ Not found or is_active=false → HTTP 403 denied
+               └─ Found and active → issue token with permission_version
+                   └─ Every subsequent request checks pv == app_user.permission_version
+                       └─ Mismatch → HTTP 401 token revoked
+```
+
+---
+
 ## Project Structure
 
 ```text
