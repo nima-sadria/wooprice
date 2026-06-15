@@ -2032,10 +2032,17 @@ function _invalidateDryRun() {
   addLog('Dry run invalidated — re-run dry run before applying.', 'warn');
 }
 
+var _DRY_RUN_APPLYABLE = ['passed', 'warnings'];
+
+function _dryRunIsApplyable() {
+  return !!dryRunResult && _DRY_RUN_APPLYABLE.indexOf(dryRunResult.dry_run_status) !== -1;
+}
+
 function _dryRunScopeMatchesSelection() {
   if (!dryRunResult) return false;
   var scope = dryRunResult.dry_run_scope;
-  if (scope === null || scope === undefined) return true;  // job-wide dry run
+  // Scope is always an explicit array now; null only for legacy/invalidated states.
+  if (!scope || scope.length === 0) return selectedIds.size === 0;
   if (scope.length !== selectedIds.size) return false;
   for (var i = 0; i < scope.length; i++) { if (!selectedIds.has(scope[i])) return false; }
   return true;
@@ -2045,15 +2052,17 @@ function updateApplyButtonState() {
   var btn = document.getElementById('apply-btn');
   if (!btn) return;
   var hasSelection = selectedIds.size > 0;
-  var hasResult    = !!dryRunResult;
-  var notBlocked   = hasResult && dryRunResult.dry_run_status !== 'blocked';
-  var scopeOk      = hasResult && _dryRunScopeMatchesSelection();
-  var enabled = hasSelection && notBlocked && scopeOk;
+  var applyable    = _dryRunIsApplyable();
+  var scopeOk      = applyable && _dryRunScopeMatchesSelection();
+  var enabled = hasSelection && applyable && scopeOk;
   btn.disabled = !enabled;
-  if (!hasResult)    { btn.title = 'Run a dry run first'; }
-  else if (!notBlocked) { btn.title = 'Fix critical errors and re-run dry run'; }
-  else if (!scopeOk) { btn.title = 'Selection changed since last dry run — re-run dry run'; }
-  else               { btn.title = ''; }
+  var st = dryRunResult ? dryRunResult.dry_run_status : null;
+  if (!dryRunResult)                    { btn.title = 'Run a dry run first'; }
+  else if (st === 'blocked')            { btn.title = 'Fix critical errors and re-run dry run'; }
+  else if (st === 'invalidated')        { btn.title = 'Items edited after dry run — re-run dry run'; }
+  else if (!applyable)                  { btn.title = 'Dry run did not pass — re-run dry run'; }
+  else if (!scopeOk)                    { btn.title = 'Selection changed since last dry run — re-run dry run'; }
+  else                                  { btn.title = ''; }
 }
 
 function toggleItem(pid, checked) {
@@ -2191,13 +2200,18 @@ function getThreshold(categories) {
 }
 
 function requestApply() {
-  // Phase B dry-run gate
-  if (!dryRunResult) {
-    addLog('Run a dry run before applying.', 'warn');
+  // Mirrors updateApplyButtonState() — both use _dryRunIsApplyable()
+  if (!_dryRunIsApplyable()) {
+    var st = dryRunResult ? dryRunResult.dry_run_status : null;
+    var msg = !st ? 'Run a dry run before applying.'
+      : st === 'blocked'     ? 'Apply blocked — fix critical errors shown in dry run panel.'
+      : st === 'invalidated' ? 'Items edited after dry run — re-run dry run before applying.'
+      : 'Dry run did not pass — re-run dry run before applying.';
+    addLog(msg, st === 'blocked' ? 'err' : 'warn');
     return;
   }
-  if (dryRunResult.dry_run_status === 'blocked') {
-    addLog('Apply blocked — fix critical errors shown in dry run panel.', 'err');
+  if (!_dryRunScopeMatchesSelection()) {
+    addLog('Selection changed since dry run — re-run dry run with the current selection.', 'warn');
     return;
   }
   var toApply = previewItems.filter(function(i) { return selectedIds.has(i.product_id) && _itemShouldApply(i); });
@@ -2237,7 +2251,7 @@ async function runDryRun() {
     var result = await api('POST', '/api/sync/' + currentJobId + '/dry-run' + scopeQs);
     dryRunResult = result;
     renderDryRunPanel(result);
-    var level = result.dry_run_status === 'blocked' ? 'err' : result.dry_run_status === 'warnings' ? 'warn' : 'ok';
+    var level = result.dry_run_status === 'passed' ? 'ok' : result.dry_run_status === 'warnings' ? 'warn' : 'err';
     addLog('Dry run: ' + result.dry_run_status + ' — ' + result.products_to_update + ' products to update', level);
     updateApplyButtonState();
   } catch(e) {

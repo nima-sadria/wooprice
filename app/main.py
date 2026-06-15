@@ -772,6 +772,19 @@ def _invalidate_dry_run(job: "SyncJob") -> None:  # type: ignore[name-defined]
     job.dry_run_summary = None
 
 
+def _split_items_for_apply(
+    items: list, selected_ids: "set[int] | None"
+) -> "tuple[list, list]":
+    """Return (to_update, to_skip) filtered by _should_apply and optional selection scope."""
+    if selected_ids:
+        to_update = [i for i in items if _should_apply(i) and i.product_id in selected_ids]
+        to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_ids]
+    else:
+        to_update = [i for i in items if _should_apply(i)]
+        to_skip   = [i for i in items if not _should_apply(i)]
+    return to_update, to_skip
+
+
 def _compute_dry_run_summary(items: list, alarm_threshold: float, selected_ids: set | None = None) -> dict:
     """Pure computation — no WooCommerce calls. Returns dry-run summary dict.
 
@@ -1984,12 +1997,17 @@ async def update_price(
     except Exception as exc:
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 
-    # Patch cache and write audit BEFORE Nextcloud writeback — ensures the record
-    # is always committed once WooCommerce accepts the change.
+    # WooCommerce state has changed. Commit cache patch + dry-run invalidation atomically
+    # BEFORE the Excel writeback so that even if writeback raises, the dry run is already
+    # invalidated and apply cannot proceed on stale analysis.
     cache_hit = patch_cached_product(db, product_id, {
         "regular_price": body.new_price,
         "final_price": body.new_price,
     })
+    if body.job_id:
+        _pr_job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
+        if _pr_job and getattr(_pr_job, "dry_run_status", None) not in (None, "invalidated"):
+            _invalidate_dry_run(_pr_job)
     db.commit()
     logger.info("update_price: cache patched product_id=%s cache_hit=%s", product_id, cache_hit)
     _audit(user["sub"], "update_price", ip=ip, detail={
@@ -2015,10 +2033,6 @@ async def update_price(
         if item:
             item.new_price = body.new_price
             item.last_price_updated = now
-        # Invalidate dry run — values changed after analysis
-        job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
-        if job and getattr(job, "dry_run_status", None) not in (None, "invalidated"):
-            _invalidate_dry_run(job)
         db.commit()
 
     result: dict = {"success": True, "product_id": product_id, "new_price": body.new_price}
@@ -2054,10 +2068,16 @@ async def update_stock(
     except Exception as exc:
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 
+    # Commit cache patch + dry-run invalidation atomically before Excel writeback
+    # (same fail-safe pattern as update_price).
     cache_fields: dict = {"stock_status": body.stock_status}
     if body.stock_quantity is not None:
         cache_fields["stock_quantity"] = body.stock_quantity
     cache_hit = patch_cached_product(db, product_id, cache_fields)
+    if body.job_id:
+        _st_job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
+        if _st_job and getattr(_st_job, "dry_run_status", None) not in (None, "invalidated"):
+            _invalidate_dry_run(_st_job)
     db.commit()
     logger.info("update_stock: cache patched product_id=%s cache_hit=%s", product_id, cache_hit)
     _audit(user["sub"], "update_stock", ip=ip, detail={
@@ -2080,10 +2100,6 @@ async def update_stock(
             item.stock_status = body.stock_status
             if body.stock_quantity is not None:
                 item.stock_quantity = body.stock_quantity
-        # Invalidate dry run — values changed after analysis
-        job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
-        if job and getattr(job, "dry_run_status", None) not in (None, "invalidated"):
-            _invalidate_dry_run(job)
         db.commit()
 
     result: dict = {"success": True, "product_id": product_id}
@@ -2272,12 +2288,7 @@ async def confirm_sync(
     db.commit()
 
     items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
-    if selected_ids:
-        to_update = [i for i in items if _should_apply(i) and i.product_id in selected_ids]
-        to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_ids]
-    else:
-        to_update = [i for i in items if _should_apply(i)]
-        to_skip   = [i for i in items if not _should_apply(i)]
+    to_update, to_skip = _split_items_for_apply(items, selected_ids)
 
     for item in to_skip:
         item.status = ItemStatus.skipped
@@ -2383,8 +2394,13 @@ async def dry_run_sync(
         summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids)
         dr_status = summary["dry_run_status"]
 
-        # Store scope alongside result so apply_stream can enforce same selection
-        scope_json = json.dumps(sorted(selected_ids), ensure_ascii=False) if selected_ids else None
+        # Always store an explicit scope — never null.
+        # Job-wide dry run stores all item product_ids so any post-dry-run
+        # selection change is detected as a scope mismatch.
+        effective_scope = sorted(selected_ids) if selected_ids else sorted(
+            {i.product_id for i in items}
+        )
+        scope_json = json.dumps(effective_scope, ensure_ascii=False)
         job.dry_run_summary      = json.dumps(summary, ensure_ascii=False)
         job.dry_run_status       = dr_status
         job.dry_run_completed_at = datetime.utcnow()
@@ -2396,10 +2412,10 @@ async def dry_run_sync(
             "products_to_update": summary["products_to_update"],
             "critical_errors": len(summary["critical_errors"]),
             "warnings": len(summary["warnings"]),
-            "scope_size": len(selected_ids) if selected_ids else None,
+            "scope_size": len(effective_scope),
         })
 
-        return {"job_id": job_id, "dry_run_scope": sorted(selected_ids) if selected_ids else None, **summary}
+        return {"job_id": job_id, "dry_run_scope": effective_scope, **summary}
 
     except Exception as exc:
         logger.error("dry_run_sync: job=%d error=%s", job_id, exc)
@@ -2790,12 +2806,7 @@ async def apply_stream(
             items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
 
             # selected_ids already computed above for scope validation
-            if selected_ids:
-                to_update = [i for i in items if _should_apply(i) and i.product_id in selected_ids]
-                to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_ids]
-            else:
-                to_update = [i for i in items if _should_apply(i)]
-                to_skip   = [i for i in items if not _should_apply(i)]
+            to_update, to_skip = _split_items_for_apply(items, selected_ids)
 
             yield ev({"type": "start", "total": len(to_update), "skipped": len(to_skip)})
 
