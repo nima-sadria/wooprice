@@ -585,43 +585,60 @@ async def product_thumb(
 
     row = db.query(ProductCache).filter(ProductCache.wc_id == wc_id).first()
 
-    # Known variation with no own image → try parent
+    logger.warning(
+        "thumb: wc_id=%d row_found=%d image=%d parent_id=%s",
+        wc_id,
+        1 if row else 0,
+        1 if (row and row.image_url) else 0,
+        row.parent_id if row else "N/A",
+    )
+
+    # Case 1: known variation with no own image → fall back to parent image
     if row and not row.image_url and row.parent_id:
         parent = db.query(ProductCache).filter(ProductCache.wc_id == row.parent_id).first()
+        logger.warning(
+            "thumb: parent fallback parent_id=%d parent_found=%d parent_image=%d",
+            row.parent_id,
+            1 if parent else 0,
+            1 if (parent and parent.image_url) else 0,
+        )
         if parent and parent.image_url:
-            logger.debug("thumb fallback: wc_id=%d using parent_id=%d image", wc_id, row.parent_id)
+            logger.warning(
+                "thumb: returning parent image for wc_id=%d parent_id=%d url=%s",
+                wc_id, row.parent_id, parent.image_url,
+            )
             row = parent
 
-    # Unknown ID: resolve parent via SyncItem (fast) then WC API (5 s timeout)
-    if not row or not row.image_url:
+    # Case 2: unknown ID (not in products_cache) → resolve parent via SyncItem then WC API
+    elif not row:
         parent_id: int | None = None
-
-        if not row:
-            sync_row = (
-                db.query(SyncItem)
-                .filter(SyncItem.product_id == wc_id, SyncItem.parent_id > 0)
-                .order_by(SyncItem.id.desc())
-                .first()
-            )
-            if sync_row:
-                parent_id = sync_row.parent_id
-                logger.debug("thumb: resolved parent_id=%d for wc_id=%d via SyncItem", parent_id, wc_id)
-            else:
-                parent_id = await resolve_variation_parent_id(wc_id)
+        sync_row = (
+            db.query(SyncItem)
+            .filter(SyncItem.product_id == wc_id, SyncItem.parent_id > 0)
+            .order_by(SyncItem.id.desc())
+            .first()
+        )
+        if sync_row:
+            parent_id = sync_row.parent_id
+            logger.warning("thumb: resolved parent_id=%d for wc_id=%d via SyncItem", parent_id, wc_id)
+        else:
+            parent_id = await resolve_variation_parent_id(wc_id)
+            if parent_id:
+                logger.warning("thumb: resolved parent_id=%d for wc_id=%d via WC API", parent_id, wc_id)
 
         if parent_id:
             parent = db.query(ProductCache).filter(ProductCache.wc_id == parent_id).first()
             if parent and parent.image_url:
-                _now = datetime.now(timezone.utc).replace(tzinfo=None)
                 try:
                     upsert_products(db, [{"wc_id": wc_id, "parent_id": parent_id, "product_type": "variation"}])
                     db.commit()
-                    logger.info("thumb: stubbed variation row wc_id=%d parent_id=%d", wc_id, parent_id)
+                    logger.warning("thumb: stubbed variation row wc_id=%d parent_id=%d", wc_id, parent_id)
                 except Exception:
                     db.rollback()
                 row = parent
 
     if not row or not row.image_url:
+        logger.warning("thumb: returning placeholder for wc_id=%d", wc_id)
         return Response(content=_EMPTY_THUMB, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=300"})
 
