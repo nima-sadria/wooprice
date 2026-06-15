@@ -562,7 +562,8 @@ select.wp-sel:focus { border-color: var(--accent); }
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span id="fetch-mode-badge" class="pf-mode-badge full" style="display:none">&#9679; Full</span>
             <span id="fetch-route-badge" style="font-size:10px;font-family:monospace;background:#1e2433;color:#7dd3fc;border:1px solid #334155;border-radius:4px;padding:2px 7px;display:inline-block" title="Backend route this button calls">&#8594; /api/preview/stream (Preview Fetch)</span>
-            <button class="wp-btn wp-btn-ghost" type="button" id="wc-refresh-btn" onclick="startFullFetch()" title="Route: GET /api/fetch/full — syncs all products, variations, and images from WooCommerce into the local DB cache">&#8635; Refresh WooCommerce Cache</button>
+            <button class="wp-btn wp-btn-ghost" type="button" id="wc-refresh-btn" onclick="startFullFetch()" title="Route: GET /api/fetch/full — fast sync: all top-level products + images, no variation sub-requests">&#8635; Refresh WooCommerce Cache</button>
+            <button class="wp-btn wp-btn-ghost" type="button" id="deep-sync-btn" onclick="startDeepVariationsSync()" style="color:#d97706;border-color:#d97706" title="Route: GET /api/fetch/deep-variations — syncs ALL variations for ALL variable parents. May take 40–60 min. Run once after initial setup.">&#9679; Deep Refresh Variations</button>
             <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
           </div>
         </div>
@@ -608,10 +609,10 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
         </div>
 
-        <!-- WooCommerce full cache refresh card — shown while/after startFullFetch() runs -->
+        <!-- WooCommerce cache sync card — shared by Refresh WooCommerce Cache and Deep Refresh Variations -->
         <div class="wp-card" id="wc-refresh-card" style="display:none;margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-            <div style="font-weight:600;font-size:14px">&#8635; Refresh WooCommerce Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span></div>
+            <div id="wc-refresh-title" style="font-weight:600;font-size:14px">&#8635; Refresh WooCommerce Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span></div>
             <span id="wc-refresh-status" style="font-size:12px;color:var(--wp-muted)">Running…</span>
           </div>
           <div id="wc-refresh-log" style="font-family:monospace;font-size:12px;max-height:180px;overflow-y:auto;background:var(--bg-base,#F5F6FA);border:1px solid var(--wp-border,#E8EAED);border-radius:6px;padding:10px 14px;line-height:1.6"></div>
@@ -1622,16 +1623,60 @@ function addLog(msg, cls) {
 }
 
 function startFullFetch() {
-  var btn = document.getElementById('wc-refresh-btn');
+  var ctx = _wcRefreshStart(
+    '&#8635; Refresh WooCommerce Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span>',
+    '/api/fetch/full → Fast product cache sync (top-level products + images, no variation sub-requests)',
+    'wc-refresh-btn', 'deep-sync-btn'
+  );
+
+  var evSource = new EventSource('/api/fetch/full?token=' + encodeURIComponent(token));
+
+  evSource.onmessage = function(e) {
+    var d;
+    try { d = JSON.parse(e.data); } catch(_) { return; }
+    if (d.error) {
+      ctx.wcLog('Error: ' + d.error, '#dc2626');
+      ctx.statusEl.textContent = 'Failed: ' + d.error;
+      ctx.statusEl.style.color = '#dc2626';
+      evSource.close(); ctx.done(); return;
+    }
+    var color = d.status === 'error' ? '#dc2626' : (d.status === 'done' || d.status === 'ok') ? '#16a34a' : d.status === 'warning' ? '#d97706' : null;
+    if (d.msg) ctx.wcLog(d.msg, color);
+    if (d.step === 'done' && (d.status === 'ok' || d.status === 'done')) {
+      ctx.statusEl.textContent = 'Done — ' + (d.total || 0) + ' products (' + (d.inserted || 0) + ' new, ' + (d.updated || 0) + ' updated, ' + (d.with_image || 0) + ' with images)';
+      ctx.statusEl.style.color = '#16a34a';
+      evSource.close(); ctx.done();
+    }
+    if (d.step === 'error' || d.status === 'error') {
+      ctx.statusEl.textContent = 'Failed';
+      ctx.statusEl.style.color = '#dc2626';
+      evSource.close(); ctx.done();
+    }
+  };
+
+  evSource.onerror = function() {
+    ctx.wcLog('SSE connection error — check server logs for FETCH_ROUTE_ENTERED', '#dc2626');
+    ctx.statusEl.textContent = 'Connection error';
+    ctx.statusEl.style.color = '#dc2626';
+    evSource.close(); ctx.done();
+  };
+}
+
+function _wcRefreshStart(titleHtml, routeLabel, btnId, otherBtnId) {
+  var btn = document.getElementById(btnId);
+  var otherBtn = document.getElementById(otherBtnId);
   var card = document.getElementById('wc-refresh-card');
   var logEl = document.getElementById('wc-refresh-log');
   var statusEl = document.getElementById('wc-refresh-status');
+  var titleEl = document.getElementById('wc-refresh-title');
 
   btn.disabled = true;
+  if (otherBtn) otherBtn.disabled = true;
   card.style.display = 'block';
   logEl.innerHTML = '';
   statusEl.textContent = 'Running…';
   statusEl.style.color = 'var(--wp-muted)';
+  titleEl.innerHTML = titleHtml;
 
   function wcLog(msg, color) {
     var line = document.createElement('div');
@@ -1641,49 +1686,52 @@ function startFullFetch() {
     logEl.scrollTop = logEl.scrollHeight;
   }
 
-  wcLog('[ROUTE] GET /api/fetch/full → Full WooCommerce Cache Sync (products + variations + images)', '#3b82f6');
+  function done() {
+    btn.disabled = false;
+    if (otherBtn) otherBtn.disabled = false;
+  }
 
-  var evSource = new EventSource('/api/fetch/full?token=' + encodeURIComponent(token));
+  wcLog('[ROUTE] GET ' + routeLabel, '#3b82f6');
+  return { wcLog: wcLog, statusEl: statusEl, done: done };
+}
+
+function startDeepVariationsSync() {
+  var ctx = _wcRefreshStart(
+    '&#9679; Deep Refresh Variations <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/deep-variations</span>',
+    '/api/fetch/deep-variations → Full variation sync for ALL variable parents (slow)',
+    'deep-sync-btn', 'wc-refresh-btn'
+  );
+
+  var evSource = new EventSource('/api/fetch/deep-variations?token=' + encodeURIComponent(token));
 
   evSource.onmessage = function(e) {
     var d;
     try { d = JSON.parse(e.data); } catch(_) { return; }
-
     if (d.error) {
-      wcLog('Error: ' + d.error, '#dc2626');
-      statusEl.textContent = 'Failed: ' + d.error;
-      statusEl.style.color = '#dc2626';
-      evSource.close();
-      btn.disabled = false;
-      return;
+      ctx.wcLog('Error: ' + d.error, '#dc2626');
+      ctx.statusEl.textContent = 'Failed: ' + d.error;
+      ctx.statusEl.style.color = '#dc2626';
+      evSource.close(); ctx.done(); return;
     }
-
-    var color = null;
-    if (d.status === 'error') color = '#dc2626';
-    else if (d.status === 'done' || d.status === 'ok') color = '#16a34a';
-    else if (d.status === 'warning') color = '#d97706';
-    if (d.msg) wcLog(d.msg, color);
-
+    var color = d.status === 'error' ? '#dc2626' : (d.status === 'done' || d.status === 'ok') ? '#16a34a' : d.status === 'warning' ? '#d97706' : null;
+    if (d.msg) ctx.wcLog(d.msg, color);
     if (d.step === 'done' && (d.status === 'ok' || d.status === 'done')) {
-      statusEl.textContent = 'Done — ' + (d.total || 0) + ' products (' + (d.inserted || 0) + ' new, ' + (d.updated || 0) + ' updated)';
-      statusEl.style.color = '#16a34a';
-      evSource.close();
-      btn.disabled = false;
+      ctx.statusEl.textContent = 'Done — ' + (d.total || 0) + ' records (' + (d.inserted || 0) + ' new, ' + (d.updated || 0) + ' updated)';
+      ctx.statusEl.style.color = '#16a34a';
+      evSource.close(); ctx.done();
     }
     if (d.step === 'error' || d.status === 'error') {
-      statusEl.textContent = 'Failed';
-      statusEl.style.color = '#dc2626';
-      evSource.close();
-      btn.disabled = false;
+      ctx.statusEl.textContent = 'Failed';
+      ctx.statusEl.style.color = '#dc2626';
+      evSource.close(); ctx.done();
     }
   };
 
   evSource.onerror = function() {
-    wcLog('SSE connection closed or error — check server logs for FETCH_ROUTE_ENTERED', '#dc2626');
-    statusEl.textContent = 'Connection error';
-    statusEl.style.color = '#dc2626';
-    evSource.close();
-    btn.disabled = false;
+    ctx.wcLog('SSE connection error — check server logs', '#dc2626');
+    ctx.statusEl.textContent = 'Connection error';
+    ctx.statusEl.style.color = '#dc2626';
+    evSource.close(); ctx.done();
   };
 }
 

@@ -51,6 +51,7 @@ from .services.product_cache import (
 from .services.woocommerce import (
     batch_update_prices,
     clear_product_cache,
+    fetch_all_products_fast,
     fetch_all_products_full,
     fetch_all_variations_stock,
     fetch_categories,
@@ -581,6 +582,12 @@ async def product_thumb(
                         headers={"Cache-Control": "public, max-age=86400"})
 
     row = db.query(ProductCache).filter(ProductCache.wc_id == wc_id).first()
+    if row and not row.image_url and row.parent_id:
+        # Variation with no own image — fall back to parent's image
+        parent = db.query(ProductCache).filter(ProductCache.wc_id == row.parent_id).first()
+        if parent and parent.image_url:
+            logger.debug("thumb fallback: wc_id=%d using parent_id=%d image", wc_id, row.parent_id)
+            row = parent
     if not row or not row.image_url:
         return Response(content=_EMPTY_THUMB, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=300"})
@@ -646,33 +653,101 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
         def ev(d: dict) -> str:
             return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
 
-        yield ev({"step": "start", "status": "running", "msg": "Starting full WooCommerce product sync…"})
+        yield ev({"step": "start", "status": "running", "msg": "Starting fast WooCommerce product cache refresh (top-level products only, no variations)…"})
         try:
-            # Phase 1: fetch from WooCommerce — keepalive every 10 s so nginx
-            # does not close the connection before the catalog is downloaded.
-            yield ev({"step": "fetch", "status": "running", "msg": "Connecting to WooCommerce, fetching product catalog…"})
+            yield ev({"step": "fetch", "status": "running", "msg": "Fetching product catalog from WooCommerce (~24 pages, no variation calls)…"})
+            fetch_task = asyncio.create_task(fetch_all_products_fast())
+            while not fetch_task.done():
+                yield ": keepalive\n\n"
+                await asyncio.sleep(10)
+            products, _ = await fetch_task
+
+            variable_count = sum(1 for p in products if p.get("product_type") == "variable")
+            yield ev({
+                "step": "fetch",
+                "status": "done",
+                "msg": f"Fetched {len(products)} products from WooCommerce ({variable_count} variable parents, {len(products) - variable_count} simple)",
+                "count": len(products),
+                "variable_count": variable_count,
+            })
+
+            yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} products to local cache…"})
+            _db = SessionLocal()
+            try:
+                inserted, updated, img_changed = upsert_products(_db, products)
+                _db.commit()
+                _invalidate_thumbs(img_changed, _db)
+            finally:
+                _db.close()
+
+            with_img = sum(1 for p in products if p.get("image_url"))
+            yield ev({
+                "step": "done",
+                "status": "ok",
+                "msg": f"Cache updated: {inserted} new, {updated} updated — {with_img}/{len(products)} have images. Variable product thumbnails use parent image fallback.",
+                "inserted": inserted,
+                "updated": updated,
+                "total": len(products),
+                "with_image": with_img,
+            })
+
+        except asyncio.CancelledError:
+            logger.warning("fetch/full SSE stream cancelled")
+            raise
+        except Exception as exc:
+            logger.exception("fetch/full failed: %s", exc)
+            yield ev({"step": "error", "status": "error", "msg": str(exc)})
+
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@app.get("/api/fetch/deep-variations")
+async def fetch_deep_variations_stream(request: Request, token: str | None = Query(None)):
+    """Stream a full variation sync for all variable parents. Slow admin-only job."""
+    logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/deep-variations mode=deep_variation_sync ip=%s", _client_ip(request))
+    raw = token
+    if not raw:
+        raw = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
+    if not raw:
+        return StreamingResponse(
+            iter(['data: {"error":"Not authenticated"}\n\n']),
+            media_type="text/event-stream",
+        )
+    try:
+        decode_token(raw)
+    except Exception:
+        return StreamingResponse(
+            iter(['data: {"error":"Invalid token"}\n\n']),
+            media_type="text/event-stream",
+        )
+
+    async def _gen_deep():
+        def ev(d: dict) -> str:
+            return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
+
+        yield ev({"step": "start", "status": "running", "msg": "Starting deep variation sync — fetching ALL products + ALL variations. This may take 40–60 minutes for 2000+ variable parents…"})
+        try:
+            yield ev({"step": "fetch", "status": "running", "msg": "Fetching all products and all variation pages from WooCommerce…"})
             fetch_task = asyncio.create_task(fetch_all_products_full())
             while not fetch_task.done():
                 yield ": keepalive\n\n"
                 await asyncio.sleep(10)
-            products, var_warnings = await fetch_task  # re-raises if the task failed
+            products, var_warnings = await fetch_task
 
-            # Phase 2: report per-variation warnings
             for w in var_warnings:
-                logger.warning("fetch/full variation warning: %s", w)
+                logger.warning("fetch/deep-variations warning: %s", w)
                 yield ev({"step": "warning", "status": "warning", "msg": w})
 
             yield ev({
                 "step": "fetch",
                 "status": "done",
-                "msg": f"Fetched {len(products)} products from WooCommerce"
-                       + (f" ({len(var_warnings)} variation warning(s))" if var_warnings else ""),
+                "msg": f"Fetched {len(products)} products+variations from WooCommerce"
+                       + (f" ({len(var_warnings)} warning(s))" if var_warnings else ""),
                 "count": len(products),
                 "warnings": len(var_warnings),
             })
 
-            # Phase 3: upsert into persistent DB cache
-            yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} products to local cache…"})
+            yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} records to local cache…"})
             _db = SessionLocal()
             try:
                 inserted, updated, img_changed = upsert_products(_db, products)
@@ -684,20 +759,20 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
             yield ev({
                 "step": "done",
                 "status": "ok",
-                "msg": f"Cache updated: {inserted} new, {updated} updated ({len(products)} total)",
+                "msg": f"Deep sync complete: {inserted} new, {updated} updated ({len(products)} total)",
                 "inserted": inserted,
                 "updated": updated,
                 "total": len(products),
             })
 
         except asyncio.CancelledError:
-            logger.warning("fetch/full SSE stream cancelled")
+            logger.warning("fetch/deep-variations SSE stream cancelled")
             raise
         except Exception as exc:
-            logger.exception("fetch/full failed: %s", exc)
+            logger.exception("fetch/deep-variations failed: %s", exc)
             yield ev({"step": "error", "status": "error", "msg": str(exc)})
 
-    return StreamingResponse(_gen(), media_type="text/event-stream", headers=_SSE_HEADERS)
+    return StreamingResponse(_gen_deep(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @app.get("/api/fetch/light")

@@ -446,6 +446,82 @@ async def _fetch_variations_for_parent(
     return variations
 
 
+async def fetch_all_products_fast() -> tuple[list[dict], list[str]]:
+    """Fetch all top-level products (simple + variable parents) — no variation sub-requests.
+
+    Runs ~24 WC API pages instead of 2000+ variation calls.  Variable parent rows get the
+    parent's own image so thumbnails work immediately.  Variation rows are not created here;
+    use fetch_variations_for_selected_parents() for targeted variation refreshes.
+    """
+    logger.warning("FETCH_ROUTE_ENTERED: route=fetch_all_products_fast mode=fast_no_variations")
+    all_products: list[dict] = []
+
+    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+        page = 1
+        while True:
+            resp = await _get_with_retry(
+                client, f"{_base()}/products",
+                params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
+            )
+            data = resp.json()
+            if not data:
+                break
+            for p in data:
+                all_products.append(_parse_full_product(p))
+            if len(data) < 100:
+                break
+            page += 1
+
+    variable_count = sum(1 for p in all_products if p.get("product_type") == "variable")
+    logger.info(
+        "fast_fetch: done — %d products (%d variable parents, no variations fetched)",
+        len(all_products), variable_count,
+    )
+    return all_products, []
+
+
+async def fetch_variations_for_selected_parents(
+    parent_ids: set[int],
+    parent_info: dict[int, tuple[str, list, str | None]],
+    concurrency: int = 5,
+) -> tuple[list[dict], list[str]]:
+    """Fetch WC variations only for the given parent IDs.
+
+    parent_info: {parent_id: (name, categories_list, image_url_or_none)}
+    Call this with IDs present in the spreadsheet/preview — never globally.
+    """
+    if not parent_ids:
+        return [], []
+
+    all_variations: list[dict] = []
+    var_warnings: list[str] = []
+    sem = asyncio.Semaphore(concurrency)
+    plist = list(parent_ids)
+
+    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+        async def _bounded(pid: int):
+            async with sem:
+                name, cats, img = parent_info.get(pid, ("", [], None))
+                try:
+                    return await _fetch_variations_for_parent(client, pid, name, cats, img)
+                except Exception as exc:
+                    logger.warning("targeted_variation_fetch: failed for parent #%d: %s", pid, exc)
+                    return exc
+
+        results = await asyncio.gather(*[_bounded(pid) for pid in plist])
+        for i, r in enumerate(results):
+            if isinstance(r, list):
+                all_variations.extend(r)
+            else:
+                var_warnings.append(f"Variation fetch failed for parent #{plist[i]}: {r}")
+
+    logger.info(
+        "targeted_variation_fetch: done — %d variations for %d parents (%d warnings)",
+        len(all_variations), len(parent_ids), len(var_warnings),
+    )
+    return all_variations, var_warnings
+
+
 async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
     """Fetch ALL products and their variations from WooCommerce for full cache population.
     Returns (products, variation_warnings) where warnings list is non-empty if any
