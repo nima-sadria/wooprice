@@ -71,6 +71,7 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[in
 
         if wc_id in existing:
             row = existing[wc_id]
+            _prev_seen = row.last_seen_at
             row.parent_id = p.get("parent_id", 0) or 0
             row.product_type = p.get("product_type", "simple") or "simple"
             row.sku = p.get("sku") or row.sku
@@ -91,8 +92,10 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[in
                 row.image_source = p.get("image_source") or "none"
                 row.image_last_synced_at = now
             logger.debug(
-                "product_image: wc_id=%s type=%s image_source=%s image_url=%s",
-                wc_id, p.get("product_type", "?"), p.get("image_source", "—"), new_img or "NULL",
+                "product_image: wc_id=%s parent_id=%s product_type=%s image_source=%s image_url=%s last_seen_at=%s",
+                wc_id, p.get("parent_id", 0), p.get("product_type", "?"),
+                p.get("image_source", "—"), new_img or "NULL",
+                _prev_seen.isoformat() if _prev_seen else "NULL",
             )
             row.last_synced_at = now
             row.last_seen_at = now
@@ -122,8 +125,9 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[in
             )
             db.add(row)
             logger.debug(
-                "product_image: wc_id=%s type=%s image_source=%s image_url=%s",
-                wc_id, p.get("product_type", "?"), p.get("image_source", "—"), p.get("image_url") or "NULL",
+                "product_image: wc_id=%s parent_id=%s product_type=%s image_source=%s image_url=%s last_seen_at=NULL",
+                wc_id, p.get("parent_id", 0), p.get("product_type", "?"),
+                p.get("image_source", "—"), p.get("image_url") or "NULL",
             )
             inserted += 1
     return inserted, updated, image_changed_ids

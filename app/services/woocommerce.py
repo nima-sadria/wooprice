@@ -428,12 +428,21 @@ async def _fetch_variations_for_parent(
             break
         for v in data:
             v["name"] = parent_name
-            variations.append(_parse_full_product(
+            parsed = _parse_full_product(
                 v, parent_id=parent_id, parent_cats=parent_cats, parent_image=parent_image,
-            ))
+            )
+            logger.debug(
+                "full_fetch variation: wc_id=%s parent_id=%s image_source=%s image_url=%s",
+                parsed["wc_id"], parent_id, parsed["image_source"], parsed["image_url"] or "NULL",
+            )
+            variations.append(parsed)
         if len(data) < 100:
             break
         page += 1
+    logger.debug(
+        "full_fetch: fetched %d variation(s) for parent_id=%d parent_image=%s",
+        len(variations), parent_id, parent_image or "NULL",
+    )
     return variations
 
 
@@ -461,10 +470,19 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
                 parent_img = images[0].get("src", "") if images else ""
                 all_products.append(_parse_full_product(p))
                 if p.get("type") == "variable":
+                    logger.debug(
+                        "full_fetch: variable parent pid=%d name=%r img=%s",
+                        p["id"], p.get("name", ""), parent_img or "none",
+                    )
                     variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None))
             if len(data) < 100:
                 break
             page += 1
+
+        logger.info(
+            "full_fetch: phase1 done — %d top-level products, %d variable parents",
+            len(all_products), len(variable_parents),
+        )
 
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
@@ -481,6 +499,10 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
                     logger.warning(msg)
                     var_warnings.append(msg)
 
+    logger.info(
+        "full_fetch: complete — %d total products (top-level + variations), %d warnings",
+        len(all_products), len(var_warnings),
+    )
     return all_products, var_warnings
 
 
