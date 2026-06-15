@@ -1992,9 +1992,7 @@ function renderPreview() {
 
   observeThumbImages();
   updateStats(filtered.length);
-  // Apply button enabled only when dry run has passed and items are selected
-  var drOk = dryRunResult && dryRunResult.dry_run_status !== 'blocked';
-  document.getElementById('apply-btn').disabled = selectedIds.size === 0 || !drOk;
+  updateApplyButtonState();
   document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
 }
 
@@ -2019,10 +2017,34 @@ function updateStats(visCount) {
   document.getElementById('ws-stats').innerHTML = html;
 }
 
+function _dryRunScopeMatchesSelection() {
+  if (!dryRunResult) return false;
+  var scope = dryRunResult.dry_run_scope;
+  if (scope === null || scope === undefined) return true;  // job-wide dry run
+  if (scope.length !== selectedIds.size) return false;
+  for (var i = 0; i < scope.length; i++) { if (!selectedIds.has(scope[i])) return false; }
+  return true;
+}
+
+function updateApplyButtonState() {
+  var btn = document.getElementById('apply-btn');
+  if (!btn) return;
+  var hasSelection = selectedIds.size > 0;
+  var hasResult    = !!dryRunResult;
+  var notBlocked   = hasResult && dryRunResult.dry_run_status !== 'blocked';
+  var scopeOk      = hasResult && _dryRunScopeMatchesSelection();
+  var enabled = hasSelection && notBlocked && scopeOk;
+  btn.disabled = !enabled;
+  if (!hasResult)    { btn.title = 'Run a dry run first'; }
+  else if (!notBlocked) { btn.title = 'Fix critical errors and re-run dry run'; }
+  else if (!scopeOk) { btn.title = 'Selection changed since last dry run — re-run dry run'; }
+  else               { btn.title = ''; }
+}
+
 function toggleItem(pid, checked) {
   if (checked) selectedIds.add(pid); else selectedIds.delete(pid);
-  document.getElementById('apply-btn').disabled = selectedIds.size === 0;
   document.getElementById('selected-count').textContent = selectedIds.size + ' selected';
+  updateApplyButtonState();
   updateStats();
 }
 
@@ -2190,23 +2212,20 @@ async function runDryRun() {
   btn.textContent = 'Running…';
   addLog('Running dry run…', 'info');
   try {
-    var result = await api('POST', '/api/sync/' + currentJobId + '/dry-run');
+    // Pass current selection so dry run and apply are scoped identically
+    var scopeQs = selectedIds.size > 0
+      ? '?' + Array.from(selectedIds).map(function(id) { return 'sid=' + id; }).join('&')
+      : '';
+    var result = await api('POST', '/api/sync/' + currentJobId + '/dry-run' + scopeQs);
     dryRunResult = result;
     renderDryRunPanel(result);
     var level = result.dry_run_status === 'blocked' ? 'err' : result.dry_run_status === 'warnings' ? 'warn' : 'ok';
     addLog('Dry run: ' + result.dry_run_status + ' — ' + result.products_to_update + ' products to update', level);
-    // Update apply button
-    var applyBtn = document.getElementById('apply-btn');
-    if (result.dry_run_status === 'blocked') {
-      applyBtn.disabled = true;
-      applyBtn.title = 'Apply blocked by critical errors — fix and re-run preview + dry run';
-    } else {
-      applyBtn.disabled = selectedIds.size === 0;
-      applyBtn.title = '';
-    }
+    updateApplyButtonState();
   } catch(e) {
     addLog('Dry run failed: ' + e.message, 'err');
     dryRunResult = null;
+    updateApplyButtonState();
   } finally {
     btn.disabled = false;
     btn.textContent = 'Re-run Dry Run';
@@ -2421,7 +2440,7 @@ function runApplyStream() {
       document.getElementById('apply-progress-section').style.display = 'none';
       document.getElementById('apply-result-section').style.display = 'block';
       var _eMsg = d.msg || 'Unexpected error';
-      var _isDrErr = _eMsg.indexOf('dry_run_required') === 0 || _eMsg.indexOf('apply_blocked_by_dry_run') === 0;
+      var _isDrErr = _eMsg.indexOf('dry_run_required') === 0 || _eMsg.indexOf('apply_blocked_by_dry_run') === 0 || _eMsg.indexOf('dry_run_scope_mismatch') === 0;
       var _eBody = _eMsg.replace(/^[^:]+:\s*/, '');
       document.getElementById('apply-result-banner').innerHTML =
         '<div class="wp-result-banner ' + (_isDrErr ? 'warning' : 'error') + '">' +
@@ -2432,7 +2451,7 @@ function runApplyStream() {
           '</svg></div>' +
           '<div class="wp-result-banner-body"><h4>' + (_isDrErr ? 'Dry Run Required' : 'Apply failed') + '</h4><p>' + esc(_eBody) + '</p></div>' +
         '</div>';
-      document.getElementById('apply-btn').disabled = false;
+      updateApplyButtonState();
       addLog('Apply error: ' + _eMsg, 'err');
     }
   };
@@ -2446,7 +2465,7 @@ function runApplyStream() {
         '<div class="wp-result-banner-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
         '<div class="wp-result-banner-body"><h4>Connection lost</h4><p>The connection was interrupted. Some items may have been updated.</p></div>' +
       '</div>';
-    document.getElementById('apply-btn').disabled = false;
+    updateApplyButtonState();
     addLog('Connection error during apply', 'err');
   };
 }

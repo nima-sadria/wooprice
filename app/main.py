@@ -140,6 +140,7 @@ def _run_column_migrations():
                 ("dry_run_summary",      "TEXT"),
                 ("dry_run_status",       "TEXT"),
                 ("dry_run_completed_at", "TIMESTAMP"),
+                ("dry_run_scope",        "TEXT"),
             ]:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_jobs ADD COLUMN {col_name} {col_type}"))
@@ -718,11 +719,34 @@ def _should_apply(item: "SyncItem") -> bool:  # type: ignore[name-defined]
     return _price_differs(item.old_price, item.new_price)
 
 
-def _compute_dry_run_summary(items: list, alarm_threshold: float) -> dict:
-    """Pure computation — no WooCommerce calls. Returns dry-run summary dict."""
-    to_apply = [i for i in items if getattr(i, "change_status", None) in ("changed", "new")]
+def _compute_dry_run_summary(items: list, alarm_threshold: float, selected_ids: set | None = None) -> dict:
+    """Pure computation — no WooCommerce calls. Returns dry-run summary dict.
 
+    Critical errors are detected across ALL items (invalid + missing_from_wc_cache rows
+    are blockers regardless of selection). products_to_update is scoped to selected_ids.
+    """
     critical_errors: list[dict] = []
+
+    # Step 1: scan every item for blockers — selection does not exempt invalid/missing rows
+    for item in items:
+        cs = getattr(item, "change_status", None)
+        pid = item.product_id
+        name = item.product_name or ""
+        if cs == "invalid":
+            if not pid or pid <= 0:
+                critical_errors.append({"type": "invalid_product_id", "product_id": pid, "name": name})
+            elif not _is_valid_price(item.new_price):
+                critical_errors.append({"type": "invalid_price", "product_id": pid, "name": name, "value": item.new_price})
+        elif cs == "missing_from_wc_cache":
+            critical_errors.append({"type": "missing_woocommerce_product", "product_id": pid, "name": name})
+
+    # Step 2: products_to_update = changed/new rows, scoped to selection when provided
+    to_apply = [
+        i for i in items
+        if getattr(i, "change_status", None) in ("changed", "new")
+        and (selected_ids is None or i.product_id in selected_ids)
+    ]
+
     warnings_list: list[dict] = []
     price_increases = price_decreases = 0
     stock_to_instock = stock_to_outofstock = 0
@@ -731,20 +755,6 @@ def _compute_dry_run_summary(items: list, alarm_threshold: float) -> dict:
     for item in to_apply:
         pid = item.product_id
         name = item.product_name or ""
-
-        # Critical: product_id invalid
-        if not pid or pid <= 0:
-            critical_errors.append({"type": "invalid_product_id", "product_id": pid, "name": name})
-
-        # Critical: new_price invalid
-        if not _is_valid_price(item.new_price):
-            critical_errors.append({"type": "invalid_price", "product_id": pid, "name": name, "value": item.new_price})
-            continue  # skip further checks for this row
-
-        # Critical: not found in WooCommerce
-        cs = getattr(item, "change_status", None)
-        if cs == "missing_from_wc_cache":
-            critical_errors.append({"type": "missing_woocommerce_product", "product_id": pid, "name": name})
 
         # Pricing direction
         try:
@@ -832,6 +842,7 @@ def _job_out(job: SyncJob) -> dict:
         "dry_run_status":       getattr(job, "dry_run_status", None),
         "dry_run_completed_at": getattr(job, "dry_run_completed_at", None),
         "dry_run_summary":      json.loads(dr_raw) if dr_raw else None,
+        "dry_run_scope":        json.loads(getattr(job, "dry_run_scope", None) or "null"),
     }
 
 
@@ -2164,12 +2175,28 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
 # ── 2. Confirm sync ───────────────────────────────────────────────────────────
 
 @app.post("/api/sync/{job_id}/confirm")
-async def confirm_sync(job_id: int, user: dict = Depends(require_permission("can_apply")), db: Session = Depends(get_db)):
+async def confirm_sync(
+    job_id: int,
+    request: Request,
+    user: dict = Depends(require_permission("can_apply")),
+    db: Session = Depends(get_db),
+):
+    ip = _client_ip(request)
+    username = user["sub"]
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
     if job.status != JobStatus.preview:
         raise HTTPException(400, f"Job is '{job.status}', expected 'preview'")
+
+    # Dry-run guard — backend enforced, identical to apply_stream
+    dr_status = getattr(job, "dry_run_status", None)
+    if dr_status is None:
+        raise HTTPException(400, "dry_run_required: Run a dry run before applying.")
+    if dr_status == "blocked":
+        _audit(username, "apply_blocked_by_dry_run", ip, job_id, {"dry_run_status": dr_status})
+        raise HTTPException(409, "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run.")
+    _audit(username, "apply_confirmed_after_dry_run", ip, job_id, {"dry_run_status": dr_status})
 
     job.status = JobStatus.running
     db.commit()
@@ -2253,6 +2280,7 @@ async def cancel_sync(job_id: int, user: dict = Depends(require_permission("can_
 async def dry_run_sync(
     job_id: int,
     request: Request,
+    sid: list[int] | None = Query(None),
     user: dict = Depends(require_permission("can_apply")),
     db: Session = Depends(get_db),
 ):
@@ -2265,7 +2293,8 @@ async def dry_run_sync(
     if job.status != JobStatus.preview:
         raise HTTPException(400, f"Job is '{job.status}', expected 'preview'")
 
-    _audit(username, "dry_run_started", ip, job_id)
+    selected_ids = set(sid) if sid else None
+    _audit(username, "dry_run_started", ip, job_id, {"scope": sorted(selected_ids) if selected_ids else None})
 
     try:
         items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
@@ -2277,12 +2306,15 @@ async def dry_run_sync(
         )
         alarm_threshold = global_thr.threshold_percent if global_thr else float("inf")
 
-        summary = _compute_dry_run_summary(items, alarm_threshold)
+        summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids)
         dr_status = summary["dry_run_status"]
 
+        # Store scope alongside result so apply_stream can enforce same selection
+        scope_json = json.dumps(sorted(selected_ids), ensure_ascii=False) if selected_ids else None
         job.dry_run_summary      = json.dumps(summary, ensure_ascii=False)
         job.dry_run_status       = dr_status
         job.dry_run_completed_at = datetime.utcnow()
+        job.dry_run_scope        = scope_json
         db.commit()
 
         _audit(username, "dry_run_completed", ip, job_id, {
@@ -2290,9 +2322,10 @@ async def dry_run_sync(
             "products_to_update": summary["products_to_update"],
             "critical_errors": len(summary["critical_errors"]),
             "warnings": len(summary["warnings"]),
+            "scope_size": len(selected_ids) if selected_ids else None,
         })
 
-        return {"job_id": job_id, **summary}
+        return {"job_id": job_id, "dry_run_scope": sorted(selected_ids) if selected_ids else None, **summary}
 
     except Exception as exc:
         logger.error("dry_run_sync: job=%d error=%s", job_id, exc)
@@ -2689,6 +2722,15 @@ async def apply_stream(
                 _audit(user_data["sub"], "apply_blocked_by_dry_run", ip, job_id,
                        {"dry_run_status": dr_status})
                 yield ev({"type": "error", "msg": "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run preview + dry run."}); return
+
+            # Scope-match guard: if dry run was scoped, apply must use the same selection
+            scope_raw = getattr(job, "dry_run_scope", None)
+            if scope_raw is not None:
+                dr_scope = set(json.loads(scope_raw))
+                cur_scope = set(sid) if sid else set()
+                if cur_scope != dr_scope:
+                    yield ev({"type": "error", "msg": "dry_run_scope_mismatch: Selection changed since dry run was run. Re-run dry run with the current selection."}); return
+
             _audit(user_data["sub"], "apply_confirmed_after_dry_run", ip, job_id,
                    {"dry_run_status": dr_status})
 

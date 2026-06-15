@@ -46,6 +46,7 @@ class SyncJob(Base):
     dry_run_summary = Column(Text, nullable=True)       # JSON blob
     dry_run_status = Column(String, nullable=True)      # passed | warnings | blocked
     dry_run_completed_at = Column(DateTime, nullable=True)
+    dry_run_scope = Column(Text, nullable=True)         # JSON: [product_id, ...] or null for job-wide
 
     items = relationship("SyncItem", back_populates="job", cascade="all, delete-orphan")
 
