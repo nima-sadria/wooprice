@@ -2017,6 +2017,21 @@ function updateStats(visCount) {
   document.getElementById('ws-stats').innerHTML = html;
 }
 
+function _invalidateDryRun() {
+  if (!dryRunResult) return;  // nothing to invalidate
+  dryRunResult = null;
+  var panel = document.getElementById('dry-run-panel');
+  if (panel) {
+    panel.style.display = 'block';
+    panel.innerHTML =
+      '<div style="padding:12px 16px;background:#fef3c7;border-radius:8px;color:#92400e;font-size:13px;">' +
+        '<b>⚠ Dry Run Invalidated</b> — items were edited after the last dry run. Re-run Dry Run before applying.' +
+      '</div>';
+  }
+  updateApplyButtonState();
+  addLog('Dry run invalidated — re-run dry run before applying.', 'warn');
+}
+
 function _dryRunScopeMatchesSelection() {
   if (!dryRunResult) return false;
   var scope = dryRunResult.dry_run_scope;
@@ -2084,6 +2099,7 @@ function editPrice(pid) {
       item.new_price = formatted;
       item.changed = Math.abs(parseFloat(item.old_price || 0) - parseFloat(formatted || 0)) > 0.001;
       addLog('Price updated for #' + pid + ': ' + fmtPriceRaw(formatted), 'ok');
+      _invalidateDryRun();
     } catch(e) {
       addLog('Failed to update price for #' + pid + ': ' + e.message, 'err');
     }
@@ -2117,6 +2133,7 @@ function editStock(pid) {
       await api('PUT', '/api/products/' + pid + '/stock', { stock_status: newStatus, parent_id: item.parent_id || 0, job_id: currentJobId });
       item.stock_status = newStatus;
       addLog('Stock updated for #' + pid + ': ' + newStatus, 'ok');
+      _invalidateDryRun();
     } catch(e) { addLog('Failed stock update #' + pid + ': ' + e.message, 'err'); }
     td.onclick = function() { editStock(pid); };
     td.innerHTML = '<span class="editable-cell">' + stockBadge(item.stock_status) + '</span>';
@@ -2147,6 +2164,7 @@ function editQty(pid) {
       await api('PUT', '/api/products/' + pid + '/stock', { stock_status: item.stock_status, stock_quantity: newQty, parent_id: item.parent_id || 0, job_id: currentJobId });
       item.stock_quantity = newQty;
       addLog('Quantity updated for #' + pid + ': ' + newQty, 'ok');
+      _invalidateDryRun();
     } catch(e) { addLog('Failed qty update #' + pid + ': ' + e.message, 'err'); }
     td.onclick = function() { editQty(pid); };
     td.innerHTML = '<span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span>';
@@ -2440,7 +2458,7 @@ function runApplyStream() {
       document.getElementById('apply-progress-section').style.display = 'none';
       document.getElementById('apply-result-section').style.display = 'block';
       var _eMsg = d.msg || 'Unexpected error';
-      var _isDrErr = _eMsg.indexOf('dry_run_required') === 0 || _eMsg.indexOf('apply_blocked_by_dry_run') === 0 || _eMsg.indexOf('dry_run_scope_mismatch') === 0;
+      var _isDrErr = _eMsg.indexOf('dry_run_required') === 0 || _eMsg.indexOf('apply_blocked_by_dry_run') === 0 || _eMsg.indexOf('dry_run_scope_mismatch') === 0 || _eMsg.indexOf('dry_run_invalidated') === 0;
       var _eBody = _eMsg.replace(/^[^:]+:\s*/, '');
       document.getElementById('apply-result-banner').innerHTML =
         '<div class="wp-result-banner ' + (_isDrErr ? 'warning' : 'error') + '">' +

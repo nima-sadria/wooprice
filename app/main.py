@@ -719,6 +719,59 @@ def _should_apply(item: "SyncItem") -> bool:  # type: ignore[name-defined]
     return _price_differs(item.old_price, item.new_price)
 
 
+def _check_dry_run_guards(
+    job: "SyncJob",  # type: ignore[name-defined]
+    selected_ids: set[int] | None,
+) -> tuple[bool, str, str, int]:
+    """Validate all dry-run gates synchronously.
+
+    Returns (ok, event_type, message, http_status).
+    event_type is always 'error'. http_status is 0 when ok=True.
+    """
+    dr_status = getattr(job, "dry_run_status", None)
+    if dr_status is None:
+        return False, "error", "dry_run_required: Run a dry run before applying.", 400
+    if dr_status == "blocked":
+        return False, "error", "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run.", 409
+    if dr_status == "invalidated":
+        return False, "error", "dry_run_invalidated: Items were edited after the last dry run. Re-run dry run.", 409
+    scope_raw = getattr(job, "dry_run_scope", None)
+    if scope_raw is not None:
+        dr_scope = set(json.loads(scope_raw))
+        cur_scope = selected_ids or set()
+        if cur_scope != dr_scope:
+            return False, "error", "dry_run_scope_mismatch: Selection changed since dry run was run. Re-run dry run with the current selection.", 409
+    return True, "", "", 0
+
+
+async def _check_sheet_hash(job: "SyncJob") -> tuple[bool, str, str]:  # type: ignore[name-defined]
+    """Compare current xlsx hash to the hash stored when the preview was created.
+
+    Returns (ok, event_type, message). event_type is 'stale_preview' when not ok.
+    """
+    if not getattr(job, "sheet_hash", None):
+        return True, "", ""
+    try:
+        _cur_xlsx = await download_xlsx(force=False)
+        _cur_hash = hashlib.md5(_cur_xlsx).hexdigest()
+        if _cur_hash != job.sheet_hash:
+            return False, "stale_preview", (
+                "The spreadsheet was modified after this preview was created. "
+                "Applying would use stale product IDs. "
+                "Please re-run Fetch Preview to load the current sheet."
+            )
+    except Exception as _hce:
+        logger.warning("_check_sheet_hash: failed (proceeding): %s", _hce)
+    return True, "", ""
+
+
+def _invalidate_dry_run(job: "SyncJob") -> None:  # type: ignore[name-defined]
+    """Mark the job's dry run as invalidated due to item edits. Caller must commit."""
+    job.dry_run_status = "invalidated"
+    job.dry_run_scope = None
+    job.dry_run_summary = None
+
+
 def _compute_dry_run_summary(items: list, alarm_threshold: float, selected_ids: set | None = None) -> dict:
     """Pure computation — no WooCommerce calls. Returns dry-run summary dict.
 
@@ -1962,7 +2015,11 @@ async def update_price(
         if item:
             item.new_price = body.new_price
             item.last_price_updated = now
-            db.commit()
+        # Invalidate dry run — values changed after analysis
+        job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
+        if job and getattr(job, "dry_run_status", None) not in (None, "invalidated"):
+            _invalidate_dry_run(job)
+        db.commit()
 
     result: dict = {"success": True, "product_id": product_id, "new_price": body.new_price}
     if not cache_hit:
@@ -2023,7 +2080,11 @@ async def update_stock(
             item.stock_status = body.stock_status
             if body.stock_quantity is not None:
                 item.stock_quantity = body.stock_quantity
-            db.commit()
+        # Invalidate dry run — values changed after analysis
+        job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
+        if job and getattr(job, "dry_run_status", None) not in (None, "invalidated"):
+            _invalidate_dry_run(job)
+        db.commit()
 
     result: dict = {"success": True, "product_id": product_id}
     if not cache_hit:
@@ -2178,6 +2239,7 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
 async def confirm_sync(
     job_id: int,
     request: Request,
+    sid: list[int] | None = Query(None),
     user: dict = Depends(require_permission("can_apply")),
     db: Session = Depends(get_db),
 ):
@@ -2189,21 +2251,33 @@ async def confirm_sync(
     if job.status != JobStatus.preview:
         raise HTTPException(400, f"Job is '{job.status}', expected 'preview'")
 
-    # Dry-run guard — backend enforced, identical to apply_stream
-    dr_status = getattr(job, "dry_run_status", None)
-    if dr_status is None:
-        raise HTTPException(400, "dry_run_required: Run a dry run before applying.")
-    if dr_status == "blocked":
-        _audit(username, "apply_blocked_by_dry_run", ip, job_id, {"dry_run_status": dr_status})
-        raise HTTPException(409, "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run.")
-    _audit(username, "apply_confirmed_after_dry_run", ip, job_id, {"dry_run_status": dr_status})
+    selected_ids = set(sid) if sid else None
+
+    # Spreadsheet freshness check
+    sheet_ok, _, sheet_msg = await _check_sheet_hash(job)
+    if not sheet_ok:
+        raise HTTPException(409, sheet_msg)
+
+    # All dry-run guards (status, blocked, invalidated, scope)
+    dr_ok, _, dr_msg, dr_status_code = _check_dry_run_guards(job, selected_ids)
+    if not dr_ok:
+        if "blocked" in dr_msg or "invalidated" in dr_msg:
+            _audit(username, "apply_blocked_by_dry_run", ip, job_id,
+                   {"dry_run_status": getattr(job, "dry_run_status", None), "reason": dr_msg})
+        raise HTTPException(dr_status_code, dr_msg)
+    _audit(username, "apply_confirmed_after_dry_run", ip, job_id,
+           {"dry_run_status": getattr(job, "dry_run_status", None)})
 
     job.status = JobStatus.running
     db.commit()
 
     items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
-    to_update = [i for i in items if _should_apply(i)]
-    to_skip   = [i for i in items if not _should_apply(i)]
+    if selected_ids:
+        to_update = [i for i in items if _should_apply(i) and i.product_id in selected_ids]
+        to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_ids]
+    else:
+        to_update = [i for i in items if _should_apply(i)]
+        to_skip   = [i for i in items if not _should_apply(i)]
 
     for item in to_skip:
         item.status = ItemStatus.skipped
@@ -2692,57 +2766,33 @@ async def apply_stream(
             if job.status != JobStatus.preview:
                 yield ev({"type": "error", "msg": f"Job is '{job.status}', expected 'preview'"}); return
 
-            # Stale-preview check: block Apply if xlsx was edited after this preview
-            if job.sheet_hash:
-                try:
-                    _cur_xlsx = await download_xlsx(force=False)
-                    _cur_hash = hashlib.md5(_cur_xlsx).hexdigest()
-                    if _cur_hash != job.sheet_hash:
-                        logger.warning(
-                            "apply_stream: stale preview job=%d preview_hash=%s current_hash=%s",
-                            job_id, job.sheet_hash, _cur_hash,
-                        )
-                        yield ev({
-                            "type": "stale_preview",
-                            "msg": (
-                                "The spreadsheet was modified after this preview was created. "
-                                "Applying would use stale product IDs. "
-                                "Please re-run Fetch Preview to load the current sheet."
-                            ),
-                        })
-                        return
-                except Exception as _hce:
-                    logger.warning("apply_stream: hash check failed (proceeding): %s", _hce)
+            # Spreadsheet freshness check
+            sheet_ok, sheet_etype, sheet_msg = await _check_sheet_hash(job)
+            if not sheet_ok:
+                logger.warning("apply_stream: stale preview job=%d", job_id)
+                yield ev({"type": sheet_etype, "msg": sheet_msg}); return
 
-            # Dry-run guard (Phase B)
-            dr_status = getattr(job, "dry_run_status", None)
-            if dr_status is None:
-                yield ev({"type": "error", "msg": "dry_run_required: Run a dry run before applying."}); return
-            if dr_status == "blocked":
-                _audit(user_data["sub"], "apply_blocked_by_dry_run", ip, job_id,
-                       {"dry_run_status": dr_status})
-                yield ev({"type": "error", "msg": "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run preview + dry run."}); return
-
-            # Scope-match guard: if dry run was scoped, apply must use the same selection
-            scope_raw = getattr(job, "dry_run_scope", None)
-            if scope_raw is not None:
-                dr_scope = set(json.loads(scope_raw))
-                cur_scope = set(sid) if sid else set()
-                if cur_scope != dr_scope:
-                    yield ev({"type": "error", "msg": "dry_run_scope_mismatch: Selection changed since dry run was run. Re-run dry run with the current selection."}); return
+            # All dry-run guards (status, blocked, invalidated, scope)
+            selected_ids = set(sid) if sid else None
+            dr_ok, dr_etype, dr_msg, _ = _check_dry_run_guards(job, selected_ids)
+            if not dr_ok:
+                if "blocked" in dr_msg or "invalidated" in dr_msg:
+                    _audit(user_data["sub"], "apply_blocked_by_dry_run", ip, job_id,
+                           {"dry_run_status": getattr(job, "dry_run_status", None), "reason": dr_msg})
+                yield ev({"type": dr_etype, "msg": dr_msg}); return
 
             _audit(user_data["sub"], "apply_confirmed_after_dry_run", ip, job_id,
-                   {"dry_run_status": dr_status})
+                   {"dry_run_status": getattr(job, "dry_run_status", None)})
 
             job.status = JobStatus.running
             db.commit()
 
             items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
 
-            selected_set = set(sid) if sid else None
-            if selected_set:
-                to_update = [i for i in items if _should_apply(i) and i.product_id in selected_set]
-                to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_set]
+            # selected_ids already computed above for scope validation
+            if selected_ids:
+                to_update = [i for i in items if _should_apply(i) and i.product_id in selected_ids]
+                to_skip   = [i for i in items if not _should_apply(i) or i.product_id not in selected_ids]
             else:
                 to_update = [i for i in items if _should_apply(i)]
                 to_skip   = [i for i in items if not _should_apply(i)]
