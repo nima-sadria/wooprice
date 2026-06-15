@@ -67,6 +67,27 @@ from .services.woocommerce import (
     update_single_product,
 )
 
+def _run_alembic_migrations() -> None:
+    """Run Alembic migrations FIRST so Alembic owns every table it declares.
+    create_all() runs afterwards and only creates tables not yet handled by Alembic."""
+    from alembic.config import Config as AlembicConfig
+    from alembic import command as alembic_command
+    root = Path(__file__).parent.parent
+    cfg = AlembicConfig(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", get_settings().database_url)
+    try:
+        alembic_command.upgrade(cfg, "head")
+        logger.info("startup: Alembic migrations applied")
+    except Exception as exc:
+        logger.error("startup: Alembic migration failed: %s", exc)
+        raise
+
+
+_run_alembic_migrations()
+
+# create_all runs after Alembic so Alembic-owned tables (e.g. app_users) are
+# already present; create_all only fills in any remaining non-Alembic tables.
 Base.metadata.create_all(bind=engine)
 
 
@@ -114,24 +135,6 @@ def _run_column_migrations():
 
 
 _run_column_migrations()
-
-
-def _run_alembic_migrations() -> None:
-    from alembic.config import Config as AlembicConfig
-    from alembic import command as alembic_command
-    root = Path(__file__).parent.parent
-    cfg = AlembicConfig(str(root / "alembic.ini"))
-    cfg.set_main_option("script_location", str(root / "alembic"))
-    cfg.set_main_option("sqlalchemy.url", get_settings().database_url)
-    try:
-        alembic_command.upgrade(cfg, "head")
-        logger.info("startup: Alembic migrations applied")
-    except Exception as exc:
-        logger.error("startup: Alembic migration failed: %s", exc)
-        raise
-
-
-_run_alembic_migrations()
 
 
 def _check_jwt_secret() -> None:
@@ -331,58 +334,62 @@ async def get_current_user(
         raise HTTPException(401, "Invalid or expired token")
 
 
-def _get_app_user_or_raise(
-    db: Session,
-    username: str,
-    token_pv: int,
-    audit_action: str | None = None,
-) -> AppUser:
-    """Shared helper: load AppUser, check is_active, validate permission_version."""
+def _validate_active_user_sync(user_data: dict, db: Session) -> None:
+    """Enforces is_active + permission_version on every authenticated request.
+    Super admins (listed in SUPER_ADMIN_USERS env) bypass the DB lookup entirely."""
+    username = user_data.get("sub", "")
+    if is_super_admin(username):
+        return
     app_user = db.query(AppUser).filter(AppUser.username == username).first()
     if app_user is None or not app_user.is_active:
-        if audit_action:
-            _audit(username, "login_denied_not_in_access_list")
         raise HTTPException(403, "Access denied — contact your administrator")
-    if token_pv != app_user.permission_version:
+    if user_data.get("pv", -1) != app_user.permission_version:
         raise HTTPException(401, "Token has been revoked — please log in again")
-    return app_user
+
+
+async def get_current_active_user(
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Single auth gate for all protected routes.
+    Decodes JWT then enforces is_active + permission_version via _validate_active_user_sync."""
+    _validate_active_user_sync(user, db)
+    return user
 
 
 async def get_current_app_user(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
 ) -> AppUser | None:
-    """Returns AppUser row for non-super-admins; None for super admins."""
+    """Returns AppUser row for non-super-admins; None for super admins.
+    is_active and permission_version already enforced by get_current_active_user."""
     username = user.get("sub", "")
     if is_super_admin(username):
         return None
-    return _get_app_user_or_raise(db, username, user.get("pv", -1))
+    return db.query(AppUser).filter(AppUser.username == username).first()
 
 
 async def require_admin(
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
 ) -> dict:
     username = user.get("sub", "")
     if is_super_admin(username):
         return user
-    app_user = _get_app_user_or_raise(db, username, user.get("pv", -1))
-    if not app_user.is_admin:
+    # is_active + pv already enforced by get_current_active_user; only check is_admin
+    app_user = db.query(AppUser).filter(AppUser.username == username).first()
+    if not app_user or not app_user.is_admin:
         _audit(username, "permission_denied", detail={"reason": "not_admin"})
         raise HTTPException(403, "Admin access required")
     return user
 
 
 def require_permission(permission: str):
-    """Dependency factory. Phase 0: any active, authenticated user has all permissions."""
+    """Phase 0: any active authenticated user has all permissions.
+    is_active + permission_version enforced by get_current_active_user."""
     async def _check(
-        db: Session = Depends(get_db),
-        user: dict = Depends(get_current_user),
+        user: dict = Depends(get_current_active_user),
     ) -> dict:
-        username = user.get("sub", "")
-        if is_super_admin(username):
-            return user
-        _get_app_user_or_raise(db, username, user.get("pv", -1))
         return user
     return _check
 
@@ -600,7 +607,7 @@ async def health():
 # ── Cache management ──────────────────────────────────────────────────────────
 
 @app.get("/api/cache/status")
-async def cache_status(user: dict = Depends(get_current_user)):
+async def cache_status(user: dict = Depends(get_current_active_user)):
     s = get_settings()
     info = get_cache_info()
     return {
@@ -624,7 +631,7 @@ async def list_cached_products(
     limit: int = Query(50, ge=1, le=500),
     search: str | None = Query(None),
     product_type: str | None = Query(None),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Return paginated products from the local DB cache with optional filters."""
@@ -640,7 +647,7 @@ async def list_cached_products(
 
 
 @app.get("/api/products/cache-status")
-async def db_cache_status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def db_cache_status(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     return cache_get_stats(db)
 
 
@@ -782,6 +789,16 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
             iter(['data: {"error":"Invalid token"}\n\n']),
             media_type="text/event-stream",
         )
+    _auth_db = SessionLocal()
+    try:
+        _validate_active_user_sync(creds, _auth_db)
+    except HTTPException as _exc:
+        return StreamingResponse(
+            iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
+            media_type="text/event-stream",
+        )
+    finally:
+        _auth_db.close()
 
     async def _gen():
         def ev(d: dict) -> str:
@@ -864,12 +881,22 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
             media_type="text/event-stream",
         )
     try:
-        decode_token(raw)
+        _deep_creds = decode_token(raw)
     except Exception:
         return StreamingResponse(
             iter(['data: {"error":"Invalid token"}\n\n']),
             media_type="text/event-stream",
         )
+    _auth_db = SessionLocal()
+    try:
+        _validate_active_user_sync(_deep_creds, _auth_db)
+    except HTTPException as _exc:
+        return StreamingResponse(
+            iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
+            media_type="text/event-stream",
+        )
+    finally:
+        _auth_db.close()
 
     async def _gen_deep():
         def ev(d: dict) -> str:
@@ -942,10 +969,17 @@ async def fetch_light_stream(
             media_type="text/event-stream",
         )
     try:
-        decode_token(raw)
+        _light_creds = decode_token(raw)
     except Exception:
         return StreamingResponse(
             iter(['data: {"error":"Invalid token"}\n\n']),
+            media_type="text/event-stream",
+        )
+    try:
+        _validate_active_user_sync(_light_creds, db)
+    except HTTPException as _exc:
+        return StreamingResponse(
+            iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
             media_type="text/event-stream",
         )
 
@@ -1060,7 +1094,7 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
 
 
 @app.get("/api/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me(user: dict = Depends(get_current_active_user)):
     return {"username": user["sub"], "role": user["role"]}
 
 
@@ -1184,7 +1218,7 @@ async def get_app_settings(user: dict = Depends(require_admin)):
 # ── Alarm thresholds ──────────────────────────────────────────────────────────
 
 @app.get("/api/alarm-settings")
-async def get_alarm_settings(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_alarm_settings(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     rows = db.query(AlarmThreshold).all()
     return [{"category_id": r.category_id, "threshold_percent": r.threshold_percent} for r in rows]
 
@@ -1208,7 +1242,7 @@ async def set_alarm_settings(
 @app.get("/api/audit-logs")
 async def get_audit_logs(
     limit: int = 200,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
@@ -1237,7 +1271,7 @@ async def get_audit_logs(
 _cat_cache: dict = {"data": None, "ts": 0.0}
 
 @app.get("/api/categories")
-async def get_categories(user: dict = Depends(get_current_user)):
+async def get_categories(user: dict = Depends(get_current_active_user)):
     if _cat_cache["data"] is not None and time.time() - _cat_cache["ts"] < 300:
         return _cat_cache["data"]
     try:
@@ -1254,7 +1288,7 @@ async def get_categories(user: dict = Depends(get_current_user)):
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/dashboard")
-async def get_dashboard(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_dashboard(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     total_syncs = db.query(SyncJob).filter(SyncJob.status == JobStatus.completed).count()
 
     latest_job = (
@@ -1304,7 +1338,7 @@ async def get_dashboard(user: dict = Depends(get_current_user), db: Session = De
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/analytics")
-async def get_analytics(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_analytics(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     # Get the most recent SyncItem per product_id (across all completed jobs)
     latest_id_sq = (
         db.query(func.max(SyncItem.id).label("max_id"))
@@ -1352,7 +1386,7 @@ async def get_analytics(user: dict = Depends(get_current_user), db: Session = De
 @app.get("/api/products/{product_id}/lookup")
 async def lookup_product(
     product_id: int,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """Resolve a product ID to its type and parent_id.
@@ -1398,7 +1432,7 @@ async def update_price(
     product_id: int,
     body: PriceUpdateRequest,
     request: Request,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     logger.info("update_price: product_id=%s user=%s", product_id, user.get("sub"))
@@ -1458,7 +1492,7 @@ async def update_stock(
     product_id: int,
     body: StockUpdateRequest,
     request: Request,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     logger.info("update_stock: product_id=%s user=%s", product_id, user.get("sub"))
@@ -1517,7 +1551,7 @@ async def update_stock(
 # ── System diagnostics ────────────────────────────────────────────────────────
 
 @app.get("/api/system/diagnostics")
-async def system_diagnostics(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def system_diagnostics(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     if not is_super_admin(user["sub"]):
         raise HTTPException(403, "Admin only")
 
@@ -1553,7 +1587,7 @@ async def system_diagnostics(user: dict = Depends(get_current_user), db: Session
 # ── 1. Create preview ─────────────────────────────────────────────────────────
 
 @app.post("/api/preview")
-async def create_preview(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_preview(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/preview mode=create_preview user=%s", user.get("sub", "?"))
     try:
         xlsx = await download_xlsx(force=True)
@@ -1632,7 +1666,7 @@ async def create_preview(user: dict = Depends(get_current_user), db: Session = D
 # ── 2. Confirm sync ───────────────────────────────────────────────────────────
 
 @app.post("/api/sync/{job_id}/confirm")
-async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def confirm_sync(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1704,7 +1738,7 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_user), db: 
 # ── 3. Cancel preview ─────────────────────────────────────────────────────────
 
 @app.delete("/api/sync/{job_id}")
-async def cancel_sync(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def cancel_sync(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1718,7 +1752,7 @@ async def cancel_sync(job_id: int, user: dict = Depends(get_current_user), db: S
 # ── 4. List jobs ──────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs")
-async def list_jobs(limit: int = 30, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def list_jobs(limit: int = 30, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     jobs = db.query(SyncJob).order_by(SyncJob.created_at.desc()).limit(limit).all()
     return [_job_out(j) for j in jobs]
 
@@ -1726,7 +1760,7 @@ async def list_jobs(limit: int = 30, user: dict = Depends(get_current_user), db:
 # ── 5. Job detail ─────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs/{job_id}")
-async def get_job(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_job(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1737,7 +1771,7 @@ async def get_job(job_id: int, user: dict = Depends(get_current_user), db: Sessi
 # ── 6. Spreadsheet metadata (HEAD only — no download) ────────────────────────
 
 @app.get("/api/spreadsheet/meta")
-async def spreadsheet_meta_endpoint(user: dict = Depends(get_current_user)):
+async def spreadsheet_meta_endpoint(user: dict = Depends(get_current_active_user)):
     try:
         current = await fetch_spreadsheet_meta()
     except Exception as exc:
@@ -1780,6 +1814,10 @@ async def preview_stream(
                 user_data = decode_token(token)
             except Exception:
                 yield ev({"step": "excel", "status": "error", "msg": "Invalid or expired token"}); return
+            try:
+                _validate_active_user_sync(user_data, db)
+            except HTTPException as _exc:
+                yield ev({"step": "excel", "status": "error", "msg": _exc.detail}); return
 
             yield ev({"step": "excel", "status": "running", "msg": "Downloading price list from Nextcloud…"})
             try:
@@ -2040,6 +2078,10 @@ async def apply_stream(
                 user_data = decode_token(token)
             except Exception:
                 yield ev({"type": "error", "msg": "Invalid or expired token"}); return
+            try:
+                _validate_active_user_sync(user_data, db)
+            except HTTPException as _exc:
+                yield ev({"type": "error", "msg": _exc.detail}); return
 
             job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
             if not job:
@@ -2173,7 +2215,7 @@ async def apply_stream(
 # ── 8. Write back to sheet ────────────────────────────────────────────────────
 
 @app.post("/api/jobs/{job_id}/writeback")
-async def writeback(job_id: int, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def writeback(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
