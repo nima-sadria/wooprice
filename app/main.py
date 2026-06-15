@@ -483,6 +483,8 @@ async def require_admin(
 def _enforce_permission(user_data: dict, permission: str, db: Session) -> None:
     """Check a named permission for the requesting user.
     Super-admins and DB admins pass unconditionally.
+    For all other users, can_access_site is enforced as a global gate before
+    any specific permission is checked.
     Raises HTTP 403 and writes a permission_denied audit record on failure."""
     username = user_data.get("sub", "")
     if is_super_admin(username):
@@ -492,6 +494,9 @@ def _enforce_permission(user_data: dict, permission: str, db: Session) -> None:
         raise HTTPException(403, "Access denied")
     if app_user.is_admin:
         return
+    if not app_user.can_access_site:
+        _audit(username, "permission_denied", detail={"permission": "can_access_site"})
+        raise HTTPException(403, "Site access revoked")
     if not getattr(app_user, permission, False):
         _audit(username, "permission_denied", detail={"permission": permission})
         raise HTTPException(403, "Permission denied")
@@ -805,7 +810,13 @@ async def product_thumb(
     db: Session = Depends(get_db),
 ):
     """Return a JPEG thumbnail for a product (96×96 by default; also 128, 256).
-    Served from disk cache; generated lazily on first request using Pillow."""
+    Served from disk cache; generated lazily on first request using Pillow.
+
+    PUBLIC BY DESIGN — no authentication required. Exposes only image data;
+    no price, stock, or catalogue information is returned. The browser workspace
+    table loads thumbnails without token forwarding. Consider rate limiting if
+    abuse is detected in production.
+    """
     size = min(_THUMB_SIZES, key=lambda s: abs(s - size))  # snap to nearest valid size
     thumb_dir = _get_thumb_dir()
     thumb_path = _thumb_path(thumb_dir, wc_id, size)
@@ -1222,8 +1233,7 @@ async def me(
         }
     app_user = db.query(AppUser).filter(AppUser.username == username).first()
     if app_user is None:
-        return {"username": username, "role": user["role"], "is_admin": False,
-                "permissions": {p: True for p in _ALL_PERM_FIELDS}}
+        raise HTTPException(403, "User not found in access list — contact your administrator")
     perms = {p: bool(getattr(app_user, p, False)) for p in _ALL_PERM_FIELDS}
     if app_user.is_admin:
         perms = {p: True for p in _ALL_PERM_FIELDS}
@@ -1794,7 +1804,9 @@ async def update_stock(
 # ── System diagnostics ────────────────────────────────────────────────────────
 
 @app.get("/api/system/diagnostics")
-async def system_diagnostics(user: dict = Depends(require_admin), db: Session = Depends(get_db)):
+async def system_diagnostics(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    if not is_super_admin(user["sub"]):
+        raise HTTPException(403, "Super-admin only")
     import subprocess
     settings = get_settings()
     products_count = db.query(func.count(ProductCache.wc_id)).scalar() or 0

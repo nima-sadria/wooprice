@@ -3,6 +3,29 @@
 Revision ID: 003
 Revises: 002
 Create Date: 2026-06-15
+
+Default values for NEW rows (server_default):
+    can_access_site=1, can_fetch=1, can_apply=1, can_edit_price=1, can_edit_stock=1
+    can_view_logs=0, can_view_settings=0
+
+Defaults for EXISTING operator rows (backfilled at migration time via server_default):
+    Broad-access defaults are intentional for the current deployment.
+    All existing users in app_users are trusted price operators who need full
+    fetch/apply/edit access. can_view_logs and can_view_settings default to 0
+    (non-admins do not see these sections unless explicitly granted).
+
+    Existing admin rows (is_admin=1) receive all permissions=1 via the UPDATE
+    statement below, matching their pre-migration unrestricted access.
+
+    To restrict an existing operator after deploy, run:
+        UPDATE app_users SET can_apply=0 WHERE username='...';
+        -- and bump permission_version to invalidate live tokens.
+
+Public-by-design route: /api/products/{wc_id}/thumb
+    This route has no authentication. It exposes only JPEG thumbnails — no
+    price, stock, or catalogue data. Marked public so the browser workspace
+    table can load images without token forwarding. Rate limiting may be
+    added in a future deployment if abuse is detected.
 """
 from typing import Sequence, Union
 
