@@ -288,7 +288,7 @@ cp .env.example .env
 
 ```env
 SUPER_ADMIN_USERS=woo,admin
-BOOTSTRAP_APP_ADMINS=woo,admin:nima.sadria@gmail.com
+BOOTSTRAP_APP_ADMINS=woo:woo@softpple.com,admin:nima.sadria@gmail.com
 BOOTSTRAP_APP_USERS=az1328:amiraliqaz1328b@gmail.com,farshadkh:farshadkhodadad2@gmail.com,nima.sadria:nima.sadria@yahoo.com,soheil:soheilzarei82@gmail.com
 ```
 
