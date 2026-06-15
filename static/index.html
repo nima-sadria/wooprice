@@ -562,7 +562,7 @@ select.wp-sel:focus { border-color: var(--accent); }
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span id="fetch-mode-badge" class="pf-mode-badge full" style="display:none">&#9679; Full</span>
             <span id="fetch-route-badge" style="font-size:10px;font-family:monospace;background:#1e2433;color:#7dd3fc;border:1px solid #334155;border-radius:4px;padding:2px 7px;display:inline-block" title="Backend route this button calls">&#8594; /api/preview/stream (Preview Fetch)</span>
-            <button class="wp-btn wp-btn-ghost" type="button" id="wc-refresh-btn" onclick="startFullFetch()" title="Route: GET /api/fetch/full — fast sync: all top-level products + images, no variation sub-requests">&#8635; Refresh WooCommerce Cache</button>
+            <button class="wp-btn wp-btn-ghost" type="button" id="wc-refresh-btn" onclick="startFullFetch()" title="Route: GET /api/fetch/full — fast sync: all top-level products + images (~24 API calls, no variation sub-requests)">&#8635; Refresh Product Cache</button>
             <button class="wp-btn wp-btn-ghost" type="button" id="deep-sync-btn" onclick="startDeepVariationsSync()" style="color:#d97706;border-color:#d97706" title="Route: GET /api/fetch/deep-variations — syncs ALL variations for ALL variable parents. May take 40–60 min. Run once after initial setup.">&#9679; Deep Refresh Variations</button>
             <button class="wp-btn wp-btn-blue" type="button" id="fetch-btn" onclick="startPreview()">Fetch Preview</button>
           </div>
@@ -609,10 +609,10 @@ select.wp-sel:focus { border-color: var(--accent); }
           </div>
         </div>
 
-        <!-- WooCommerce cache sync card — shared by Refresh WooCommerce Cache and Deep Refresh Variations -->
+        <!-- Cache sync card — shared by Refresh Product Cache and Deep Refresh Variations -->
         <div class="wp-card" id="wc-refresh-card" style="display:none;margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap">
-            <div id="wc-refresh-title" style="font-weight:600;font-size:14px">&#8635; Refresh WooCommerce Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span></div>
+            <div id="wc-refresh-title" style="font-weight:600;font-size:14px">&#8635; Refresh Product Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span></div>
             <span id="wc-refresh-status" style="font-size:12px;color:var(--wp-muted)">Running…</span>
           </div>
           <div id="wc-refresh-log" style="font-family:monospace;font-size:12px;max-height:180px;overflow-y:auto;background:var(--bg-base,#F5F6FA);border:1px solid var(--wp-border,#E8EAED);border-radius:6px;padding:10px 14px;line-height:1.6"></div>
@@ -1624,7 +1624,7 @@ function addLog(msg, cls) {
 
 function startFullFetch() {
   var ctx = _wcRefreshStart(
-    '&#8635; Refresh WooCommerce Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span>',
+    '&#8635; Refresh Product Cache <span style="font-size:11px;font-family:monospace;color:var(--wp-muted);font-weight:400">GET /api/fetch/full</span>',
     '/api/fetch/full → Fast product cache sync (top-level products + images, no variation sub-requests)',
     'wc-refresh-btn', 'deep-sync-btn'
   );

@@ -288,6 +288,32 @@ async def lookup_product_info(product_id: int) -> dict:
         return {"found": False, "source": "woocommerce", "wc_id": product_id}
 
 
+async def resolve_variation_parent_id(variation_id: int) -> int | None:
+    """Best-effort WC lookup to find parent_id for an unknown variation ID.
+
+    Uses a 5-second timeout so the thumbnail endpoint never hangs.
+    Returns parent_id > 0 if the ID is a variation, None otherwise.
+    """
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=5) as client:
+            resp = await client.get(
+                f"{_base()}/products/{variation_id}",
+                params={"_fields": "id,parent_id,type"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                parent_id = data.get("parent_id") or 0
+                if parent_id > 0:
+                    logger.info(
+                        "resolve_variation_parent_id: wc_id=%d → parent_id=%d (type=%s)",
+                        variation_id, parent_id, data.get("type", "?"),
+                    )
+                    return parent_id
+    except Exception as exc:
+        logger.warning("resolve_variation_parent_id: failed for wc_id=%d: %s", variation_id, exc)
+    return None
+
+
 async def update_single_product(product_id: int, updates: dict, parent_id: int = 0) -> dict:
     """PUT a single product or variation with arbitrary field updates."""
     async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:

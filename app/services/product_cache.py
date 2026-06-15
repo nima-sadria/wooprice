@@ -48,12 +48,18 @@ def get_cached_by_ids(db: Session, product_ids: list[int]) -> dict[int, dict]:
     return {r.wc_id: _to_dict(r) for r in rows}
 
 
-def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[int]]:
+def upsert_products(
+    db: Session,
+    products: list[dict],
+    image_sync_authoritative: bool = False,
+) -> tuple[int, int, set[int]]:
     """Insert or update products in the cache. Returns (inserted, updated, image_changed_ids).
 
-    image_changed_ids: wc_ids of existing rows whose image_url changed — callers
-    should invalidate disk thumbnails for these IDs (and cascade to variations that
-    inherit the parent's image).
+    image_changed_ids: wc_ids of existing rows whose image_url changed.
+    image_sync_authoritative: when True, allow clearing an existing image_url to NULL
+    if the incoming dict has image_url=None.  When False (default), a None incoming
+    image never overwrites a non-NULL stored value — protects against accidental erasure
+    by callers that don't carry image data (e.g. preview cache rows).
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     inserted = updated = 0
@@ -86,11 +92,19 @@ def upsert_products(db: Session, products: list[dict]) -> tuple[int, int, set[in
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
             new_img = p.get("image_url")
             if "image_url" in p:
-                if new_img != row.image_url:
-                    image_changed_ids.add(wc_id)
-                row.image_url = new_img or None
-                row.image_source = p.get("image_source") or "none"
-                row.image_last_synced_at = now
+                if new_img:
+                    if new_img != row.image_url:
+                        image_changed_ids.add(wc_id)
+                    row.image_url = new_img
+                    row.image_source = p.get("image_source") or "simple"
+                    row.image_last_synced_at = now
+                elif image_sync_authoritative:
+                    if row.image_url:
+                        image_changed_ids.add(wc_id)
+                    row.image_url = None
+                    row.image_source = "none"
+                    row.image_last_synced_at = now
+                # else: new_img is None and not authoritative — preserve existing image_url
             logger.debug(
                 "product_image: wc_id=%s parent_id=%s product_type=%s image_source=%s image_url=%s last_seen_at=%s",
                 wc_id, p.get("parent_id", 0), p.get("product_type", "?"),

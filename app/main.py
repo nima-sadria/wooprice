@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -57,8 +57,10 @@ from .services.woocommerce import (
     fetch_categories,
     fetch_product_prices,
     fetch_products_modified_after,
+    fetch_variations_for_selected_parents,
     get_cache_info,
     lookup_product_info,
+    resolve_variation_parent_id,
     update_parent_stock_statuses,
     update_single_product,
 )
@@ -582,12 +584,43 @@ async def product_thumb(
                         headers={"Cache-Control": "public, max-age=86400"})
 
     row = db.query(ProductCache).filter(ProductCache.wc_id == wc_id).first()
+
+    # Known variation with no own image → try parent
     if row and not row.image_url and row.parent_id:
-        # Variation with no own image — fall back to parent's image
         parent = db.query(ProductCache).filter(ProductCache.wc_id == row.parent_id).first()
         if parent and parent.image_url:
             logger.debug("thumb fallback: wc_id=%d using parent_id=%d image", wc_id, row.parent_id)
             row = parent
+
+    # Unknown ID: resolve parent via SyncItem (fast) then WC API (5 s timeout)
+    if not row or not row.image_url:
+        parent_id: int | None = None
+
+        if not row:
+            sync_row = (
+                db.query(SyncItem)
+                .filter(SyncItem.product_id == wc_id, SyncItem.parent_id > 0)
+                .order_by(SyncItem.id.desc())
+                .first()
+            )
+            if sync_row:
+                parent_id = sync_row.parent_id
+                logger.debug("thumb: resolved parent_id=%d for wc_id=%d via SyncItem", parent_id, wc_id)
+            else:
+                parent_id = await resolve_variation_parent_id(wc_id)
+
+        if parent_id:
+            parent = db.query(ProductCache).filter(ProductCache.wc_id == parent_id).first()
+            if parent and parent.image_url:
+                _now = datetime.now(timezone.utc).replace(tzinfo=None)
+                try:
+                    upsert_products(db, [{"wc_id": wc_id, "parent_id": parent_id, "product_type": "variation"}])
+                    db.commit()
+                    logger.info("thumb: stubbed variation row wc_id=%d parent_id=%d", wc_id, parent_id)
+                except Exception:
+                    db.rollback()
+                row = parent
+
     if not row or not row.image_url:
         return Response(content=_EMPTY_THUMB, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=300"})
@@ -653,42 +686,58 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
         def ev(d: dict) -> str:
             return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
 
-        yield ev({"step": "start", "status": "running", "msg": "Starting fast WooCommerce product cache refresh (top-level products only, no variations)…"})
+        _t0 = time.monotonic()
+        yield ev({"step": "start", "status": "running", "msg": "Starting fast product cache refresh (top-level products + images, no variation sub-requests)…"})
         try:
-            yield ev({"step": "fetch", "status": "running", "msg": "Fetching product catalog from WooCommerce (~24 pages, no variation calls)…"})
+            yield ev({"step": "fetch", "status": "running", "msg": "Fetching product catalog from WooCommerce (~24 pages, images included)…"})
             fetch_task = asyncio.create_task(fetch_all_products_fast())
             while not fetch_task.done():
                 yield ": keepalive\n\n"
                 await asyncio.sleep(10)
             products, _ = await fetch_task
 
+            simple_count = sum(1 for p in products if p.get("product_type") == "simple")
             variable_count = sum(1 for p in products if p.get("product_type") == "variable")
+            with_img_fetch = sum(1 for p in products if p.get("image_url"))
             yield ev({
                 "step": "fetch",
                 "status": "done",
-                "msg": f"Fetched {len(products)} products from WooCommerce ({variable_count} variable parents, {len(products) - variable_count} simple)",
+                "msg": f"Fetched {len(products)} products from WooCommerce — {simple_count} simple, {variable_count} variable parents, {with_img_fetch} with images",
                 "count": len(products),
+                "simple_count": simple_count,
                 "variable_count": variable_count,
+                "with_image": with_img_fetch,
             })
 
             yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} products to local cache…"})
             _db = SessionLocal()
             try:
-                inserted, updated, img_changed = upsert_products(_db, products)
+                inserted, updated, img_changed = upsert_products(_db, products, image_sync_authoritative=True)
                 _db.commit()
                 _invalidate_thumbs(img_changed, _db)
             finally:
                 _db.close()
 
-            with_img = sum(1 for p in products if p.get("image_url"))
+            _elapsed = time.monotonic() - _t0
+            without_img = len(products) - with_img_fetch
+            logger.warning(
+                "fast_fetch complete: total=%d inserted=%d updated=%d with_image=%d without_image=%d elapsed=%.1fs",
+                len(products), inserted, updated, with_img_fetch, without_img, _elapsed,
+            )
             yield ev({
                 "step": "done",
                 "status": "ok",
-                "msg": f"Cache updated: {inserted} new, {updated} updated — {with_img}/{len(products)} have images. Variable product thumbnails use parent image fallback.",
+                "msg": (
+                    f"Product cache refreshed: {inserted} new, {updated} updated "
+                    f"({with_img_fetch} with images, {without_img} without) in {_elapsed:.0f}s. "
+                    f"Variation thumbnails fall back to parent image automatically."
+                ),
                 "inserted": inserted,
                 "updated": updated,
                 "total": len(products),
-                "with_image": with_img,
+                "with_image": with_img_fetch,
+                "without_image": without_img,
+                "elapsed_seconds": round(_elapsed, 1),
             })
 
         except asyncio.CancelledError:
@@ -750,7 +799,7 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
             yield ev({"step": "upsert", "status": "running", "msg": f"Saving {len(products)} records to local cache…"})
             _db = SessionLocal()
             try:
-                inserted, updated, img_changed = upsert_products(_db, products)
+                inserted, updated, img_changed = upsert_products(_db, products, image_sync_authoritative=True)
                 _db.commit()
                 _invalidate_thumbs(img_changed, _db)
             finally:
@@ -835,7 +884,7 @@ async def fetch_light_stream(
             yield ev({"step": "upsert", "status": "running", "msg": f"Updating {len(products)} products in local cache…"})
             _db = SessionLocal()
             try:
-                inserted, updated, img_changed = upsert_products(_db, products)
+                inserted, updated, img_changed = upsert_products(_db, products, image_sync_authoritative=True)
                 _db.commit()
                 _invalidate_thumbs(img_changed, _db)
             finally:
@@ -1620,6 +1669,59 @@ async def preview_stream(
                 yield ev({"step": "wc", "status": "running", "msg": f"Loading {len(cached_data)} products from local cache…"})
 
             wc_data = cached_data
+
+            # Targeted variation image refresh — only for spreadsheet IDs that are
+            # variations missing image_url, capped to avoid crawling the whole catalog.
+            _VAR_PARENT_CAP = 30
+            _var_rows_no_img = (
+                db.query(ProductCache)
+                .filter(
+                    ProductCache.wc_id.in_(product_ids),
+                    ProductCache.product_type == "variation",
+                    ProductCache.image_url.is_(None),
+                    ProductCache.parent_id > 0,
+                )
+                .all()
+            )
+            if _var_rows_no_img:
+                _var_parent_ids = {r.parent_id for r in _var_rows_no_img}
+                if len(_var_parent_ids) <= _VAR_PARENT_CAP:
+                    _parent_rows = {
+                        r.wc_id: r for r in db.query(ProductCache)
+                        .filter(ProductCache.wc_id.in_(_var_parent_ids)).all()
+                    }
+                    if _parent_rows:
+                        _parent_info: dict[int, tuple] = {}
+                        for _pid, _pr in _parent_rows.items():
+                            try:
+                                _cats = json.loads(_pr.categories) if _pr.categories else []
+                            except Exception:
+                                _cats = []
+                            _parent_info[_pid] = (_pr.name or "", _cats, _pr.image_url)
+                        yield ev({"step": "wc", "status": "running",
+                                  "msg": f"Fetching variation images for {len(_var_parent_ids)} parent(s) ({len(_var_rows_no_img)} variation(s) missing images)…"})
+                        try:
+                            _vt = asyncio.create_task(
+                                fetch_variations_for_selected_parents(_var_parent_ids, _parent_info)
+                            )
+                            while not _vt.done():
+                                yield ": keepalive\n\n"
+                                await asyncio.sleep(5)
+                            _var_products, _var_warn = await _vt
+                            if _var_products:
+                                upsert_products(db, _var_products, image_sync_authoritative=True)
+                                db.commit()
+                                wc_data.update(get_cached_by_ids(db, [p["wc_id"] for p in _var_products]))
+                            for _w in _var_warn:
+                                logger.warning("preview targeted variation: %s", _w)
+                        except Exception as _ve:
+                            logger.warning("preview_stream: targeted variation fetch error: %s", _ve)
+                else:
+                    logger.info(
+                        "preview_stream: skipping targeted variation fetch — %d parents exceeds cap %d",
+                        len(_var_parent_ids), _VAR_PARENT_CAP,
+                    )
+
             yield ev({"step": "wc", "status": "done", "msg": f"Loaded {len(wc_data)} products ({len(product_ids) - len(missing_ids)} from cache, {len(missing_ids)} from WooCommerce)"})
 
             # Cache-meta for debug logging
