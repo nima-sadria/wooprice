@@ -111,6 +111,14 @@ class AppUser(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=True)
+    # Granular permissions — defaults mirror safe non-admin baseline
+    can_access_site   = Column(Boolean, nullable=False, default=True)
+    can_fetch         = Column(Boolean, nullable=False, default=True)
+    can_apply         = Column(Boolean, nullable=False, default=True)
+    can_edit_price    = Column(Boolean, nullable=False, default=True)
+    can_edit_stock    = Column(Boolean, nullable=False, default=True)
+    can_view_logs     = Column(Boolean, nullable=False, default=False)
+    can_view_settings = Column(Boolean, nullable=False, default=False)
 
 
 class AuditLog(Base):

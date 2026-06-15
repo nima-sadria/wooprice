@@ -163,7 +163,9 @@ def _run_bootstrap_users() -> None:
         for username, email in admin_entries:
             existing = db.query(AppUser).filter(AppUser.username == username).first()
             if not existing:
-                db.add(AppUser(username=username, display_name=username, is_admin=True, is_active=True, email=email))
+                row = AppUser(username=username, display_name=username, is_admin=True, is_active=True, email=email)
+                _apply_perm_defaults(row)
+                db.add(row)
                 seeded.append(f"{username}(admin)")
             elif email and not existing.email:
                 existing.email = email
@@ -172,7 +174,9 @@ def _run_bootstrap_users() -> None:
         for username, email in user_entries:
             existing = db.query(AppUser).filter(AppUser.username == username).first()
             if not existing:
-                db.add(AppUser(username=username, display_name=username, is_admin=False, is_active=True, email=email))
+                row = AppUser(username=username, display_name=username, is_admin=False, is_active=True, email=email)
+                _apply_perm_defaults(row)
+                db.add(row)
                 seeded.append(f"{username}(user)")
             elif email and not existing.email:
                 existing.email = email
@@ -296,6 +300,13 @@ class AppUserCreate(BaseModel):
     email: str | None = None
     is_admin: bool = False
     notes: str | None = None
+    can_access_site: bool | None = None    # None = use smart default (admin → True, user → True)
+    can_fetch: bool | None = None
+    can_apply: bool | None = None
+    can_edit_price: bool | None = None
+    can_edit_stock: bool | None = None
+    can_view_logs: bool | None = None      # None = use smart default (admin → True, user → False)
+    can_view_settings: bool | None = None
 
 
 class AppUserUpdate(BaseModel):
@@ -304,6 +315,13 @@ class AppUserUpdate(BaseModel):
     is_active: bool | None = None
     is_admin: bool | None = None
     notes: str | None = None
+    can_access_site: bool | None = None
+    can_fetch: bool | None = None
+    can_apply: bool | None = None
+    can_edit_price: bool | None = None
+    can_edit_stock: bool | None = None
+    can_view_logs: bool | None = None
+    can_view_settings: bool | None = None
 
 
 # ── Thumbnail helpers ─────────────────────────────────────────────────────────
@@ -462,12 +480,42 @@ async def require_admin(
     return user
 
 
+def _enforce_permission(user_data: dict, permission: str, db: Session) -> None:
+    """Check a named permission for the requesting user.
+    Super-admins and DB admins pass unconditionally.
+    Raises HTTP 403 and writes a permission_denied audit record on failure."""
+    username = user_data.get("sub", "")
+    if is_super_admin(username):
+        return
+    app_user = db.query(AppUser).filter(AppUser.username == username).first()
+    if not app_user:
+        raise HTTPException(403, "Access denied")
+    if app_user.is_admin:
+        return
+    if not getattr(app_user, permission, False):
+        _audit(username, "permission_denied", detail={"permission": permission})
+        raise HTTPException(403, "Permission denied")
+
+
+def _enforce_admin_sync(user_data: dict, db: Session) -> None:
+    """Synchronous admin gate for SSE outer-handlers that cannot use Depends()."""
+    username = user_data.get("sub", "")
+    if is_super_admin(username):
+        return
+    app_user = db.query(AppUser).filter(AppUser.username == username).first()
+    if not app_user or not app_user.is_admin:
+        _audit(username, "permission_denied", detail={"reason": "not_admin"})
+        raise HTTPException(403, "Admin access required")
+
+
 def require_permission(permission: str):
-    """Phase 0: any active authenticated user has all permissions.
-    is_active + permission_version enforced by get_current_active_user."""
+    """Dependency that enforces a named permission.
+    Super-admins and DB admins always pass. Raises HTTP 403 on failure."""
     async def _check(
+        db: Session = Depends(get_db),
         user: dict = Depends(get_current_active_user),
     ) -> dict:
+        _enforce_permission(user, permission, db)
         return user
     return _check
 
@@ -699,7 +747,7 @@ async def health():
 # ── Cache management ──────────────────────────────────────────────────────────
 
 @app.get("/api/cache/status")
-async def cache_status(user: dict = Depends(get_current_active_user)):
+async def cache_status(user: dict = Depends(require_permission("can_fetch"))):
     s = get_settings()
     info = get_cache_info()
     return {
@@ -723,7 +771,7 @@ async def list_cached_products(
     limit: int = Query(50, ge=1, le=500),
     search: str | None = Query(None),
     product_type: str | None = Query(None),
-    user: dict = Depends(get_current_active_user),
+    user: dict = Depends(require_permission("can_fetch")),
     db: Session = Depends(get_db),
 ):
     """Return paginated products from the local DB cache with optional filters."""
@@ -739,7 +787,7 @@ async def list_cached_products(
 
 
 @app.get("/api/products/cache-status")
-async def db_cache_status(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def db_cache_status(user: dict = Depends(require_permission("can_fetch")), db: Session = Depends(get_db)):
     return cache_get_stats(db)
 
 
@@ -869,6 +917,7 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
     _auth_db = SessionLocal()
     try:
         creds = validate_sse_token(raw, _auth_db)
+        _enforce_permission(creds, "can_fetch", _auth_db)
     except HTTPException as _exc:
         return StreamingResponse(
             iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
@@ -952,7 +1001,8 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
     raw = token or request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
     _auth_db = SessionLocal()
     try:
-        validate_sse_token(raw, _auth_db)
+        creds = validate_sse_token(raw, _auth_db)
+        _enforce_admin_sync(creds, _auth_db)
     except HTTPException as _exc:
         return StreamingResponse(
             iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
@@ -1025,7 +1075,8 @@ async def fetch_light_stream(
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/light mode=light_sync ip=%s", _client_ip(request))
     raw = token or request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
     try:
-        validate_sse_token(raw, db)
+        creds = validate_sse_token(raw, db)
+        _enforce_permission(creds, "can_fetch", db)
     except HTTPException as _exc:
         return StreamingResponse(
             iter([f'data: {{"error":"{_exc.detail}"}}\n\n']),
@@ -1157,8 +1208,31 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
 
 
 @app.get("/api/auth/me")
-async def me(user: dict = Depends(get_current_active_user)):
-    return {"username": user["sub"], "role": user["role"]}
+async def me(
+    user: dict = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    username = user["sub"]
+    if is_super_admin(username):
+        return {
+            "username": username,
+            "role": user["role"],
+            "is_admin": True,
+            "permissions": {p: True for p in _ALL_PERM_FIELDS},
+        }
+    app_user = db.query(AppUser).filter(AppUser.username == username).first()
+    if app_user is None:
+        return {"username": username, "role": user["role"], "is_admin": False,
+                "permissions": {p: True for p in _ALL_PERM_FIELDS}}
+    perms = {p: bool(getattr(app_user, p, False)) for p in _ALL_PERM_FIELDS}
+    if app_user.is_admin:
+        perms = {p: True for p in _ALL_PERM_FIELDS}
+    return {
+        "username": username,
+        "role": user["role"],
+        "is_admin": app_user.is_admin,
+        "permissions": perms,
+    }
 
 
 # ── App Users (admin) ─────────────────────────────────────────────────────────
@@ -1175,7 +1249,34 @@ def _app_user_dict(row: AppUser) -> dict:
         "notes": row.notes,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "permissions": {
+            "can_access_site":   row.can_access_site,
+            "can_fetch":         row.can_fetch,
+            "can_apply":         row.can_apply,
+            "can_edit_price":    row.can_edit_price,
+            "can_edit_stock":    row.can_edit_stock,
+            "can_view_logs":     row.can_view_logs,
+            "can_view_settings": row.can_view_settings,
+        },
     }
+
+
+_ALL_PERM_FIELDS = (
+    "can_access_site", "can_fetch", "can_apply",
+    "can_edit_price", "can_edit_stock", "can_view_logs", "can_view_settings",
+)
+
+
+def _apply_perm_defaults(row: AppUser) -> None:
+    """Set all permission columns on a newly created AppUser based on is_admin."""
+    all_true = row.is_admin
+    row.can_access_site   = True
+    row.can_fetch         = True
+    row.can_apply         = True
+    row.can_edit_price    = True
+    row.can_edit_stock    = True
+    row.can_view_logs     = all_true
+    row.can_view_settings = all_true
 
 
 @app.get("/api/admin/app-users")
@@ -1189,6 +1290,7 @@ async def list_app_users(
 
 @app.post("/api/admin/app-users", status_code=201)
 async def create_app_user(
+    request: Request,
     body: AppUserCreate,
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -1206,14 +1308,23 @@ async def create_app_user(
         is_admin=body.is_admin,
         notes=body.notes,
     )
+    _apply_perm_defaults(row)
+    for field in _ALL_PERM_FIELDS:
+        override = getattr(body, field, None)
+        if override is not None:
+            setattr(row, field, override)
     db.add(row)
     db.commit()
     db.refresh(row)
+    caller = user.get("sub", "")
+    _audit(caller, "user_access_create", ip=_client_ip(request),
+           detail={"target": body.username, "is_admin": body.is_admin})
     return _app_user_dict(row)
 
 
 @app.patch("/api/admin/app-users/{username}")
 async def update_app_user(
+    request: Request,
     username: str,
     body: AppUserUpdate,
     user: dict = Depends(require_admin),
@@ -1249,19 +1360,37 @@ async def update_app_user(
             if conflict:
                 raise HTTPException(409, "Email already assigned to another user")
         row.email = email_val
-    if body.is_active is not None:
+    perm_changed = False
+    if body.is_active is not None and body.is_active != row.is_active:
         row.is_active = body.is_active
-    if body.is_admin is not None:
+        perm_changed = True
+        _audit(caller, "user_access_disable" if not body.is_active else "user_access_enable",
+               ip=_client_ip(request), detail={"target": username})
+    admin_changed = body.is_admin is not None and body.is_admin != row.is_admin
+    if admin_changed:
         row.is_admin = body.is_admin
+        perm_changed = True
+        _audit(caller, "user_access_admin_grant" if body.is_admin else "user_access_admin_revoke",
+               ip=_client_ip(request), detail={"target": username})
     if body.notes is not None:
         row.notes = body.notes
+    for field in _ALL_PERM_FIELDS:
+        override = getattr(body, field, None)
+        if override is not None and override != getattr(row, field, None):
+            setattr(row, field, override)
+            perm_changed = True
+    if perm_changed:
+        row.permission_version = (row.permission_version or 1) + 1
     row.updated_at = datetime.utcnow()
     db.commit()
+    _audit(caller, "user_access_update", ip=_client_ip(request),
+           detail={"target": username, "perm_bumped": perm_changed})
     return _app_user_dict(row)
 
 
 @app.delete("/api/admin/app-users/{username}", status_code=204)
 async def delete_app_user(
+    request: Request,
     username: str,
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -1284,11 +1413,13 @@ async def delete_app_user(
             )
     db.delete(row)
     db.commit()
+    _audit(caller, "user_access_delete", ip=_client_ip(request), detail={"target": username})
     return Response(status_code=204)
 
 
 @app.post("/api/admin/app-users/{username}/revoke-tokens")
 async def revoke_user_tokens(
+    request: Request,
     username: str,
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -1302,13 +1433,15 @@ async def revoke_user_tokens(
     row.permission_version = (row.permission_version or 1) + 1
     row.updated_at = datetime.utcnow()
     db.commit()
+    _audit(caller, "token_revoke", ip=_client_ip(request),
+           detail={"target": username, "new_pv": row.permission_version})
     return {"username": username, "permission_version": row.permission_version}
 
 
 # ── Settings (admin) ──────────────────────────────────────────────────────────
 
 @app.get("/api/settings")
-async def get_app_settings(user: dict = Depends(require_admin)):
+async def get_app_settings(user: dict = Depends(require_permission("can_view_settings"))):
     s = get_settings()
     def mask(v: str) -> str:
         return v[:4] + "****" if len(v) > 4 else "****"
@@ -1328,7 +1461,7 @@ async def get_app_settings(user: dict = Depends(require_admin)):
 # ── Alarm thresholds ──────────────────────────────────────────────────────────
 
 @app.get("/api/alarm-settings")
-async def get_alarm_settings(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def get_alarm_settings(user: dict = Depends(require_permission("can_view_settings")), db: Session = Depends(get_db)):
     rows = db.query(AlarmThreshold).all()
     return [{"category_id": r.category_id, "threshold_percent": r.threshold_percent} for r in rows]
 
@@ -1352,7 +1485,7 @@ async def set_alarm_settings(
 @app.get("/api/audit-logs")
 async def get_audit_logs(
     limit: int = 200,
-    user: dict = Depends(get_current_active_user),
+    user: dict = Depends(require_permission("can_view_logs")),
     db: Session = Depends(get_db),
 ):
     logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
@@ -1381,7 +1514,7 @@ async def get_audit_logs(
 _cat_cache: dict = {"data": None, "ts": 0.0}
 
 @app.get("/api/categories")
-async def get_categories(user: dict = Depends(get_current_active_user)):
+async def get_categories(user: dict = Depends(require_permission("can_access_site"))):
     if _cat_cache["data"] is not None and time.time() - _cat_cache["ts"] < 300:
         return _cat_cache["data"]
     try:
@@ -1398,7 +1531,7 @@ async def get_categories(user: dict = Depends(get_current_active_user)):
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/dashboard")
-async def get_dashboard(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def get_dashboard(user: dict = Depends(require_permission("can_access_site")), db: Session = Depends(get_db)):
     total_syncs = db.query(SyncJob).filter(SyncJob.status == JobStatus.completed).count()
 
     latest_job = (
@@ -1448,7 +1581,7 @@ async def get_dashboard(user: dict = Depends(get_current_active_user), db: Sessi
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/analytics")
-async def get_analytics(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def get_analytics(user: dict = Depends(require_permission("can_access_site")), db: Session = Depends(get_db)):
     # Get the most recent SyncItem per product_id (across all completed jobs)
     latest_id_sq = (
         db.query(func.max(SyncItem.id).label("max_id"))
@@ -1496,7 +1629,7 @@ async def get_analytics(user: dict = Depends(get_current_active_user), db: Sessi
 @app.get("/api/products/{product_id}/lookup")
 async def lookup_product(
     product_id: int,
-    user: dict = Depends(get_current_active_user),
+    user: dict = Depends(require_permission("can_fetch")),
     db: Session = Depends(get_db),
 ):
     """Resolve a product ID to its type and parent_id.
@@ -1542,7 +1675,7 @@ async def update_price(
     product_id: int,
     body: PriceUpdateRequest,
     request: Request,
-    user: dict = Depends(get_current_active_user),
+    user: dict = Depends(require_permission("can_edit_price")),
     db: Session = Depends(get_db),
 ):
     logger.info("update_price: product_id=%s user=%s", product_id, user.get("sub"))
@@ -1602,7 +1735,7 @@ async def update_stock(
     product_id: int,
     body: StockUpdateRequest,
     request: Request,
-    user: dict = Depends(get_current_active_user),
+    user: dict = Depends(require_permission("can_edit_stock")),
     db: Session = Depends(get_db),
 ):
     logger.info("update_stock: product_id=%s user=%s", product_id, user.get("sub"))
@@ -1661,10 +1794,7 @@ async def update_stock(
 # ── System diagnostics ────────────────────────────────────────────────────────
 
 @app.get("/api/system/diagnostics")
-async def system_diagnostics(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
-    if not is_super_admin(user["sub"]):
-        raise HTTPException(403, "Admin only")
-
+async def system_diagnostics(user: dict = Depends(require_admin), db: Session = Depends(get_db)):
     import subprocess
     settings = get_settings()
     products_count = db.query(func.count(ProductCache.wc_id)).scalar() or 0
@@ -1697,7 +1827,7 @@ async def system_diagnostics(user: dict = Depends(get_current_active_user), db: 
 # ── 1. Create preview ─────────────────────────────────────────────────────────
 
 @app.post("/api/preview")
-async def create_preview(user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def create_preview(user: dict = Depends(require_permission("can_fetch")), db: Session = Depends(get_db)):
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/preview mode=create_preview user=%s", user.get("sub", "?"))
     try:
         xlsx = await download_xlsx(force=True)
@@ -1776,7 +1906,7 @@ async def create_preview(user: dict = Depends(get_current_active_user), db: Sess
 # ── 2. Confirm sync ───────────────────────────────────────────────────────────
 
 @app.post("/api/sync/{job_id}/confirm")
-async def confirm_sync(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def confirm_sync(job_id: int, user: dict = Depends(require_permission("can_apply")), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1848,7 +1978,7 @@ async def confirm_sync(job_id: int, user: dict = Depends(get_current_active_user
 # ── 3. Cancel preview ─────────────────────────────────────────────────────────
 
 @app.delete("/api/sync/{job_id}")
-async def cancel_sync(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def cancel_sync(job_id: int, user: dict = Depends(require_permission("can_apply")), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1862,7 +1992,7 @@ async def cancel_sync(job_id: int, user: dict = Depends(get_current_active_user)
 # ── 4. List jobs ──────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs")
-async def list_jobs(limit: int = 30, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def list_jobs(limit: int = 30, user: dict = Depends(require_permission("can_view_logs")), db: Session = Depends(get_db)):
     jobs = db.query(SyncJob).order_by(SyncJob.created_at.desc()).limit(limit).all()
     return [_job_out(j) for j in jobs]
 
@@ -1870,7 +2000,7 @@ async def list_jobs(limit: int = 30, user: dict = Depends(get_current_active_use
 # ── 5. Job detail ─────────────────────────────────────────────────────────────
 
 @app.get("/api/jobs/{job_id}")
-async def get_job(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def get_job(job_id: int, user: dict = Depends(require_permission("can_view_logs")), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1881,7 +2011,7 @@ async def get_job(job_id: int, user: dict = Depends(get_current_active_user), db
 # ── 6. Spreadsheet metadata (HEAD only — no download) ────────────────────────
 
 @app.get("/api/spreadsheet/meta")
-async def spreadsheet_meta_endpoint(user: dict = Depends(get_current_active_user)):
+async def spreadsheet_meta_endpoint(user: dict = Depends(require_permission("can_fetch"))):
     try:
         current = await fetch_spreadsheet_meta()
     except Exception as exc:
@@ -1920,6 +2050,7 @@ async def preview_stream(
 
             try:
                 user_data = validate_sse_token(token, db)
+                _enforce_permission(user_data, "can_fetch", db)
             except HTTPException as _exc:
                 yield ev({"step": "excel", "status": "error", "msg": _exc.detail}); return
 
@@ -2178,6 +2309,7 @@ async def apply_stream(
 
             try:
                 user_data = validate_sse_token(token, db)
+                _enforce_permission(user_data, "can_apply", db)
             except HTTPException as _exc:
                 yield ev({"type": "error", "msg": _exc.detail}); return
 
@@ -2313,7 +2445,7 @@ async def apply_stream(
 # ── 8. Write back to sheet ────────────────────────────────────────────────────
 
 @app.post("/api/jobs/{job_id}/writeback")
-async def writeback(job_id: int, user: dict = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def writeback(job_id: int, user: dict = Depends(require_permission("can_apply")), db: Session = Depends(get_db)):
     job = db.query(SyncJob).filter(SyncJob.id == job_id).first()
     if not job:
         raise HTTPException(404, "Job not found")

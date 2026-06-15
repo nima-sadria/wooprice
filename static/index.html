@@ -419,13 +419,17 @@ select.wp-sel:focus { border-color: var(--accent); }
         <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span class="nav-text">Analytics</span>
       </a>
-      <a class="nav-link" href="javascript:void(0)">
+      <a class="nav-link" id="nav-link-logs" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         <span class="nav-text">Logs</span>
       </a>
-      <a class="nav-link" href="javascript:void(0)">
+      <a class="nav-link" id="nav-link-settings" href="javascript:void(0)">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span class="nav-text">Settings</span>
+      </a>
+      <a class="nav-link wp-hidden" id="nav-link-admin" href="javascript:void(0)">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-text">Admin</span>
       </a>
     </nav>
     <div class="sidebar-footer">
@@ -854,6 +858,36 @@ select.wp-sel:focus { border-color: var(--accent); }
         </div>
       </div>
 
+      <!-- ── Admin ── -->
+      <div id="page-admin" class="wp-page wp-hidden">
+        <div class="wp-page-header">
+          <div>
+            <div class="wp-page-title">Admin</div>
+            <div class="wp-page-sub">Users &amp; Access</div>
+          </div>
+          <button class="wp-btn wp-btn-blue wp-btn-sm" type="button" onclick="openAddUserModal()">+ Add User</button>
+        </div>
+        <div class="wp-card">
+          <div class="wp-card-title">Users</div>
+          <div class="wp-tbl-wrap">
+            <table id="admin-users-table" style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600;white-space:nowrap">Username</th>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600">Display Name</th>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600">Email</th>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600">Role</th>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600">Status</th>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600">Permissions</th>
+                  <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--wp-muted);font-weight:600">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </main>
 
     <footer class="d-footer">
@@ -877,6 +911,46 @@ select.wp-sel:focus { border-color: var(--accent); }
     <div class="wp-modal-footer">
       <button class="wp-btn wp-btn-ghost" type="button" onclick="closeAlarm()">Cancel</button>
       <button class="wp-btn wp-btn-red" type="button" onclick="runApplyStream()">Apply Anyway</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ User Modal ══ -->
+<div class="wp-modal-backdrop wp-hidden" id="user-modal">
+  <div class="wp-modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
+    <h3 id="user-modal-title">Add User</h3>
+    <div class="wp-settings-row">
+      <label style="font-weight:600;font-size:13px;min-width:130px">Username</label>
+      <input id="um-username" type="text" class="wp-search" placeholder="nextcloud_username" style="flex:1">
+    </div>
+    <div class="wp-settings-row">
+      <label style="font-weight:600;font-size:13px;min-width:130px">Display Name</label>
+      <input id="um-display-name" type="text" class="wp-search" placeholder="Full Name" style="flex:1">
+    </div>
+    <div class="wp-settings-row">
+      <label style="font-weight:600;font-size:13px;min-width:130px">Email</label>
+      <input id="um-email" type="email" class="wp-search" placeholder="user@example.com" style="flex:1">
+    </div>
+    <div class="wp-settings-row">
+      <label style="font-weight:600;font-size:13px;min-width:130px">Notes</label>
+      <input id="um-notes" type="text" class="wp-search" placeholder="Optional" style="flex:1">
+    </div>
+    <div class="wp-settings-row">
+      <label style="font-weight:600;font-size:13px;min-width:130px">Admin</label>
+      <input id="um-is-admin" type="checkbox" onchange="_onAdminToggle()" style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+    <div class="wp-settings-row" id="um-active-row">
+      <label style="font-weight:600;font-size:13px;min-width:130px">Active</label>
+      <input id="um-is-active" type="checkbox" checked style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border,#E8EAED)" id="um-perms-section">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--wp-muted);font-weight:600;margin-bottom:10px">Permissions</div>
+      <div id="um-perms" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:13px"></div>
+    </div>
+    <div id="um-error" style="display:none;color:#dc2626;font-size:12px;margin-top:8px"></div>
+    <div class="wp-modal-footer">
+      <button class="wp-btn wp-btn-ghost" type="button" onclick="closeUserModal()">Cancel</button>
+      <button class="wp-btn wp-btn-blue" type="button" onclick="saveAdminUser()">Save</button>
     </div>
   </div>
 </div>
@@ -919,6 +993,12 @@ async function doLogin() {
     currentUser = { username: data.username, role: data.role };
     localStorage.setItem('wp_token', token);
     localStorage.setItem('wp_user', JSON.stringify(currentUser));
+    try {
+      var me = await api('GET', '/api/auth/me');
+      currentUser.is_admin = me.is_admin;
+      currentUser.permissions = me.permissions || {};
+      localStorage.setItem('wp_user', JSON.stringify(currentUser));
+    } catch(_) {}
     bootApp();
   } catch(e) {
     errEl.textContent = e.message;
@@ -964,12 +1044,6 @@ function _updateAdminatorUser() {
 
       // Add logout to profile dropdown + health indicator to topbar
       _injectTopbarExtras();
-
-      // Hide settings nav for non-admin
-      if (currentUser.role !== 'admin') {
-        var settingsLink = document.querySelector('.d-sidebar [data-nav-key="settings"], .nav-link[href="javascript:void(0)"]');
-        // handled differently — hide page via showPage logic
-      }
     }
     if (++attempts > 50) clearInterval(interval);
   }, 100);
@@ -997,6 +1071,52 @@ function _replaceNavIcons() {
   });
 }
 
+function _applyPermissions() {
+  if (!currentUser) return;
+  var perms = currentUser.permissions || {};
+  var isAdmin = currentUser.is_admin || (currentUser.role === 'admin');
+
+  // Admin nav visibility
+  var navAdmin = document.getElementById('nav-link-admin');
+  if (navAdmin) {
+    if (isAdmin) navAdmin.classList.remove('wp-hidden');
+    else navAdmin.classList.add('wp-hidden');
+  }
+
+  // Logs nav visibility
+  var navLogs = document.getElementById('nav-link-logs');
+  if (navLogs) {
+    if (perms.can_view_logs) navLogs.classList.remove('wp-hidden');
+    else navLogs.classList.add('wp-hidden');
+  }
+
+  // Settings nav visibility
+  var navSettings = document.getElementById('nav-link-settings');
+  if (navSettings) {
+    if (perms.can_view_settings) navSettings.classList.remove('wp-hidden');
+    else navSettings.classList.add('wp-hidden');
+  }
+
+  // Fetch buttons
+  var fetchBtn = document.getElementById('fetch-btn');
+  if (fetchBtn) fetchBtn.style.display = perms.can_fetch ? '' : 'none';
+  var wcRefreshBtn = document.getElementById('wc-refresh-btn');
+  if (wcRefreshBtn) wcRefreshBtn.style.display = perms.can_fetch ? '' : 'none';
+  var sheetCheckBtn = document.getElementById('sheet-check-btn');
+  if (sheetCheckBtn) sheetCheckBtn.style.display = perms.can_fetch ? '' : 'none';
+
+  // Deep sync: admin-only
+  var deepBtn = document.getElementById('deep-sync-btn');
+  if (deepBtn) deepBtn.style.display = isAdmin ? '' : 'none';
+
+  // Apply button
+  var applyBtn = document.getElementById('apply-btn');
+  if (applyBtn && !perms.can_apply) {
+    applyBtn.disabled = true;
+    applyBtn.title = 'You do not have permission to apply updates';
+  }
+}
+
 function _wireNavClicks() {
   // Intercept all nav-link clicks in the sidebar
   document.addEventListener('click', function(e) {
@@ -1012,7 +1132,8 @@ function _wireNavClicks() {
         'workspace': 'workspace',
         'analytics': 'analytics',
         'logs': 'logs',
-        'settings': 'settings'
+        'settings': 'settings',
+        'admin': 'admin'
       };
       var key = Object.keys(pageMap).find(function(k) { return text.includes(k); });
       if (key) showPage(pageMap[key]);
@@ -1196,6 +1317,7 @@ function bootApp() {
   document.getElementById('app').classList.remove('wp-hidden');
   _initMobileDrawer();
   _initSbCollapse();
+  _applyPermissions();
   _updateAdminatorUser();
   checkHealth();
   setInterval(checkHealth, 30000);
@@ -1235,16 +1357,16 @@ async function loadAlarmThresholds() {
 // ══ Navigation ═════════════════════════════════════════════════════════════
 var _pageTitles = {
   home: 'Dashboard', workspace: 'Workspace', analytics: 'Analytics',
-  logs: 'Logs', settings: 'Settings'
+  logs: 'Logs', settings: 'Settings', admin: 'Admin'
 };
 var _pageCrumbs = {
   home: 'WooPrice | Dashboard', workspace: 'WooPrice | Workspace',
   analytics: 'WooPrice | Analytics', logs: 'WooPrice | Logs',
-  settings: 'WooPrice | Settings'
+  settings: 'WooPrice | Settings', admin: 'WooPrice | Admin'
 };
 var _pageNavKeys = {
   home: 'home', workspace: 'workspace', analytics: 'analytics',
-  logs: 'logs', settings: 'settings'
+  logs: 'logs', settings: 'settings', admin: 'admin'
 };
 
 function showPage(name) {
@@ -1296,6 +1418,7 @@ function showPage(name) {
   else if (name === 'analytics') loadAnalytics();
   else if (name === 'logs') loadLogs();
   else if (name === 'settings') loadSettings();
+  else if (name === 'admin') loadAdmin();
 }
 
 // ══ Home ═══════════════════════════════════════════════════════════════════
@@ -1804,6 +1927,7 @@ function selectAll(val) {
 
 // ── Editable price ──
 function editPrice(pid) {
+  if (currentUser && currentUser.permissions && !currentUser.permissions.can_edit_price) return;
   var item = previewItems.find(function(i) { return i.product_id === pid; });
   if (!item) return;
   var td = document.getElementById('price-cell-' + pid);
@@ -1847,6 +1971,7 @@ function editPrice(pid) {
 
 // ── Editable stock ──
 function editStock(pid) {
+  if (currentUser && currentUser.permissions && !currentUser.permissions.can_edit_stock) return;
   var item = previewItems.find(function(i) { return i.product_id === pid; });
   if (!item) return;
   var td = document.getElementById('stock-cell-' + pid);
@@ -1875,6 +2000,7 @@ function editStock(pid) {
 
 // ── Editable quantity ──
 function editQty(pid) {
+  if (currentUser && currentUser.permissions && !currentUser.permissions.can_edit_stock) return;
   var item = previewItems.find(function(i) { return i.product_id === pid; });
   if (!item) return;
   var td = document.getElementById('qty-cell-' + pid);
@@ -2356,8 +2482,177 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ══ Admin ══════════════════════════════════════════════════════════════════
+var _adminUsers = [];
+var _adminEditUsername = null; // null = add mode, string = edit mode
+
+var _PERM_LABELS = {
+  can_access_site:   'Access Site',
+  can_fetch:         'Fetch',
+  can_apply:         'Apply',
+  can_edit_price:    'Edit Price',
+  can_edit_stock:    'Edit Stock',
+  can_view_logs:     'View Logs',
+  can_view_settings: 'View Settings',
+};
+
+async function loadAdmin() {
+  try {
+    _adminUsers = await api('GET', '/api/admin/app-users');
+    renderUserTable();
+  } catch(e) {
+    document.getElementById('admin-users-tbody').innerHTML =
+      '<tr><td colspan="7" style="color:#dc2626;padding:12px">' + esc(e.message) + '</td></tr>';
+  }
+}
+
+function renderUserTable() {
+  var tbody = document.getElementById('admin-users-tbody');
+  if (!_adminUsers.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="padding:12px;color:var(--wp-muted)">No users found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _adminUsers.map(function(u) {
+    var perms = u.permissions || {};
+    var permIcons = Object.keys(_PERM_LABELS).map(function(k) {
+      var on = perms[k];
+      return '<span title="' + _PERM_LABELS[k] + '" style="display:inline-block;width:20px;height:20px;border-radius:4px;text-align:center;line-height:20px;font-size:11px;margin:1px;background:' + (on ? '#dcfce7' : '#fee2e2') + ';color:' + (on ? '#166534' : '#991b1b') + '">' + (on ? '✓' : '✗') + '</span>';
+    }).join('');
+    var roleBadge = u.is_admin
+      ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">Admin</span>'
+      : '<span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:4px;font-size:11px">User</span>';
+    var statusBadge = u.is_active
+      ? '<span style="color:#16a34a;font-size:12px">● Active</span>'
+      : '<span style="color:#dc2626;font-size:12px">● Inactive</span>';
+    return '<tr style="border-bottom:1px solid var(--border,#E8EAED)">' +
+      '<td style="padding:8px 12px;font-size:13px;font-weight:600">' + esc(u.username) + '</td>' +
+      '<td style="padding:8px 12px;font-size:13px">' + esc(u.display_name || '—') + '</td>' +
+      '<td style="padding:8px 12px;font-size:12px;color:var(--wp-muted)">' + esc(u.email || '—') + '</td>' +
+      '<td style="padding:8px 12px">' + roleBadge + '</td>' +
+      '<td style="padding:8px 12px">' + statusBadge + '</td>' +
+      '<td style="padding:8px 12px">' + permIcons + '</td>' +
+      '<td style="padding:8px 12px;white-space:nowrap">' +
+        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="margin-right:4px" onclick="openEditUserModal(' + JSON.stringify(u.username) + ')">Edit</button>' +
+        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="margin-right:4px;color:#d97706;border-color:#d97706" onclick="revokeAdminTokens(' + JSON.stringify(u.username) + ')">Revoke</button>' +
+        '<button class="wp-btn wp-btn-ghost wp-btn-sm" style="color:#dc2626;border-color:#dc2626" onclick="deleteAdminUser(' + JSON.stringify(u.username) + ')">Delete</button>' +
+      '</td></tr>';
+  }).join('');
+}
+
+function _buildPermCheckboxes(perms) {
+  return Object.keys(_PERM_LABELS).map(function(k) {
+    var checked = perms[k] ? 'checked' : '';
+    return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">' +
+      '<input type="checkbox" id="um-perm-' + k + '" ' + checked + ' style="width:16px;height:16px;accent-color:var(--accent)">' +
+      _PERM_LABELS[k] + '</label>';
+  }).join('');
+}
+
+function _onAdminToggle() {
+  var isAdmin = document.getElementById('um-is-admin').checked;
+  Object.keys(_PERM_LABELS).forEach(function(k) {
+    var el = document.getElementById('um-perm-' + k);
+    if (el) el.checked = isAdmin ? true : (k === 'can_access_site' || k === 'can_fetch' || k === 'can_apply' || k === 'can_edit_price' || k === 'can_edit_stock');
+  });
+}
+
+function openAddUserModal() {
+  _adminEditUsername = null;
+  document.getElementById('user-modal-title').textContent = 'Add User';
+  document.getElementById('um-username').value = '';
+  document.getElementById('um-username').disabled = false;
+  document.getElementById('um-display-name').value = '';
+  document.getElementById('um-email').value = '';
+  document.getElementById('um-notes').value = '';
+  document.getElementById('um-is-admin').checked = false;
+  document.getElementById('um-is-active').checked = true;
+  document.getElementById('um-active-row').style.display = 'none';
+  document.getElementById('um-error').style.display = 'none';
+  var defaultPerms = { can_access_site:true, can_fetch:true, can_apply:true, can_edit_price:true, can_edit_stock:true, can_view_logs:false, can_view_settings:false };
+  document.getElementById('um-perms').innerHTML = _buildPermCheckboxes(defaultPerms);
+  document.getElementById('user-modal').classList.remove('wp-hidden');
+}
+
+function openEditUserModal(username) {
+  var u = _adminUsers.find(function(x) { return x.username === username; });
+  if (!u) return;
+  _adminEditUsername = username;
+  document.getElementById('user-modal-title').textContent = 'Edit User: ' + username;
+  document.getElementById('um-username').value = username;
+  document.getElementById('um-username').disabled = true;
+  document.getElementById('um-display-name').value = u.display_name || '';
+  document.getElementById('um-email').value = u.email || '';
+  document.getElementById('um-notes').value = u.notes || '';
+  document.getElementById('um-is-admin').checked = u.is_admin;
+  document.getElementById('um-is-active').checked = u.is_active;
+  document.getElementById('um-active-row').style.display = '';
+  document.getElementById('um-error').style.display = 'none';
+  document.getElementById('um-perms').innerHTML = _buildPermCheckboxes(u.permissions || {});
+  document.getElementById('user-modal').classList.remove('wp-hidden');
+}
+
+function closeUserModal() {
+  document.getElementById('user-modal').classList.add('wp-hidden');
+  _adminEditUsername = null;
+}
+
+async function saveAdminUser() {
+  var errEl = document.getElementById('um-error');
+  errEl.style.display = 'none';
+  var body = {
+    display_name: document.getElementById('um-display-name').value.trim() || null,
+    email:        document.getElementById('um-email').value.trim() || null,
+    notes:        document.getElementById('um-notes').value.trim() || null,
+    is_admin:     document.getElementById('um-is-admin').checked,
+  };
+  Object.keys(_PERM_LABELS).forEach(function(k) {
+    var el = document.getElementById('um-perm-' + k);
+    if (el) body[k] = el.checked;
+  });
+  try {
+    if (_adminEditUsername) {
+      body.is_active = document.getElementById('um-is-active').checked;
+      await api('PATCH', '/api/admin/app-users/' + encodeURIComponent(_adminEditUsername), body);
+    } else {
+      body.username = document.getElementById('um-username').value.trim();
+      if (!body.username) { errEl.textContent = 'Username is required'; errEl.style.display = ''; return; }
+      await api('POST', '/api/admin/app-users', body);
+    }
+    closeUserModal();
+    await loadAdmin();
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.style.display = '';
+  }
+}
+
+async function deleteAdminUser(username) {
+  if (!confirm('Delete user "' + username + '"? This cannot be undone.')) return;
+  try {
+    await api('DELETE', '/api/admin/app-users/' + encodeURIComponent(username));
+    await loadAdmin();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function revokeAdminTokens(username) {
+  if (!confirm('Revoke all active tokens for "' + username + '"? They will need to log in again.')) return;
+  try {
+    await api('POST', '/api/admin/app-users/' + encodeURIComponent(username) + '/revoke-tokens');
+    alert('Tokens revoked for ' + username);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
 // ══ Init ═══════════════════════════════════════════════════════════════════
-if (token && currentUser) { bootApp(); }
+if (token && currentUser) {
+  bootApp();
+  // Refresh permissions from server (catches stale localStorage data)
+  api('GET', '/api/auth/me').then(function(me) {
+    currentUser.is_admin = me.is_admin;
+    currentUser.permissions = me.permissions || {};
+    localStorage.setItem('wp_user', JSON.stringify(currentUser));
+    _applyPermissions();
+  }).catch(function() {});
+}
 
 // Ensure drawer is always wired, even if bootApp() hasn't run yet
 // (e.g. fresh visit before login where the user resizes to mobile).
