@@ -104,6 +104,7 @@ class AppUser(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, nullable=False, unique=True, index=True)
     display_name = Column(String, nullable=True)
+    email = Column(String, nullable=True, unique=True, index=True)  # lowercase; used for email-based login
     is_active = Column(Boolean, nullable=False, default=True)
     is_admin = Column(Boolean, nullable=False, default=False)
     permission_version = Column(Integer, nullable=False, default=1)

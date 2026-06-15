@@ -281,32 +281,44 @@ cp .env.example .env
 | Variable | Description |
 |----------|-------------|
 | `SUPER_ADMIN_USERS` | Comma-separated Nextcloud usernames that are always super-admin. Bypass the `app_users` DB table entirely. Can log in even if `app_users` is empty. |
-| `BOOTSTRAP_APP_ADMINS` | Comma-separated usernames seeded as admins in `app_users` on first startup. Idempotent — never overwrites existing rows. |
-| `BOOTSTRAP_APP_USERS` | Comma-separated usernames seeded as operators (non-admin) in `app_users` on first startup. |
+| `BOOTSTRAP_APP_ADMINS` | Comma-separated entries seeded as admins in `app_users` on first startup. Supports `username` or `username:email` format. Idempotent — never overwrites existing rows; backfills email if previously unset. |
+| `BOOTSTRAP_APP_USERS` | Comma-separated entries seeded as operators in `app_users` on first startup. Same `username` or `username:email` format. |
 
 **Minimum production access control configuration:**
 
 ```env
 SUPER_ADMIN_USERS=woo,admin
-BOOTSTRAP_APP_ADMINS=woo,admin
-BOOTSTRAP_APP_USERS=az1328,farshadkh,soheil
+BOOTSTRAP_APP_ADMINS=woo,admin:nima.sadria@gmail.com
+BOOTSTRAP_APP_USERS=az1328:amiraliqaz1328b@gmail.com,farshadkh:farshadkhodadad2@gmail.com,nima.sadria:nima.sadria@yahoo.com,soheil:soheilzarei82@gmail.com
 ```
 
 ### How access control works
 
 ```
-Login attempt
+Login input (username or email)
     │
-    ├─ Is username in SUPER_ADMIN_USERS?
-    │      └─ YES → Nextcloud verify → issue admin token (pv=0)
-    │                 (app_users table is never consulted)
+    ├─ Contains '@'? → look up app_users.email (case-insensitive)
+    │      ├─ Not found → HTTP 403 denied (unknown email)
+    │      └─ Found → resolve to canonical username
     │
-    └─ NO → Nextcloud verify → look up app_users
+    ▼
+canonical_username
+    │
+    ├─ Verify Nextcloud credentials (username + password)
+    │      └─ Invalid → HTTP 401 denied
+    │
+    ├─ Is canonical_username in SUPER_ADMIN_USERS?
+    │      └─ YES → issue admin token (pv=0)
+    │                (app_users table is never consulted)
+    │
+    └─ NO → look up app_users by canonical_username
                ├─ Not found or is_active=false → HTTP 403 denied
-               └─ Found and active → issue token with permission_version
+               └─ Found and active → issue token (sub = canonical_username)
                    └─ Every subsequent request checks pv == app_user.permission_version
                        └─ Mismatch → HTTP 401 token revoked
 ```
+
+JWT `sub` is always the canonical Nextcloud username, never an email address.
 
 ---
 

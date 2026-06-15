@@ -137,28 +137,53 @@ def _run_column_migrations():
 _run_column_migrations()
 
 
+def _parse_bootstrap_entry(entry: str) -> tuple[str, str | None]:
+    """Parse 'username' or 'username:email' format from bootstrap env vars."""
+    entry = entry.strip()
+    if ":" in entry:
+        username, email = entry.split(":", 1)
+        email = email.strip().lower() or None
+        return username.strip(), email
+    return entry, None
+
+
 def _run_bootstrap_users() -> None:
     """Idempotent startup seed: creates app_users rows from BOOTSTRAP_APP_ADMINS /
-    BOOTSTRAP_APP_USERS env vars.  Never overwrites existing rows."""
+    BOOTSTRAP_APP_USERS env vars. Supports 'username' or 'username:email' format.
+    Never overwrites existing rows; backfills email if previously unset."""
     s = get_settings()
-    admin_names = [u.strip() for u in s.bootstrap_app_admins.split(",") if u.strip()]
-    user_names = [u.strip() for u in s.bootstrap_app_users.split(",") if u.strip()]
-    if not admin_names and not user_names:
+    admin_entries = [_parse_bootstrap_entry(e) for e in s.bootstrap_app_admins.split(",") if e.strip()]
+    user_entries = [_parse_bootstrap_entry(e) for e in s.bootstrap_app_users.split(",") if e.strip()]
+    if not admin_entries and not user_entries:
         return
     db = SessionLocal()
     try:
         seeded: list[str] = []
-        for username in admin_names:
-            if not db.query(AppUser).filter(AppUser.username == username).first():
-                db.add(AppUser(username=username, display_name=username, is_admin=True, is_active=True))
+        email_filled: list[str] = []
+        for username, email in admin_entries:
+            existing = db.query(AppUser).filter(AppUser.username == username).first()
+            if not existing:
+                db.add(AppUser(username=username, display_name=username, is_admin=True, is_active=True, email=email))
                 seeded.append(f"{username}(admin)")
-        for username in user_names:
-            if not db.query(AppUser).filter(AppUser.username == username).first():
-                db.add(AppUser(username=username, display_name=username, is_admin=False, is_active=True))
+            elif email and not existing.email:
+                existing.email = email
+                existing.updated_at = datetime.utcnow()
+                email_filled.append(username)
+        for username, email in user_entries:
+            existing = db.query(AppUser).filter(AppUser.username == username).first()
+            if not existing:
+                db.add(AppUser(username=username, display_name=username, is_admin=False, is_active=True, email=email))
                 seeded.append(f"{username}(user)")
-        if seeded:
+            elif email and not existing.email:
+                existing.email = email
+                existing.updated_at = datetime.utcnow()
+                email_filled.append(username)
+        if seeded or email_filled:
             db.commit()
-            logger.warning("startup: bootstrap seeded app_users: %s", ", ".join(seeded))
+            if seeded:
+                logger.warning("startup: bootstrap seeded app_users: %s", ", ".join(seeded))
+            if email_filled:
+                logger.info("startup: bootstrap backfilled emails for: %s", ", ".join(email_filled))
         else:
             logger.info("startup: bootstrap: all configured users already present")
     except Exception as exc:
@@ -268,12 +293,14 @@ class StockUpdateRequest(BaseModel):
 class AppUserCreate(BaseModel):
     username: str
     display_name: str | None = None
+    email: str | None = None
     is_admin: bool = False
     notes: str | None = None
 
 
 class AppUserUpdate(BaseModel):
     display_name: str | None = None
+    email: str | None = None
     is_active: bool | None = None
     is_admin: bool | None = None
     notes: str | None = None
@@ -443,6 +470,20 @@ def require_permission(permission: str):
     ) -> dict:
         return user
     return _check
+
+
+def _resolve_login_identifier(identifier: str, db: Session) -> str | None:
+    """Resolve a login input to a canonical Nextcloud username.
+    If identifier contains '@', treat it as an email and look it up in app_users.email
+    (case-insensitive). Returns the canonical username, or None if the email is unknown.
+    Non-email identifiers are returned as-is (username login)."""
+    if "@" not in identifier:
+        return identifier.strip()
+    email_lower = identifier.strip().lower()
+    app_user = db.query(AppUser).filter(
+        func.lower(AppUser.email) == email_lower
+    ).first()
+    return app_user.username if app_user else None
 
 
 # ── Audit logging ─────────────────────────────────────────────────────────────
@@ -1078,27 +1119,41 @@ async def debug_sheet(user: dict = Depends(require_admin)):
 async def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     if not body.username or not body.password:
         raise HTTPException(400, "Username and password required")
+    login_identifier = body.username.strip()
+    ip = _client_ip(request)
+
+    # Resolve email → canonical username (non-email identifiers pass through unchanged)
+    canonical_username = _resolve_login_identifier(login_identifier, db)
+    if canonical_username is None:
+        _audit("unknown", "login_denied_unknown_email", ip, detail={"login_identifier": login_identifier})
+        raise HTTPException(403, "Access not granted — contact your administrator")
+
+    id_detail = {"login_identifier": login_identifier} if login_identifier != canonical_username else None
+
     try:
-        valid = await verify_nextcloud_credentials(body.username, body.password)
+        valid = await verify_nextcloud_credentials(canonical_username, body.password)
     except Exception as exc:
         raise HTTPException(503, f"Nextcloud unreachable: {exc}")
     if not valid:
+        _audit(canonical_username, "login_failed", ip, detail=id_detail)
         raise HTTPException(401, "Invalid Nextcloud credentials")
-    ip = _client_ip(request)
+
     # Super admins bypass the app_users table entirely
-    if is_super_admin(body.username):
-        token = create_token(body.username, permission_version=0, role="admin")
-        _audit(body.username, "login", ip)
-        return {"token": token, "username": body.username, "role": "admin"}
+    if is_super_admin(canonical_username):
+        token = create_token(canonical_username, permission_version=0, role="admin")
+        _audit(canonical_username, "login", ip, detail=id_detail)
+        return {"token": token, "username": canonical_username, "role": "admin"}
+
     # Regular users: must exist in app_users and be active
-    app_user = db.query(AppUser).filter(AppUser.username == body.username).first()
+    app_user = db.query(AppUser).filter(AppUser.username == canonical_username).first()
     if app_user is None or not app_user.is_active:
-        _audit(body.username, "login_denied_not_in_access_list", ip)
+        _audit(canonical_username, "login_denied_not_in_access_list", ip, detail=id_detail)
         raise HTTPException(403, "Access not granted — contact your administrator")
+
     role = "admin" if app_user.is_admin else "user"
-    token = create_token(body.username, permission_version=app_user.permission_version, role=role)
-    _audit(body.username, "login_allowed_user_access", ip)
-    return {"token": token, "username": body.username, "role": role}
+    token = create_token(canonical_username, permission_version=app_user.permission_version, role=role)
+    _audit(canonical_username, "login_allowed_user_access", ip, detail=id_detail)
+    return {"token": token, "username": canonical_username, "role": role}
 
 
 @app.get("/api/auth/me")
@@ -1113,6 +1168,7 @@ def _app_user_dict(row: AppUser) -> dict:
         "id": row.id,
         "username": row.username,
         "display_name": row.display_name,
+        "email": row.email,
         "is_active": row.is_active,
         "is_admin": row.is_admin,
         "permission_version": row.permission_version,
@@ -1139,9 +1195,14 @@ async def create_app_user(
 ):
     if db.query(AppUser).filter(AppUser.username == body.username).first():
         raise HTTPException(409, "User already exists")
+    email_val: str | None = body.email.strip().lower() if body.email and body.email.strip() else None
+    if email_val:
+        if db.query(AppUser).filter(func.lower(AppUser.email) == email_val).first():
+            raise HTTPException(409, "Email already assigned to another user")
     row = AppUser(
         username=body.username,
         display_name=body.display_name,
+        email=email_val,
         is_admin=body.is_admin,
         notes=body.notes,
     )
@@ -1178,6 +1239,16 @@ async def update_app_user(
                 )
     if body.display_name is not None:
         row.display_name = body.display_name
+    if body.email is not None:
+        email_val = body.email.strip().lower() if body.email.strip() else None
+        if email_val:
+            conflict = db.query(AppUser).filter(
+                func.lower(AppUser.email) == email_val,
+                AppUser.username != username,
+            ).first()
+            if conflict:
+                raise HTTPException(409, "Email already assigned to another user")
+        row.email = email_val
     if body.is_active is not None:
         row.is_active = body.is_active
     if body.is_admin is not None:
