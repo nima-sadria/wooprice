@@ -150,6 +150,7 @@ _OUT_OF_STOCK_MARKERS = frozenset({
     "0", "0.00", "-",
     "ناموجود", "ناموجود شد", "تماس بگیرید",
     "out of stock", "oos", "n/a", "na",
+    "x", "❌", "✗", "×",
 })
 
 # Persian and Arabic-Indic digits -> ASCII digits, so localized numbers parse correctly.

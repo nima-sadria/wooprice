@@ -154,9 +154,13 @@ def test_parser_out_of_stock_markers_not_invalid():
         ("Cat", 207, "N/A"),
         ("Cat", 208, "na"),
         ("Cat", 209, "0.00"),
+        ("Cat", 210, "x"),
+        ("Cat", 211, "❌"),
+        ("Cat", 212, "✗"),
+        ("Cat", 213, "×"),
     ])
     items = {i["product_id"]: i for i in _parse_sheet_rows(ws)}
-    for pid in (201, 202, 203, 204, 205, 206, 207, 208, 209):
+    for pid in (201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213):
         assert items[pid]["new_price"] == "", (pid, items[pid])
         assert items[pid]["price_parse_error"] is False, (pid, items[pid])
     print("test_parser_out_of_stock_markers_not_invalid: PASS")
@@ -191,7 +195,7 @@ def test_parser_true_garbage_still_invalid():
 
 def test_classify_row_out_of_stock_marker_strings_not_invalid():
     wc = {"price": "50.00", "stock_status": "instock"}
-    for marker_text in ("-", "ناموجود", "تماس بگیرید", "out of stock", "n/a"):
+    for marker_text in ("-", "ناموجود", "تماس بگیرید", "out of stock", "n/a", "x", "❌", "✗", "×"):
         ws = build_ws([("Cat", 1, marker_text)])
         parsed = _parse_sheet_rows(ws)[0]
         clf = _classify_row(1, parsed["new_price"], wc, last_price_updated="2024-01-01",
