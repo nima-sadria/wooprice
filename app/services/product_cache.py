@@ -31,6 +31,8 @@ def _to_dict(p: ProductCache) -> dict:
         "stock_status": p.stock_status or "instock",
         "stock_quantity": p.stock_quantity,
         "categories": cats,
+        "brand_id": p.brand_id,
+        "brand_name": p.brand_name,
         "parent_id": p.parent_id or 0,
         "wc_date_modified": p.date_modified_gmt or None,
         "product_type": p.product_type or "simple",
@@ -118,6 +120,12 @@ def upsert_products(
             except Exception:
                 pass
             row.categories = cats or row.categories
+            # Brand: key presence is the signal — not value truthiness.
+            # key absent  → non-authoritative caller; preserve existing cache value.
+            # key present (even None) → authoritative caller; use exactly what WC returned.
+            if "brand_id" in p:
+                row.brand_id = p["brand_id"]
+                row.brand_name = p.get("brand_name")
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
             new_img = p.get("image_url")
             if "image_url" in p:
@@ -158,6 +166,8 @@ def upsert_products(
                 sale_price=p.get("sale_price", ""),
                 final_price=p.get("final_price", ""),
                 categories=cats,
+                brand_id=p.get("brand_id"),
+                brand_name=p.get("brand_name"),
                 date_modified_gmt=p.get("date_modified_gmt"),
                 image_url=p.get("image_url"),
                 image_source=p.get("image_source", "none"),
@@ -250,6 +260,8 @@ def wc_response_to_cache_dict(pid: int, data: dict) -> dict:
         "sale_price": data.get("sale_price", ""),
         "final_price": data.get("price") or data.get("regular_price", ""),
         "categories": json.dumps(data.get("categories", [])),
+        "brand_id": data.get("brand_id"),
+        "brand_name": data.get("brand_name"),
         "date_modified_gmt": data.get("wc_date_modified") or "",
         # image_url intentionally absent — do not overwrite existing thumbnail cache
     }

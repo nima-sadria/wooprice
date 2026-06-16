@@ -115,6 +115,8 @@ class ProductCache(Base):
     sale_price = Column(String, nullable=True)
     final_price = Column(String, nullable=True)       # effective display price
     categories = Column(Text, nullable=True)          # JSON: [{"id":1,"name":"..."}]
+    brand_id = Column(Integer, nullable=True, index=True)    # WC product_brand term id; NULL = unassigned
+    brand_name = Column(String, nullable=True)                # denormalized for display; NULL = unassigned
     date_modified_gmt = Column(String, nullable=True)
     last_synced_at = Column(DateTime, nullable=True)
     last_seen_at = Column(DateTime, nullable=True)

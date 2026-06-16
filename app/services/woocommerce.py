@@ -45,7 +45,7 @@ def _base() -> str:
     return get_settings().wc_url.rstrip("/") + "/wp-json/wc/v3"
 
 
-_PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories,date_modified_gmt"
+_PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories,brands,date_modified_gmt"
 
 # In-memory product cache: {product_id: (data_dict, timestamp)}
 _product_cache: dict[int, tuple[dict, float]] = {}
@@ -85,7 +85,25 @@ def get_cache_info() -> dict:
     }
 
 
+def _extract_brand(p: dict) -> tuple[int | None, str | None]:
+    """Return (brand_id, brand_name) from WC's native `brands` taxonomy field.
+
+    Confirmed via live audit: WooCommerce's "Brands" feature (taxonomy
+    `product_brand`) exposes a top-level `brands: [{id, name, slug}]` array on
+    every product, structured like `categories`. A product can technically
+    carry more than one brand term, but in practice this catalog assigns at
+    most one — we take the first. No brand assigned -> (None, None). This is
+    NEVER guessed from the product name or any other field.
+    """
+    brands = p.get("brands") or []
+    if brands:
+        b = brands[0]
+        return b.get("id"), b.get("name")
+    return None, None
+
+
 def _parse_product(p: dict) -> dict:
+    brand_id, brand_name = _extract_brand(p)
     return {
         "name": p.get("name", ""),
         "price": p.get("regular_price") or p.get("price") or "",
@@ -94,6 +112,8 @@ def _parse_product(p: dict) -> dict:
         "stock_status": p.get("stock_status") or "instock",
         "stock_quantity": p.get("stock_quantity"),
         "categories": [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])],
+        "brand_id": brand_id,
+        "brand_name": brand_name,
         "wc_date_modified": p.get("date_modified_gmt") or None,
     }
 
@@ -118,6 +138,7 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
     needs_parent_fetch = any(
         data.get("parent_id", 0) > 0 and (
             not data.get("categories") or data.get("wc_date_modified") is None
+            or "brand_id" not in data
         )
         for data in result.values()
     )
@@ -177,30 +198,38 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
                     result[pid] = data
                     _cache_set(pid, data)
 
-        # ── Phase 3: inherit categories, stock, and modified date from parent ──
-        # Variations don't carry categories or a meaningful modified date —
+        # ── Phase 3: inherit categories, brand, stock, and modified date from parent ──
+        # Variations don't carry categories, a brand, or a meaningful modified date —
         # the product page shows the PARENT's post_modified, so we use that.
         parent_ids_needed = {
             data["parent_id"]
             for data in result.values()
             if data.get("parent_id", 0) > 0 and (
                 not data.get("categories") or data.get("wc_date_modified") is None
+                or "brand_id" not in data
             )
         }
 
         async def _fetch_parent(ppid: int) -> tuple[int, dict] | None:
             cached = _cache_get(ppid)
-            if cached:
+            # "brand_id" not in cached guards against a pre-existing in-memory
+            # entry cached before brand support shipped — without this, a
+            # stale cache hit here would silently report "no brand" instead
+            # of actually fetching it.
+            if cached and "brand_id" in cached:
                 return ppid, cached
             try:
                 resp = await _get_with_retry(
                     client, f"{_base()}/products/{ppid}",
-                    params={"_fields": "id,categories,stock_status,stock_quantity,date_modified_gmt"},
+                    params={"_fields": "id,categories,brands,stock_status,stock_quantity,date_modified_gmt"},
                 )
                 if resp.status_code == 200:
                     p = resp.json()
+                    brand_id, brand_name = _extract_brand(p)
                     pdata = {
                         "categories": [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])],
+                        "brand_id": brand_id,
+                        "brand_name": brand_name,
                         "stock_quantity": p.get("stock_quantity"),
                         "wc_date_modified": p.get("date_modified_gmt") or None,
                     }
@@ -220,6 +249,10 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
                         data["categories"] = parent_map[ppid].get("categories", [])
                     if data.get("stock_quantity") is None:
                         data["stock_quantity"] = parent_map[ppid].get("stock_quantity")
+                    # Variations never carry their own `brands` field — always
+                    # inherit the parent's brand (confirmed via live audit).
+                    data["brand_id"] = parent_map[ppid].get("brand_id")
+                    data["brand_name"] = parent_map[ppid].get("brand_name")
                     # Always override variation's date with parent's — this is
                     # what article:modified_time and the product page widget show
                     data["wc_date_modified"] = parent_map[ppid].get("wc_date_modified")
@@ -387,7 +420,7 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
     return results
 
 
-_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,categories,date_modified_gmt,status,images"
+_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,categories,brands,date_modified_gmt,status,images"
 _VAR_FIELDS = "id,sku,regular_price,sale_price,price,stock_status,stock_quantity,date_modified_gmt,image"
 
 
@@ -413,10 +446,17 @@ def _parse_full_product(
     parent_id: int = 0,
     parent_cats: list | None = None,
     parent_image: str | None = None,
+    parent_brand: tuple[int | None, str | None] | None = None,
 ) -> dict:
     cats = parent_cats if parent_cats is not None else [
         {"id": c["id"], "name": c["name"]} for c in p.get("categories", [])
     ]
+    if parent_id > 0:
+        # Variations never carry their own `brands` field (confirmed via live
+        # audit) — always inherit the parent's brand. Never guessed otherwise.
+        brand_id, brand_name = parent_brand if parent_brand is not None else (None, None)
+    else:
+        brand_id, brand_name = _extract_brand(p)
     ptype = "variation" if parent_id > 0 else (p.get("type") or "simple")
     img_url, img_source = _extract_image(p, parent_id, parent_image)
     return {
@@ -432,6 +472,8 @@ def _parse_full_product(
         "sale_price": p.get("sale_price", ""),
         "final_price": p.get("regular_price") or p.get("price", ""),
         "categories": cats,
+        "brand_id": brand_id,
+        "brand_name": brand_name,
         "date_modified_gmt": p.get("date_modified_gmt", ""),
         "image_url": img_url,
         "image_source": img_source,
@@ -444,6 +486,7 @@ async def _fetch_variations_for_parent(
     parent_name: str,
     parent_cats: list,
     parent_image: str | None = None,
+    parent_brand: tuple[int | None, str | None] | None = None,
 ) -> list[dict]:
     variations = []
     page = 1
@@ -459,6 +502,7 @@ async def _fetch_variations_for_parent(
             v["name"] = parent_name
             parsed = _parse_full_product(
                 v, parent_id=parent_id, parent_cats=parent_cats, parent_image=parent_image,
+                parent_brand=parent_brand,
             )
             logger.debug(
                 "full_fetch variation: wc_id=%s parent_id=%s image_source=%s image_url=%s",
@@ -511,12 +555,12 @@ async def fetch_all_products_fast() -> tuple[list[dict], list[str]]:
 
 async def fetch_variations_for_selected_parents(
     parent_ids: set[int],
-    parent_info: dict[int, tuple[str, list, str | None]],
+    parent_info: dict[int, tuple[str, list, str | None, tuple[int | None, str | None] | None]],
     concurrency: int = 5,
 ) -> tuple[list[dict], list[str]]:
     """Fetch WC variations only for the given parent IDs.
 
-    parent_info: {parent_id: (name, categories_list, image_url_or_none)}
+    parent_info: {parent_id: (name, categories_list, image_url_or_none, (brand_id, brand_name)_or_none)}
     Call this with IDs present in the spreadsheet/preview — never globally.
     """
     if not parent_ids:
@@ -530,9 +574,9 @@ async def fetch_variations_for_selected_parents(
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
         async def _bounded(pid: int):
             async with sem:
-                name, cats, img = parent_info.get(pid, ("", [], None))
+                name, cats, img, brand = parent_info.get(pid, ("", [], None, None))
                 try:
-                    return await _fetch_variations_for_parent(client, pid, name, cats, img)
+                    return await _fetch_variations_for_parent(client, pid, name, cats, img, brand)
                 except Exception as exc:
                     logger.warning("targeted_variation_fetch: failed for parent #%d: %s", pid, exc)
                     return exc
@@ -557,7 +601,7 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
     variation fetches failed after all retries."""
     logger.warning("FETCH_ROUTE_ENTERED: route=fetch_all_products_full mode=wc_full_api_sync")
     all_products: list[dict] = []
-    variable_parents: list[tuple[int, str, list]] = []
+    variable_parents: list[tuple[int, str, list, str | None, tuple[int | None, str | None]]] = []
     var_warnings: list[str] = []
 
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
@@ -580,7 +624,7 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
                         "full_fetch: variable parent pid=%d name=%r img=%s",
                         p["id"], p.get("name", ""), parent_img or "none",
                     )
-                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None))
+                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p)))
             if len(data) < 100:
                 break
             page += 1
@@ -593,8 +637,8 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats, parent_img)
-                for pid, name, cats, parent_img in batch
+                _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand)
+                for pid, name, cats, parent_img, parent_brand in batch
             ], return_exceptions=True)
             for j, r in enumerate(results):
                 if isinstance(r, list):
@@ -616,7 +660,7 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
     """Fetch products modified after the given ISO timestamp (light sync).
     Returns (products, variation_warnings)."""
     all_products: list[dict] = []
-    variable_parents: list[tuple[int, str, list, str | None]] = []
+    variable_parents: list[tuple[int, str, list, str | None, tuple[int | None, str | None]]] = []
     var_warnings: list[str] = []
 
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
@@ -639,7 +683,7 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
                 parent_img = images[0].get("src", "") if images else ""
                 all_products.append(_parse_full_product(p))
                 if p.get("type") == "variable":
-                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None))
+                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p)))
             if len(data) < 100:
                 break
             page += 1
@@ -647,8 +691,8 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats, parent_img)
-                for pid, name, cats, parent_img in batch
+                _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand)
+                for pid, name, cats, parent_img, parent_brand in batch
             ], return_exceptions=True)
             for j, r in enumerate(results):
                 if isinstance(r, list):
