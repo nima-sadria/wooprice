@@ -785,20 +785,28 @@ async def _check_sheet_hash(job: "SyncJob") -> tuple[bool, str, str]:  # type: i
     """Compare current xlsx hash to the hash stored when the preview was created.
 
     Returns (ok, event_type, message). event_type is 'stale_preview' when not ok.
+
+    Fails closed: if the sheet cannot be downloaded or hashed, freshness cannot be
+    verified, so the apply is blocked rather than allowed to proceed unverified.
     """
     if not getattr(job, "sheet_hash", None):
         return True, "", ""
     try:
         _cur_xlsx = await download_xlsx(force=False)
         _cur_hash = hashlib.md5(_cur_xlsx).hexdigest()
-        if _cur_hash != job.sheet_hash:
-            return False, "stale_preview", (
-                "The spreadsheet was modified after this preview was created. "
-                "Applying would use stale product IDs. "
-                "Please re-run Fetch Preview to load the current sheet."
-            )
     except Exception as _hce:
-        logger.warning("_check_sheet_hash: failed (proceeding): %s", _hce)
+        logger.warning("_check_sheet_hash: verification failed, blocking apply: %s", _hce)
+        return False, "freshness_unverifiable", (
+            "Could not verify the spreadsheet is still current "
+            "(download or hash check failed). Applying is blocked until freshness "
+            "can be confirmed. Please retry or re-run Fetch Preview."
+        )
+    if _cur_hash != job.sheet_hash:
+        return False, "stale_preview", (
+            "The spreadsheet was modified after this preview was created. "
+            "Applying would use stale product IDs. "
+            "Please re-run Fetch Preview to load the current sheet."
+        )
     return True, "", ""
 
 
