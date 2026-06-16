@@ -24,6 +24,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from sqlalchemy import func  # noqa: E402
+
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import _compute_brand_coverage  # noqa: E402
 from app.models import ProductCache  # noqa: E402
@@ -165,10 +167,9 @@ def test_upsert_products_unknown_brand_stays_none():
     print("test_upsert_products_unknown_brand_stays_none: PASS")
 
 
-def test_upsert_products_does_not_clear_known_brand_on_partial_update():
-    # A later upsert that omits brand info entirely (brand_id=None) must not
-    # erase a previously known brand — only an explicit non-null brand_id
-    # from WooCommerce should change it.
+def test_upsert_brand_preserved_when_keys_absent():
+    # A partial-update dict that contains NO brand keys must leave the cached
+    # brand untouched — the absent key signals a non-authoritative caller.
     db = SessionLocal()
     try:
         upsert_products(db, [{
@@ -176,9 +177,10 @@ def test_upsert_products_does_not_clear_known_brand_on_partial_update():
             "name": "Branded Product", "brand_id": 5758, "brand_name": "Whoop",
         }])
         db.commit()
+        # Second upsert omits brand keys entirely — non-authoritative caller
         upsert_products(db, [{
             "wc_id": 90003, "parent_id": 0, "product_type": "simple",
-            "name": "Branded Product", "brand_id": None, "brand_name": None,
+            "name": "Branded Product",
         }])
         db.commit()
         row = db.query(ProductCache).filter(ProductCache.wc_id == 90003).one()
@@ -187,7 +189,126 @@ def test_upsert_products_does_not_clear_known_brand_on_partial_update():
         db.query(ProductCache).filter(ProductCache.wc_id == 90003).delete()
         db.commit()
         db.close()
-    print("test_upsert_products_does_not_clear_known_brand_on_partial_update: PASS")
+    print("test_upsert_brand_preserved_when_keys_absent: PASS")
+
+
+def test_upsert_brand_updated_when_value_present():
+    # An authoritative update with a non-None brand_id must overwrite the
+    # existing cached brand on an UPDATE (not just INSERT).
+    db = SessionLocal()
+    try:
+        upsert_products(db, [{
+            "wc_id": 90004, "parent_id": 0, "product_type": "simple",
+            "name": "Product", "brand_id": 942, "brand_name": "Apple",
+        }])
+        db.commit()
+        upsert_products(db, [{
+            "wc_id": 90004, "parent_id": 0, "product_type": "simple",
+            "name": "Product", "brand_id": 5758, "brand_name": "Whoop",
+        }])
+        db.commit()
+        row = db.query(ProductCache).filter(ProductCache.wc_id == 90004).one()
+        assert row.brand_id == 5758 and row.brand_name == "Whoop"
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 90004).delete()
+        db.commit()
+        db.close()
+    print("test_upsert_brand_updated_when_value_present: PASS")
+
+
+def test_upsert_brand_cleared_when_key_present_with_none():
+    # An authoritative update where brand_id key IS present but value is None
+    # must clear the cached brand — this is how full-sync expresses
+    # "brand removed in WooCommerce".
+    db = SessionLocal()
+    try:
+        upsert_products(db, [{
+            "wc_id": 90005, "parent_id": 0, "product_type": "simple",
+            "name": "Was Branded", "brand_id": 942, "brand_name": "Apple",
+        }])
+        db.commit()
+        upsert_products(db, [{
+            "wc_id": 90005, "parent_id": 0, "product_type": "simple",
+            "name": "Was Branded", "brand_id": None, "brand_name": None,
+        }])
+        db.commit()
+        row = db.query(ProductCache).filter(ProductCache.wc_id == 90005).one()
+        assert row.brand_id is None and row.brand_name is None
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 90005).delete()
+        db.commit()
+        db.close()
+    print("test_upsert_brand_cleared_when_key_present_with_none: PASS")
+
+
+def test_full_sync_clears_stale_brand_after_wc_brand_removal():
+    # Simulate the exact production failure path:
+    # 1. Product in cache with brand_id=942 ("Apple")
+    # 2. Brand removed from product in WooCommerce (brands: [])
+    # 3. Full-sync parser (_parse_full_product) emits brand_id=None (key present)
+    # 4. upsert_products must clear the stale brand — not preserve it
+    db = SessionLocal()
+    try:
+        upsert_products(db, [{
+            "wc_id": 90006, "parent_id": 0, "product_type": "simple",
+            "name": "iPad", "brand_id": 942, "brand_name": "Apple",
+        }])
+        db.commit()
+        # Simulate WC response after brand removal
+        wc_response_no_brand = {
+            "id": 90006, "name": "iPad", "type": "simple", "brands": [],
+        }
+        parsed = _parse_full_product(wc_response_no_brand)
+        assert parsed["brand_id"] is None, "parser must produce None for brands:[]"
+        assert "brand_id" in parsed, "key must be present so upsert knows to clear"
+        upsert_products(db, [parsed])
+        db.commit()
+        row = db.query(ProductCache).filter(ProductCache.wc_id == 90006).one()
+        assert row.brand_id is None and row.brand_name is None
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 90006).delete()
+        db.commit()
+        db.close()
+    print("test_full_sync_clears_stale_brand_after_wc_brand_removal: PASS")
+
+
+def test_unknown_brand_bucket_increases_after_explicit_clear():
+    # After an authoritative brand clear the product must move from the
+    # known-brand bucket into the unknown_brand bucket in coverage analytics.
+    db = SessionLocal()
+    try:
+        upsert_products(db, [{
+            "wc_id": 90007, "parent_id": 0, "product_type": "simple",
+            "name": "MacBook", "brand_id": 942, "brand_name": "Apple",
+        }])
+        db.commit()
+        rows_before = db.query(
+            ProductCache.brand_id, ProductCache.brand_name,
+            func.count(ProductCache.wc_id),
+        ).filter(ProductCache.wc_id == 90007).group_by(
+            ProductCache.brand_id, ProductCache.brand_name,
+        ).all()
+        before = _compute_brand_coverage(rows_before)
+        assert before["unknown_brand"]["product_count"] == 0
+        # Authoritative clear — brand removed in WC
+        upsert_products(db, [{
+            "wc_id": 90007, "parent_id": 0, "product_type": "simple",
+            "name": "MacBook", "brand_id": None, "brand_name": None,
+        }])
+        db.commit()
+        rows_after = db.query(
+            ProductCache.brand_id, ProductCache.brand_name,
+            func.count(ProductCache.wc_id),
+        ).filter(ProductCache.wc_id == 90007).group_by(
+            ProductCache.brand_id, ProductCache.brand_name,
+        ).all()
+        after = _compute_brand_coverage(rows_after)
+        assert after["unknown_brand"]["product_count"] == 1
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 90007).delete()
+        db.commit()
+        db.close()
+    print("test_unknown_brand_bucket_increases_after_explicit_clear: PASS")
 
 
 if __name__ == "__main__":
@@ -203,5 +324,9 @@ if __name__ == "__main__":
     test_compute_brand_coverage_all_unknown()
     test_upsert_products_stores_and_reads_brand()
     test_upsert_products_unknown_brand_stays_none()
-    test_upsert_products_does_not_clear_known_brand_on_partial_update()
+    test_upsert_brand_preserved_when_keys_absent()
+    test_upsert_brand_updated_when_value_present()
+    test_upsert_brand_cleared_when_key_present_with_none()
+    test_full_sync_clears_stale_brand_after_wc_brand_removal()
+    test_unknown_brand_bucket_increases_after_explicit_clear()
     print("ALL TESTS PASSED")

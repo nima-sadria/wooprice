@@ -120,12 +120,12 @@ def upsert_products(
             except Exception:
                 pass
             row.categories = cats or row.categories
-            # Brand: trust a freshly-fetched non-null brand_id; never clear a
-            # known brand just because this particular update omitted it
-            # (e.g. partial fetches that don't carry brand data).
-            if p.get("brand_id") is not None:
-                row.brand_id = p.get("brand_id")
-                row.brand_name = p.get("brand_name") or row.brand_name
+            # Brand: key presence is the signal — not value truthiness.
+            # key absent  → non-authoritative caller; preserve existing cache value.
+            # key present (even None) → authoritative caller; use exactly what WC returned.
+            if "brand_id" in p:
+                row.brand_id = p["brand_id"]
+                row.brand_name = p.get("brand_name")
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
             new_img = p.get("image_url")
             if "image_url" in p:
