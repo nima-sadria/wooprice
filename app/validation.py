@@ -78,12 +78,23 @@ def has_critical(results: list[ValidationResult]) -> bool:
     return any(r.level == ValidationLevel.critical for r in results)
 
 
+# Persian and Arabic-Indic digits -> ASCII digits, mirrors app.services.nextcloud's
+# normalization so localized numbers ('۱۲۳,۴۵۶', '123٬456') parse correctly here too.
+_DIGIT_TRANSLATION = str.maketrans({
+    "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
+    "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9",
+    "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+    "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+})
+
+
 def _to_float(value: Any) -> float | None:
     if value is None:
         return None
     s = str(value).strip()
     if s == "":
         return None
+    s = s.translate(_DIGIT_TRANSLATION).replace("٬", "").replace(",", "")
     try:
         return float(s)
     except (ValueError, TypeError):
@@ -111,7 +122,7 @@ def validate_price(
     # not as a non-numeric error — matches existing _stock_from_price semantics.
     if new_price is None or str(new_price).strip() == "":
         out.append(ValidationResult(
-            ValidationLevel.warning, "zero_price_or_blank_means_out_of_stock", product_id, "new_price", new_price,
+            ValidationLevel.warning, "out_of_stock_marker", product_id, "new_price", new_price,
             "Price is blank — product will be marked out of stock.",
         ))
         return out
@@ -133,7 +144,7 @@ def validate_price(
 
     if new_f == 0:
         out.append(ValidationResult(
-            ValidationLevel.warning, "zero_price_or_blank_means_out_of_stock", product_id, "new_price", new_price,
+            ValidationLevel.warning, "out_of_stock_marker", product_id, "new_price", new_price,
             "Price is zero — product will be marked out of stock.",
         ))
         return out

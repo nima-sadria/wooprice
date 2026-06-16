@@ -59,7 +59,7 @@ def test_parser_blank_vs_garbage():
         ("Cat", 104, "12xx"),   # garbage
         ("Cat", 105, "--100"),  # garbage
         ("Cat", 106, 19.5),     # valid numeric
-        ("Cat", 107, "0"),      # valid zero -> out-of-stock intent, NOT garbage
+        ("Cat", 107, "0"),      # "0" is a recognized out-of-stock marker -> normalized to blank
     ])
     items = {i["product_id"]: i for i in _parse_sheet_rows(ws)}
 
@@ -69,7 +69,7 @@ def test_parser_blank_vs_garbage():
     assert items[104]["price_parse_error"] is True and items[104]["new_price"] == "12xx"
     assert items[105]["price_parse_error"] is True and items[105]["new_price"] == "--100"
     assert items[106]["price_parse_error"] is False and items[106]["new_price"] == "19.50"
-    assert items[107]["price_parse_error"] is False and items[107]["new_price"] == "0.00"
+    assert items[107]["price_parse_error"] is False and items[107]["new_price"] == ""
     print("test_parser_blank_vs_garbage: PASS")
 
 
@@ -110,7 +110,7 @@ def test_dry_run_summary_blank_price_is_warning_not_critical():
                             stock_status="instock")
     summary = _compute_dry_run_summary([item_blank], alarm_threshold=float("inf"))
     assert summary["critical_errors"] == [], summary["critical_errors"]
-    assert any(w["type"] == "zero_price_or_blank_means_out_of_stock" for w in summary["warnings"]), summary["warnings"]
+    assert any(w["type"] == "out_of_stock_marker" for w in summary["warnings"]), summary["warnings"]
     assert summary["stock_to_outofstock"] == 1
     assert summary["dry_run_status"] == "warnings"
     print("test_dry_run_summary_blank_price_is_warning_not_critical: PASS")
@@ -143,6 +143,65 @@ def test_invalid_count_excludes_blank_rows():
     print("test_invalid_count_excludes_blank_rows: PASS")
 
 
+def test_parser_out_of_stock_markers_not_invalid():
+    ws = build_ws([
+        ("Cat", 201, "-"),
+        ("Cat", 202, "ناموجود"),
+        ("Cat", 203, "ناموجود شد"),
+        ("Cat", 204, "تماس بگیرید"),
+        ("Cat", 205, "out of stock"),
+        ("Cat", 206, "OOS"),
+        ("Cat", 207, "N/A"),
+        ("Cat", 208, "na"),
+        ("Cat", 209, "0.00"),
+    ])
+    items = {i["product_id"]: i for i in _parse_sheet_rows(ws)}
+    for pid in (201, 202, 203, 204, 205, 206, 207, 208, 209):
+        assert items[pid]["new_price"] == "", (pid, items[pid])
+        assert items[pid]["price_parse_error"] is False, (pid, items[pid])
+    print("test_parser_out_of_stock_markers_not_invalid: PASS")
+
+
+def test_parser_persian_and_arabic_numerics():
+    ws = build_ws([
+        ("Cat", 301, "۱۲۳۴۵۶"),     # Persian digits
+        ("Cat", 302, "۱۲۳,۴۵۶"),    # Persian digits + comma separator
+        ("Cat", 303, "123,456"),    # ASCII comma separator
+        ("Cat", 304, "123٬456"),    # Arabic thousands separator (U+066C)
+    ])
+    items = {i["product_id"]: i for i in _parse_sheet_rows(ws)}
+    for pid in (301, 302, 303, 304):
+        assert items[pid]["price_parse_error"] is False, (pid, items[pid])
+        assert items[pid]["new_price"] == "123456.00", (pid, items[pid])
+    print("test_parser_persian_and_arabic_numerics: PASS")
+
+
+def test_parser_true_garbage_still_invalid():
+    ws = build_ws([
+        ("Cat", 401, "abc"),
+        ("Cat", 402, "12xx"),
+        ("Cat", 403, "--100"),
+        ("Cat", 404, "random text"),
+    ])
+    items = {i["product_id"]: i for i in _parse_sheet_rows(ws)}
+    for pid in (401, 402, 403, 404):
+        assert items[pid]["price_parse_error"] is True, (pid, items[pid])
+    print("test_parser_true_garbage_still_invalid: PASS")
+
+
+def test_classify_row_out_of_stock_marker_strings_not_invalid():
+    wc = {"price": "50.00", "stock_status": "instock"}
+    for marker_text in ("-", "ناموجود", "تماس بگیرید", "out of stock", "n/a"):
+        ws = build_ws([("Cat", 1, marker_text)])
+        parsed = _parse_sheet_rows(ws)[0]
+        clf = _classify_row(1, parsed["new_price"], wc, last_price_updated="2024-01-01",
+                             cache_row=None, price_parse_error=parsed["price_parse_error"])
+        assert clf["change_status"] != "invalid", (marker_text, clf)
+        assert clf["change_status"] == "changed", (marker_text, clf)
+        assert clf["stock_changed"] == 1, (marker_text, clf)
+    print("test_classify_row_out_of_stock_marker_strings_not_invalid: PASS")
+
+
 if __name__ == "__main__":
     test_parser_blank_vs_garbage()
     test_classify_row_blank_price_not_invalid()
@@ -153,4 +212,8 @@ if __name__ == "__main__":
     test_dry_run_summary_garbage_price_is_critical_and_blocks()
     test_dry_run_summary_mixed_does_not_block_on_blank_alone()
     test_invalid_count_excludes_blank_rows()
+    test_parser_out_of_stock_markers_not_invalid()
+    test_parser_persian_and_arabic_numerics()
+    test_parser_true_garbage_still_invalid()
+    test_classify_row_out_of_stock_marker_strings_not_invalid()
     print("ALL TESTS PASSED")

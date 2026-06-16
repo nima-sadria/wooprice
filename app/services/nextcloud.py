@@ -143,6 +143,36 @@ def _extract_row_color(ws, row_idx: int) -> str | None:
     return None
 
 
+# Known textual out-of-stock markers operators write into the price column instead of
+# leaving it blank. Matched case-insensitively (Persian/Arabic text is unaffected by
+# .lower()). These are a business signal — not parse errors.
+_OUT_OF_STOCK_MARKERS = frozenset({
+    "0", "0.00", "-",
+    "ناموجود", "ناموجود شد", "تماس بگیرید",
+    "out of stock", "oos", "n/a", "na",
+})
+
+# Persian and Arabic-Indic digits -> ASCII digits, so localized numbers parse correctly.
+_DIGIT_TRANSLATION = str.maketrans({
+    "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
+    "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9",
+    "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+    "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+})
+
+
+def _is_out_of_stock_marker(text: str) -> bool:
+    return text.strip().lower() in _OUT_OF_STOCK_MARKERS
+
+
+def _normalize_price_text(raw: str) -> str:
+    """Normalize Persian/Arabic-Indic digits and thousands separators to plain ASCII
+    so localized numbers (e.g. '۱۲۳,۴۵۶', '123٬456') parse as floats."""
+    s = raw.translate(_DIGIT_TRANSLATION)
+    s = s.replace("٬", "").replace(",", "")  # Arabic thousands separator (U+066C) + comma
+    return s.strip()
+
+
 def _parse_sheet_rows(ws) -> list[dict]:
     """Parse one worksheet using the standard column mapping (B=ID, C=price, A=color)."""
     logger.info("_parse_sheet_rows: sheet='%s' max_row=%s max_col=%s",
@@ -180,20 +210,22 @@ def _parse_sheet_rows(ws) -> list[dict]:
             skipped_bad_id += 1
             continue
 
-        # Blank price is a valid business signal ("out of stock" intent), not an error.
-        # Non-numeric garbage is a true parse failure and must stay distinguishable from
-        # blank — the raw text is preserved in new_price (instead of being collapsed to
-        # "") so downstream classification can flag it as invalid with its original value.
-        if col_c is None or str(col_c).strip() == "":
+        # Blank price and known out-of-stock markers are a valid business signal
+        # ("out of stock" intent), not an error. Non-numeric garbage is a true parse
+        # failure and must stay distinguishable — the raw text is preserved in
+        # new_price (instead of being collapsed to "") so downstream classification
+        # can flag it as invalid with its original value.
+        raw_text = "" if col_c is None else str(col_c).strip()
+        if raw_text == "" or _is_out_of_stock_marker(raw_text):
             new_price = ""
             price_parse_error = False
         else:
-            price_str = str(col_c).replace(",", "").strip()
+            price_str = _normalize_price_text(raw_text)
             try:
                 new_price = f"{float(price_str):.2f}"
                 price_parse_error = False
             except (ValueError, TypeError):
-                new_price = price_str
+                new_price = raw_text
                 price_parse_error = True
                 logger.warning("_parse_sheet_rows: sheet='%s' row %d product_id=%d "
                                 "non-numeric price %r — flagged invalid",

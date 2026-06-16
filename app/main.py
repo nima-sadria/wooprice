@@ -1104,7 +1104,7 @@ def _compute_dry_run_summary(
         if getattr(item, "missing_cost", 0):
             warnings_list.append({"type": "missing_cost", "product_id": pid, "name": name})
         if _is_zero_price(item.new_price):
-            warnings_list.append({"type": "zero_price_or_blank_means_out_of_stock", "product_id": pid, "name": name})
+            warnings_list.append({"type": "out_of_stock_marker", "product_id": pid, "name": name})
         if alarm_threshold < float("inf") and item.old_price and item.new_price:
             try:
                 old_f2 = float(item.old_price)

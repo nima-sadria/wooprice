@@ -350,6 +350,7 @@ select.wp-sel:focus { border-color: var(--accent); }
 .cs-new       { background:#dcfce7; color:#16a34a; }
 .cs-invalid   { background:#fee2e2; color:#dc2626; }
 .cs-missing   { background:#ffedd5; color:#c2410c; }
+.cs-oos       { background:#fef3c7; color:#92400e; }
 .wt-status    { width:96px; min-width:80px; }
 
 /* ── Sidebar collapse (desktop only) ──────────────────────────────────── */
@@ -1935,6 +1936,15 @@ function _itemShouldApply(item) {
   return cs === 'changed' || cs === 'new';
 }
 
+// Blank/zero new_price is an out-of-stock marker, not a real price — badge should
+// read "Out of Stock" / "Will be Out of Stock" instead of the generic change status.
+function _itemWillBeOutOfStock(item) {
+  var np = item.new_price;
+  if (np === null || np === undefined || String(np).trim() === '') return true;
+  var f = parseFloat(np);
+  return !isNaN(f) && f === 0;
+}
+
 function renderPreview() {
   var search         = document.getElementById('ws-search').value.toLowerCase();
   var catFilter      = document.getElementById('ws-cat').value;
@@ -1967,6 +1977,9 @@ function renderPreview() {
   tbody.innerHTML = filtered.map(function(item) {
     var cs = _itemChangeStatus(item);
     var bdg = _csBadge[cs] || ['cs-unchanged', cs];
+    if (cs !== 'invalid' && cs !== 'missing_from_wc_cache' && _itemWillBeOutOfStock(item)) {
+      bdg = item.stock_changed ? ['cs-oos', 'Will be Out of Stock'] : ['cs-oos', 'Out of Stock'];
+    }
     var statusBadge = '<span class="cs-badge ' + bdg[0] + '">' + bdg[1] + '</span>';
     var chg = priceChange(item.old_price, item.new_price);
     var colorDotStyle = item.row_color
