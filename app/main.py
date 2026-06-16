@@ -33,7 +33,11 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
-from .models import AlarmThreshold, AppUser, AuditLog, ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob
+from .models import (
+    AlarmThreshold, AppUser, AuditLog, ChangeHistory, ChangeTracking, DailyMetrics,
+    ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob,
+)
+from .validation import ValidationLevel, validate_items, worst_level
 from .services.auth import create_token, decode_token, is_super_admin, verify_nextcloud_credentials
 from .services.nextcloud import (
     download_xlsx, fetch_spreadsheet_meta, get_cached_xlsx_meta,
@@ -115,6 +119,10 @@ def _run_column_migrations():
                 ("category_changed", "INTEGER DEFAULT 0"),
                 ("missing_cost",     "INTEGER DEFAULT 0"),
                 ("missing_image",    "INTEGER DEFAULT 0"),
+                # Phase C — validation + precise change detection
+                ("validation_level",    "TEXT"),
+                ("wc_price_at_preview", "TEXT"),
+                ("wc_stock_at_preview", "TEXT"),
             ]:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_items ADD COLUMN {col_name} {col_type}"))
@@ -154,6 +162,61 @@ def _run_column_migrations():
             ]:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE products_cache ADD COLUMN {col_name} {col_type}"))
+
+        # ── Phase C — new tables (idempotent CREATE TABLE IF NOT EXISTS) ──────
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS change_history (
+                id INTEGER PRIMARY KEY,
+                product_id INTEGER NOT NULL,
+                parent_id INTEGER DEFAULT 0,
+                old_price TEXT,
+                new_price TEXT,
+                old_stock_status TEXT,
+                new_stock_status TEXT,
+                old_manage_stock BOOLEAN,
+                new_manage_stock BOOLEAN,
+                old_stock_quantity INTEGER,
+                new_stock_quantity INTEGER,
+                changed_at TIMESTAMP,
+                username TEXT,
+                job_id INTEGER,
+                source TEXT,
+                rollback_of_id INTEGER REFERENCES change_history(id)
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_product_id ON change_history(product_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_job_id ON change_history(job_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_changed_at ON change_history(changed_at)"))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS change_tracking (
+                id INTEGER PRIMARY KEY,
+                product_id INTEGER NOT NULL,
+                detected_at TIMESTAMP,
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                source TEXT,
+                job_id INTEGER
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_tracking_product_id ON change_tracking(product_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_tracking_job_id ON change_tracking(job_id)"))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS daily_metrics (
+                id INTEGER PRIMARY KEY,
+                date TEXT NOT NULL UNIQUE,
+                total_products INTEGER DEFAULT 0,
+                changed_products INTEGER DEFAULT 0,
+                updated_products INTEGER DEFAULT 0,
+                failed_products INTEGER DEFAULT 0,
+                validation_errors INTEGER DEFAULT 0,
+                apply_jobs INTEGER DEFAULT 0,
+                rollback_jobs INTEGER DEFAULT 0,
+                created_at TIMESTAMP
+            )
+        """))
 
         conn.commit()
 
@@ -603,6 +666,90 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+# ── Phase C: change history + analytics helpers ───────────────────────────────
+
+def _record_change_history(
+    db: Session,
+    *,
+    product_id: int,
+    parent_id: int = 0,
+    old_price: str | None = None,
+    new_price: str | None = None,
+    old_stock_status: str | None = None,
+    new_stock_status: str | None = None,
+    old_stock_quantity: int | None = None,
+    new_stock_quantity: int | None = None,
+    old_manage_stock: bool | None = None,
+    new_manage_stock: bool | None = None,
+    username: str | None = None,
+    job_id: int | None = None,
+    source: str = "apply",
+    rollback_of_id: int | None = None,
+) -> ChangeHistory:
+    """Insert a change_history row capturing prior state before a WC update.
+    Caller is responsible for committing the session. Returns the (un-flushed) row."""
+    row = ChangeHistory(
+        product_id=product_id,
+        parent_id=parent_id or 0,
+        old_price=old_price,
+        new_price=new_price,
+        old_stock_status=old_stock_status,
+        new_stock_status=new_stock_status,
+        old_manage_stock=old_manage_stock,
+        new_manage_stock=new_manage_stock,
+        old_stock_quantity=old_stock_quantity,
+        new_stock_quantity=new_stock_quantity,
+        changed_at=datetime.utcnow(),
+        username=username,
+        job_id=job_id,
+        source=source,
+        rollback_of_id=rollback_of_id,
+    )
+    db.add(row)
+    return row
+
+
+def _upsert_daily_metrics(db: Session, date: str, **increments: int) -> None:
+    """Increment (or initialise) the daily_metrics row for `date` (YYYY-MM-DD).
+    Uses its own nested logic on the caller's session; caller commits."""
+    row = db.query(DailyMetrics).filter(DailyMetrics.date == date).first()
+    if row is None:
+        row = DailyMetrics(date=date, created_at=datetime.utcnow())
+        db.add(row)
+        db.flush()
+    for field, delta in increments.items():
+        if not hasattr(row, field):
+            continue
+        current = getattr(row, field, 0) or 0
+        setattr(row, field, current + (delta or 0))
+
+
+def _today_str() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
+
+def _record_change_tracking(
+    db: Session,
+    *,
+    product_id: int,
+    field_name: str,
+    old_value: str | None,
+    new_value: str | None,
+    source: str,
+    job_id: int | None = None,
+) -> None:
+    """Insert a change_tracking row for a single detected field drift. Caller commits."""
+    db.add(ChangeTracking(
+        product_id=product_id,
+        detected_at=datetime.utcnow(),
+        field_name=field_name,
+        old_value=None if old_value is None else str(old_value),
+        new_value=None if new_value is None else str(new_value),
+        source=source,
+        job_id=job_id,
+    ))
+
+
 # ── Price helpers ─────────────────────────────────────────────────────────────
 
 def _price_differs(old: str | None, new: str) -> bool:
@@ -709,6 +856,18 @@ def _classify_row(
         "missing_cost": missing_cost,
         "missing_image": missing_image,
     }
+
+
+def _row_validation_level(pid: int, new_price: str, old_price: str | None, cache_row) -> str | None:
+    """Phase C: compute the worst validation level for a single preview row.
+    Returns 'info'|'warning'|'error'|'critical' or None when there are no findings."""
+    from .validation import validate_price, validate_product
+    try:
+        results = validate_product(pid, cache_row) + validate_price(pid, new_price, old_price)
+        lvl = worst_level(results)
+        return lvl.value if lvl is not None else None
+    except Exception:
+        return None
 
 
 def _should_apply(item: "SyncItem") -> bool:  # type: ignore[name-defined]
@@ -862,11 +1021,21 @@ def _split_items_for_apply(
     return to_update, to_skip
 
 
-def _compute_dry_run_summary(items: list, alarm_threshold: float, selected_ids: set | None = None) -> dict:
+def _compute_dry_run_summary(
+    items: list,
+    alarm_threshold: float,
+    selected_ids: set | None = None,
+    cache_map: dict | None = None,
+) -> dict:
     """Pure computation — no WooCommerce calls. Returns dry-run summary dict.
 
     Critical errors are detected across ALL items (invalid + missing_from_wc_cache rows
     are blockers regardless of selection). products_to_update is scoped to selected_ids.
+
+    Phase C: the reusable validation engine (app/validation.py) is also run across the
+    items that would actually be applied. Any `critical` validation finding is promoted
+    into critical_errors (and therefore blocks the apply); error/warning findings are
+    surfaced as warnings. The raw findings are returned under `validation` for the UI.
     """
     critical_errors: list[dict] = []
 
@@ -944,6 +1113,32 @@ def _compute_dry_run_summary(items: list, alarm_threshold: float, selected_ids: 
             except (ValueError, TypeError, ZeroDivisionError):
                 pass
 
+    # Phase C: run the reusable validation engine over the apply set.
+    validation_findings: list[dict] = []
+    try:
+        v_results = validate_items(to_apply, cache_map or {})
+        for vr in v_results:
+            vd = vr.to_dict()
+            validation_findings.append(vd)
+            if vr.level == ValidationLevel.critical:
+                critical_errors.append({
+                    "type": f"validation_{vr.rule}",
+                    "product_id": vr.product_id,
+                    "name": "",
+                    "value": vr.value,
+                    "message": vr.message,
+                })
+            elif vr.level in (ValidationLevel.error, ValidationLevel.warning):
+                warnings_list.append({
+                    "type": f"validation_{vr.rule}",
+                    "product_id": vr.product_id,
+                    "name": "",
+                    "value": vr.value,
+                    "message": vr.message,
+                })
+    except Exception as _ve:  # validation must never crash the dry run
+        logger.warning("_compute_dry_run_summary: validation engine error: %s", _ve)
+
     dr_status = "blocked" if critical_errors else ("warnings" if warnings_list else "passed")
 
     return {
@@ -956,6 +1151,7 @@ def _compute_dry_run_summary(items: list, alarm_threshold: float, selected_ids: 
         "stock_changed_count":  stock_chg_count,
         "critical_errors":      critical_errors,
         "warnings":             warnings_list,
+        "validation":           validation_findings,
         "dry_run_status":       dr_status,
     }
 
@@ -2068,6 +2264,32 @@ async def update_price(
     # Read old price from cache before overwriting it
     cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
     old_price = (cache_row.final_price or cache_row.regular_price) if cache_row else None
+    old_stock_status = cache_row.stock_status if cache_row else None
+    old_stock_quantity = cache_row.stock_quantity if cache_row else None
+
+    # Phase C: record change_history (prior state) BEFORE the WC update, in its own
+    # session so the record survives even if the WC call below raises afterwards.
+    _ch_db = SessionLocal()
+    try:
+        _record_change_history(
+            _ch_db,
+            product_id=product_id,
+            parent_id=effective_parent_id,
+            old_price=old_price,
+            new_price=body.new_price,
+            old_stock_status=old_stock_status,
+            new_stock_status=_stock_from_price(body.new_price),
+            old_stock_quantity=old_stock_quantity,
+            username=user["sub"],
+            job_id=body.job_id,
+            source="direct_edit",
+        )
+        _ch_db.commit()
+    except Exception as _che:
+        logger.warning("update_price: change_history write failed pid=%s: %s", product_id, _che)
+        _ch_db.rollback()
+    finally:
+        _ch_db.close()
 
     try:
         await update_single_product(product_id, {"regular_price": body.new_price}, effective_parent_id)
@@ -2137,6 +2359,32 @@ async def update_stock(
     cache_row = db.query(ProductCache).filter(ProductCache.wc_id == product_id).first()
     old_stock_status = cache_row.stock_status if cache_row else None
     old_stock_quantity = cache_row.stock_quantity if cache_row else None
+    old_price = (cache_row.final_price or cache_row.regular_price) if cache_row else None
+
+    # Phase C: record change_history (prior state) BEFORE the WC update.
+    _ch_db = SessionLocal()
+    try:
+        _record_change_history(
+            _ch_db,
+            product_id=product_id,
+            parent_id=effective_parent_id,
+            old_price=old_price,
+            new_price=old_price,  # stock-only edit does not change price
+            old_stock_status=old_stock_status,
+            new_stock_status=body.stock_status,
+            old_stock_quantity=old_stock_quantity,
+            new_stock_quantity=body.stock_quantity,
+            new_manage_stock=True if body.stock_quantity is not None else None,
+            username=user["sub"],
+            job_id=body.job_id,
+            source="direct_edit",
+        )
+        _ch_db.commit()
+    except Exception as _che:
+        logger.warning("update_stock: change_history write failed pid=%s: %s", product_id, _che)
+        _ch_db.rollback()
+    finally:
+        _ch_db.close()
 
     try:
         await update_single_product(product_id, wc_payload, effective_parent_id)
@@ -2267,6 +2515,8 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
         sname = row.get("sheet_name") or wc.get("name") or None
         clf = _classify_row(pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid))
         clfs.append(clf)
+        _cr = cache_by_id.get(pid)
+        _vlevel = _row_validation_level(pid, row["new_price"], old_price, _cr)
         db.add(SyncItem(
             job_id=job.id, product_id=pid,
             parent_id=wc.get("parent_id") or 0,
@@ -2287,7 +2537,17 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
             category_changed=clf["category_changed"],
             missing_cost=clf["missing_cost"],
             missing_image=clf["missing_image"],
+            validation_level=_vlevel,
+            wc_price_at_preview=old_price,
+            wc_stock_at_preview=wc.get("stock_status") or None,
         ))
+        # Phase C: change_tracking for sheet-vs-cache price drift
+        if clf["price_changed"]:
+            _record_change_tracking(
+                db, product_id=pid, field_name="price",
+                old_value=old_price, new_value=row["new_price"],
+                source="sheet", job_id=job.id,
+            )
         preview_rows.append(_build_preview_row(
             pid, wc, row["new_price"],
             row_color=row.get("row_color"),
@@ -2304,6 +2564,16 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
     job.price_changed_count = sum(1 for c in clfs if c["price_changed"])
     job.stock_changed_count = sum(1 for c in clfs if c["stock_changed"])
     job.missing_image_count = sum(1 for c in clfs if c["missing_image"])
+
+    # Phase C: daily analytics
+    _validation_errs = sum(
+        1 for c in clfs if c["change_status"] in ("invalid", "missing_from_wc_cache")
+    )
+    _upsert_daily_metrics(
+        db, _today_str(),
+        changed_products=(job.changed_count + job.new_count),
+        validation_errors=_validation_errs,
+    )
 
     db.commit()
     _changed = job.changed_count + job.new_count
@@ -2364,6 +2634,9 @@ async def confirm_sync(
     items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
     to_update, to_skip = _split_items_for_apply(items, selected_ids or None)
 
+    _audit(username, "apply_started", ip, job_id,
+           {"to_update": len(to_update), "to_skip": len(to_skip)})
+
     for item in to_skip:
         item.status = ItemStatus.skipped
         item.synced_at = datetime.utcnow()
@@ -2374,11 +2647,34 @@ async def confirm_sync(
              "parent_id": i.parent_id or 0, "stock_status": _stock_from_price(i.new_price)}
             for i in to_update
         ]
+        # Phase C: record change_history (prior state) BEFORE the WC update.
+        _ch_cache = {
+            r.wc_id: r for r in db.query(ProductCache).filter(
+                ProductCache.wc_id.in_([i.product_id for i in to_update])
+            ).all()
+        }
+        for _it in to_update:
+            _cr = _ch_cache.get(_it.product_id)
+            _record_change_history(
+                db,
+                product_id=_it.product_id,
+                parent_id=_it.parent_id or 0,
+                old_price=(_cr.final_price or _cr.regular_price) if _cr else _it.old_price,
+                new_price=_it.new_price,
+                old_stock_status=_cr.stock_status if _cr else _it.stock_status,
+                new_stock_status=_stock_from_price(_it.new_price),
+                old_stock_quantity=_cr.stock_quantity if _cr else _it.stock_quantity,
+                username=username,
+                job_id=job_id,
+                source="apply",
+            )
+        db.commit()
         try:
             wc_results = await batch_update_prices(updates)
         except Exception as exc:
             job.status = JobStatus.failed
             db.commit()
+            _audit(username, "apply_failed", ip, job_id, {"error": str(exc)})
             raise HTTPException(502, f"WooCommerce batch update failed: {exc}")
 
         now = datetime.utcnow()
@@ -2406,6 +2702,18 @@ async def confirm_sync(
                     "confirm_sync: cache patched pid=%d price=%s hit=%s",
                     item.product_id, item.new_price, _ch,
                 )
+                _audit(username, "product_price_changed", ip, job_id, {
+                    "product_id": item.product_id,
+                    "old_value": item.old_price,
+                    "new_value": item.new_price,
+                    "source": "apply",
+                })
+                if getattr(item, "stock_changed", 0):
+                    _audit(username, "product_stock_changed", ip, job_id, {
+                        "product_id": item.product_id,
+                        "new_value": _stock_from_price(item.new_price),
+                        "source": "apply",
+                    })
 
         await _sync_parent_stock(updates, result_map, db)
 
@@ -2414,7 +2722,18 @@ async def confirm_sync(
     job.skipped_count = sum(1 for i in items if i.status == ItemStatus.skipped)
     job.status = JobStatus.completed
     job.completed_at = datetime.utcnow()
+    _upsert_daily_metrics(
+        db, _today_str(),
+        apply_jobs=1,
+        updated_products=job.updated_count,
+        failed_products=job.failed_count,
+    )
     db.commit()
+    _audit(username, "apply_completed", ip, job_id, {
+        "updated": job.updated_count,
+        "failed": job.failed_count,
+        "skipped": job.skipped_count,
+    })
     return {"job_id": job_id, "status": "completed",
             "updated": job.updated_count, "failed": job.failed_count, "skipped": job.skipped_count}
 
@@ -2465,7 +2784,18 @@ async def dry_run_sync(
         )
         alarm_threshold = global_thr.threshold_percent if global_thr else float("inf")
 
-        summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids)
+        _pids = [i.product_id for i in items]
+        cache_map = {
+            r.wc_id: r for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(_pids)).all()
+        } if _pids else {}
+        summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids, cache_map)
+        # Phase C: emit a validation_failed audit when the engine flags blockers.
+        _v_critical = [v for v in summary.get("validation", []) if v.get("level") == "critical"]
+        if _v_critical:
+            _audit(username, "validation_failed", ip, job_id, {
+                "critical_count": len(_v_critical),
+                "rules": sorted({v.get("rule") for v in _v_critical}),
+            })
         dr_status = summary["dry_run_status"]
 
         # Always store an explicit scope (never null) via _normalize_scope.
@@ -2558,10 +2888,14 @@ async def preview_stream(
             except HTTPException as _exc:
                 yield ev({"step": "excel", "status": "error", "msg": _exc.detail}); return
 
+            _audit(user_data["sub"], "fetch_started", ip, None,
+                   {"pre_search": _pre_search or None, "pre_cat": _pre_cat or None})
+
             yield ev({"step": "excel", "status": "running", "msg": "Downloading price list from Nextcloud…"})
             try:
                 xlsx = await download_xlsx(force=True)
             except Exception as exc:
+                _audit(user_data["sub"], "fetch_failed", ip, None, {"stage": "download", "error": str(exc)})
                 yield ev({"step": "excel", "status": "error", "msg": str(exc)}); return
 
             _xlsx_meta = get_cached_xlsx_meta()
@@ -2644,6 +2978,7 @@ async def preview_stream(
                         await asyncio.sleep(10)
                     fresh_data = await fetch_task
                 except Exception as exc:
+                    _audit(user_data["sub"], "fetch_failed", ip, None, {"stage": "woocommerce", "error": str(exc)})
                     yield ev({"step": "wc", "status": "error", "msg": str(exc)}); return
                 cache_rows = [wc_response_to_cache_dict(pid, d) for pid, d in fresh_data.items()]
                 upsert_products(db, cache_rows)  # image_url absent in cache_rows; discard return value
@@ -2748,6 +3083,8 @@ async def preview_stream(
                         clf["change_status"], pid, row["new_price"], old_price or "", _src, _cver,
                         _csync.isoformat() if _csync else None,
                     )
+                _cr_pre = cache_by_id.get(pid)
+                _vlevel = _row_validation_level(pid, row["new_price"], old_price, _cr_pre)
                 db.add(SyncItem(
                     job_id=job.id, product_id=pid,
                     parent_id=wc.get("parent_id") or 0,
@@ -2768,7 +3105,17 @@ async def preview_stream(
                     category_changed=clf["category_changed"],
                     missing_cost=clf["missing_cost"],
                     missing_image=clf["missing_image"],
+                    validation_level=_vlevel,
+                    wc_price_at_preview=old_price,
+                    wc_stock_at_preview=wc.get("stock_status") or None,
                 ))
+                # Phase C: change_tracking for sheet-vs-cache price drift
+                if clf["price_changed"]:
+                    _record_change_tracking(
+                        db, product_id=pid, field_name="price",
+                        old_value=old_price, new_value=row["new_price"],
+                        source="sheet", job_id=job.id,
+                    )
                 preview_rows.append(_build_preview_row(
                     pid, wc, row["new_price"],
                     row_color=row.get("row_color"),
@@ -2785,9 +3132,24 @@ async def preview_stream(
             job.price_changed_count = sum(1 for c in clfs if c["price_changed"])
             job.stock_changed_count = sum(1 for c in clfs if c["stock_changed"])
             job.missing_image_count = sum(1 for c in clfs if c["missing_image"])
+
+            # Phase C: daily analytics
+            _validation_errs = sum(
+                1 for c in clfs if c["change_status"] in ("invalid", "missing_from_wc_cache")
+            )
+            _upsert_daily_metrics(
+                db, _today_str(),
+                changed_products=(job.changed_count + job.new_count),
+                validation_errors=_validation_errs,
+            )
             db.commit()
 
             _audit(user_data["sub"], "fetch", ip, job.id)
+            _audit(user_data["sub"], "fetch_completed", ip, job.id, {
+                "total": len(preview_rows),
+                "changed": job.changed_count + job.new_count,
+                "invalid": _validation_errs,
+            })
 
             _changed = job.changed_count + job.new_count
             yield ev({"step": "calc", "status": "done",
@@ -2878,6 +3240,9 @@ async def apply_stream(
             # selected_ids is already normalised; pass None when empty (→ apply-all)
             to_update, to_skip = _split_items_for_apply(items, selected_ids or None)
 
+            _audit(user_data["sub"], "apply_started", ip, job_id,
+                   {"to_update": len(to_update), "to_skip": len(to_skip)})
+
             yield ev({"type": "start", "total": len(to_update), "skipped": len(to_skip)})
 
             for item in to_skip:
@@ -2890,11 +3255,35 @@ async def apply_stream(
                      "parent_id": i.parent_id or 0, "stock_status": _stock_from_price(i.new_price)}
                     for i in to_update
                 ]
+                # Phase C: record change_history (prior state) BEFORE the WC update.
+                _ch_cache = {
+                    r.wc_id: r for r in db.query(ProductCache).filter(
+                        ProductCache.wc_id.in_([i.product_id for i in to_update])
+                    ).all()
+                }
+                for _it in to_update:
+                    _cr = _ch_cache.get(_it.product_id)
+                    _new_stock = _stock_from_price(_it.new_price)
+                    _record_change_history(
+                        db,
+                        product_id=_it.product_id,
+                        parent_id=_it.parent_id or 0,
+                        old_price=(_cr.final_price or _cr.regular_price) if _cr else _it.old_price,
+                        new_price=_it.new_price,
+                        old_stock_status=_cr.stock_status if _cr else _it.stock_status,
+                        new_stock_status=_new_stock,
+                        old_stock_quantity=_cr.stock_quantity if _cr else _it.stock_quantity,
+                        username=user_data["sub"],
+                        job_id=job_id,
+                        source="apply",
+                    )
+                db.commit()
                 try:
                     wc_results = await batch_update_prices(updates)
                 except Exception as exc:
                     job.status = JobStatus.failed
                     db.commit()
+                    _audit(user_data["sub"], "apply_failed", ip, job_id, {"error": str(exc)})
                     yield ev({"type": "error", "msg": f"WooCommerce batch update failed: {exc}"}); return
 
                 now = datetime.utcnow()
@@ -2935,6 +3324,19 @@ async def apply_stream(
                             "apply_stream: cache patched pid=%d price=%s hit=%s",
                             item.product_id, item.new_price, _ch,
                         )
+                        # Phase C: per-product audit events
+                        _audit(user_data["sub"], "product_price_changed", ip, job_id, {
+                            "product_id": item.product_id,
+                            "old_value": item.old_price,
+                            "new_value": item.new_price,
+                            "source": "apply",
+                        })
+                        if getattr(item, "stock_changed", 0):
+                            _audit(user_data["sub"], "product_stock_changed", ip, job_id, {
+                                "product_id": item.product_id,
+                                "new_value": _stock_from_price(item.new_price),
+                                "source": "apply",
+                            })
                     yield ev({
                         "type": "item",
                         "product_id": item.product_id,
@@ -2953,9 +3355,21 @@ async def apply_stream(
             job.skipped_count = sum(1 for i in items if i.status == ItemStatus.skipped)
             job.status = JobStatus.completed
             job.completed_at = datetime.utcnow()
+            # Phase C: analytics + completion audit
+            _upsert_daily_metrics(
+                db, _today_str(),
+                apply_jobs=1,
+                updated_products=job.updated_count,
+                failed_products=job.failed_count,
+            )
             db.commit()
 
             _audit(user_data["sub"], "apply", ip, job.id)
+            _audit(user_data["sub"], "apply_completed", ip, job.id, {
+                "updated": job.updated_count,
+                "failed": job.failed_count,
+                "skipped": job.skipped_count,
+            })
 
             yield ev({"type": "done", "job_id": job_id,
                       "updated": job.updated_count, "failed": job.failed_count, "skipped": job.skipped_count})
@@ -2986,3 +3400,181 @@ async def writeback(job_id: int, user: dict = Depends(require_permission("can_ap
         raise HTTPException(502, f"Failed to write back to Nextcloud sheet: {exc}")
 
     return {"message": "Results written back to spreadsheet (columns E, F, G)"}
+
+
+# ── 9. Rollback (Phase C — admin only) ────────────────────────────────────────
+
+async def _rollback_one(db: Session, entry: ChangeHistory, username: str) -> dict:
+    """Restore the prior state captured in a single change_history entry via WooCommerce.
+
+    Returns a per-product result dict. Records a new change_history row with
+    source='rollback' and rollback_of_id pointing to the reverted entry, and patches
+    the local cache. Raises on WooCommerce failure (caller decides how to surface)."""
+    pid = entry.product_id
+    parent_id = entry.parent_id or 0
+
+    # Build the WC payload from the OLD (pre-change) state. Price restore is primary;
+    # stock status restore is included when we have a recorded old value.
+    payload: dict = {}
+    if entry.old_price is not None and str(entry.old_price).strip() != "":
+        payload["regular_price"] = str(entry.old_price)
+    if entry.old_stock_status:
+        payload["stock_status"] = entry.old_stock_status
+    if entry.old_stock_quantity is not None:
+        payload["stock_quantity"] = entry.old_stock_quantity
+        payload["manage_stock"] = True
+
+    if not payload:
+        return {"product_id": pid, "success": False,
+                "error_message": "Nothing to restore — recorded prior state was empty."}
+
+    # Capture current cache state to record as the 'old' of the rollback row.
+    cache_row = db.query(ProductCache).filter(ProductCache.wc_id == pid).first()
+    cur_price = (cache_row.final_price or cache_row.regular_price) if cache_row else entry.new_price
+    cur_stock = cache_row.stock_status if cache_row else entry.new_stock_status
+
+    await update_single_product(pid, payload, parent_id)
+
+    # Patch local cache to reflect the restored values.
+    patch_fields: dict = {}
+    if "regular_price" in payload:
+        patch_fields["regular_price"] = payload["regular_price"]
+        patch_fields["final_price"] = payload["regular_price"]
+    if "stock_status" in payload:
+        patch_fields["stock_status"] = payload["stock_status"]
+    if "stock_quantity" in payload:
+        patch_fields["stock_quantity"] = payload["stock_quantity"]
+    if patch_fields:
+        patch_cached_product(db, pid, patch_fields)
+
+    # Record the rollback itself as a new change_history row.
+    _record_change_history(
+        db,
+        product_id=pid,
+        parent_id=parent_id,
+        old_price=cur_price,
+        new_price=payload.get("regular_price", cur_price),
+        old_stock_status=cur_stock,
+        new_stock_status=payload.get("stock_status", cur_stock),
+        old_stock_quantity=cache_row.stock_quantity if cache_row else None,
+        new_stock_quantity=payload.get("stock_quantity"),
+        username=username,
+        job_id=entry.job_id,
+        source="rollback",
+        rollback_of_id=entry.id,
+    )
+
+    # WC state changed — invalidate any active dry runs for this product.
+    _invalidate_dry_runs_for_product(db, pid)
+
+    return {"product_id": pid, "success": True,
+            "restored_price": payload.get("regular_price"),
+            "restored_stock_status": payload.get("stock_status")}
+
+
+@app.post("/api/rollback/product/{product_id}")
+async def rollback_product(
+    product_id: int,
+    request: Request,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Roll back the most recent change_history entry for a single product (admin only)."""
+    ip = _client_ip(request)
+    username = user["sub"]
+
+    # Latest non-rollback change for this product (don't roll back a rollback by default).
+    entry = (
+        db.query(ChangeHistory)
+        .filter(ChangeHistory.product_id == product_id, ChangeHistory.source != "rollback")
+        .order_by(ChangeHistory.changed_at.desc(), ChangeHistory.id.desc())
+        .first()
+    )
+    if entry is None:
+        raise HTTPException(404, "No change history found for this product — nothing to roll back.")
+
+    _audit(username, "rollback_started", ip, entry.job_id,
+           {"product_id": product_id, "change_history_id": entry.id, "scope": "product"})
+    try:
+        result = await _rollback_one(db, entry, username)
+        if not result.get("success"):
+            db.rollback()
+            _audit(username, "rollback_failed", ip, entry.job_id,
+                   {"product_id": product_id, "reason": result.get("error_message")})
+            raise HTTPException(400, result.get("error_message") or "Rollback failed")
+        _upsert_daily_metrics(db, _today_str(), rollback_jobs=1)
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.error("rollback_product: pid=%d error=%s", product_id, exc)
+        _audit(username, "rollback_failed", ip, entry.job_id,
+               {"product_id": product_id, "error": str(exc)})
+        raise HTTPException(502, f"Rollback failed: {exc}")
+
+    _audit(username, "rollback_completed", ip, entry.job_id,
+           {"product_id": product_id, "change_history_id": entry.id, "scope": "product"})
+    return {"product_id": product_id, "status": "rolled_back", **result}
+
+
+@app.post("/api/rollback/job/{job_id}")
+async def rollback_job(
+    job_id: int,
+    request: Request,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Roll back every change_history entry for a job, in reverse chronological order.
+    Admin only. Rejects jobs with more than 500 recorded changes."""
+    ip = _client_ip(request)
+    username = user["sub"]
+
+    entries = (
+        db.query(ChangeHistory)
+        .filter(ChangeHistory.job_id == job_id, ChangeHistory.source == "apply")
+        .order_by(ChangeHistory.changed_at.desc(), ChangeHistory.id.desc())
+        .all()
+    )
+    if not entries:
+        raise HTTPException(404, "No applied changes found for this job — nothing to roll back.")
+    if len(entries) > 500:
+        raise HTTPException(400, f"Job has {len(entries)} changes — rollback is limited to 500 products.")
+
+    _audit(username, "rollback_started", ip, job_id, {"scope": "job", "count": len(entries)})
+
+    succeeded = 0
+    failed = 0
+    results: list[dict] = []
+    # Roll back each entry independently; one failure must not abort the rest.
+    for entry in entries:
+        try:
+            res = await _rollback_one(db, entry, username)
+            if res.get("success"):
+                db.commit()
+                succeeded += 1
+            else:
+                db.rollback()
+                failed += 1
+            results.append(res)
+        except Exception as exc:
+            db.rollback()
+            failed += 1
+            results.append({"product_id": entry.product_id, "success": False, "error_message": str(exc)})
+            logger.warning("rollback_job: job=%d pid=%d error=%s", job_id, entry.product_id, exc)
+
+    try:
+        _upsert_daily_metrics(db, _today_str(), rollback_jobs=1)
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    if succeeded == 0:
+        _audit(username, "rollback_failed", ip, job_id,
+               {"scope": "job", "succeeded": succeeded, "failed": failed})
+        raise HTTPException(502, "Rollback failed for all products in the job.")
+
+    _audit(username, "rollback_completed", ip, job_id,
+           {"scope": "job", "succeeded": succeeded, "failed": failed})
+    return {"job_id": job_id, "status": "rolled_back",
+            "succeeded": succeeded, "failed": failed, "results": results}

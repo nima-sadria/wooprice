@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from ..models import ProductCache
+from ..models import ChangeTracking, ProductCache
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,10 @@ def upsert_products(
         if wc_id in existing:
             row = existing[wc_id]
             _prev_seen = row.last_seen_at
+            # Phase C — capture prior values for change_tracking before overwrite
+            _old_price = row.final_price or row.regular_price
+            _old_stock_status = row.stock_status
+            _old_stock_qty = row.stock_quantity
             row.parent_id = p.get("parent_id", 0) or 0
             row.product_type = p.get("product_type", "simple") or "simple"
             row.sku = p.get("sku") or row.sku
@@ -88,6 +92,31 @@ def upsert_products(
             row.regular_price = p.get("regular_price", "") or row.regular_price
             row.sale_price = p.get("sale_price", "") or ""
             row.final_price = p.get("final_price", "") or row.final_price
+            # Phase C — emit field-level change_tracking rows for any WC-side drift
+            try:
+                _new_price = row.final_price or row.regular_price
+                if (_old_price or "") != (_new_price or ""):
+                    db.add(ChangeTracking(
+                        product_id=wc_id, detected_at=now, field_name="price",
+                        old_value=str(_old_price) if _old_price is not None else None,
+                        new_value=str(_new_price) if _new_price is not None else None,
+                        source="wc_fetch",
+                    ))
+                if (_old_stock_status or "") != (row.stock_status or ""):
+                    db.add(ChangeTracking(
+                        product_id=wc_id, detected_at=now, field_name="stock_status",
+                        old_value=_old_stock_status, new_value=row.stock_status,
+                        source="wc_fetch",
+                    ))
+                if _old_stock_qty != row.stock_quantity:
+                    db.add(ChangeTracking(
+                        product_id=wc_id, detected_at=now, field_name="stock_quantity",
+                        old_value=str(_old_stock_qty) if _old_stock_qty is not None else None,
+                        new_value=str(row.stock_quantity) if row.stock_quantity is not None else None,
+                        source="wc_fetch",
+                    ))
+            except Exception:
+                pass
             row.categories = cats or row.categories
             row.date_modified_gmt = p.get("date_modified_gmt") or row.date_modified_gmt
             new_img = p.get("image_url")

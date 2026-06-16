@@ -80,6 +80,10 @@ class SyncItem(Base):
     synced_at = Column(DateTime, nullable=True)
     last_price_updated = Column(DateTime, nullable=True)
     wc_date_modified = Column(DateTime, nullable=True)
+    # Phase C — validation + precise change detection
+    validation_level = Column(String, nullable=True)      # info | warning | error | critical
+    wc_price_at_preview = Column(String, nullable=True)   # WC price at preview time (from cache)
+    wc_stock_at_preview = Column(String, nullable=True)   # WC stock_status at preview time
 
     job = relationship("SyncJob", back_populates="items")
 
@@ -153,3 +157,57 @@ class AuditLog(Base):
     ip_address = Column(String, nullable=True)
     job_id = Column(Integer, nullable=True)
     detail = Column(Text, nullable=True)  # JSON: product_id, old/new values, parent_id
+
+
+class ChangeHistory(Base):
+    """Phase C — immutable record of every WooCommerce price/stock change, enabling rollback.
+    One row is written immediately BEFORE each WC update, capturing the prior state."""
+    __tablename__ = "change_history"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    parent_id = Column(Integer, default=0, nullable=True)
+    old_price = Column(String, nullable=True)
+    new_price = Column(String, nullable=True)
+    old_stock_status = Column(String, nullable=True)
+    new_stock_status = Column(String, nullable=True)
+    old_manage_stock = Column(Boolean, nullable=True)
+    new_manage_stock = Column(Boolean, nullable=True)
+    old_stock_quantity = Column(Integer, nullable=True)
+    new_stock_quantity = Column(Integer, nullable=True)
+    changed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    username = Column(String, nullable=True)
+    job_id = Column(Integer, nullable=True, index=True)
+    source = Column(String, nullable=True)              # apply | direct_edit | rollback
+    rollback_of_id = Column(Integer, ForeignKey("change_history.id"), nullable=True)
+
+
+class ChangeTracking(Base):
+    """Phase C — field-level audit of every detected value drift, from either the sheet
+    (preview) or a WooCommerce fetch. Distinct from ChangeHistory (which is rollback-oriented)."""
+    __tablename__ = "change_tracking"
+
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, nullable=False, index=True)
+    detected_at = Column(DateTime, default=datetime.utcnow, index=True)
+    field_name = Column(String, nullable=True)          # price | stock_status | stock_quantity
+    old_value = Column(String, nullable=True)
+    new_value = Column(String, nullable=True)
+    source = Column(String, nullable=True)              # sheet | wc_fetch
+    job_id = Column(Integer, nullable=True, index=True)
+
+
+class DailyMetrics(Base):
+    """Phase C — analytics foundation. One row per calendar day (UTC), upserted as events occur."""
+    __tablename__ = "daily_metrics"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(String, nullable=False, unique=True, index=True)  # YYYY-MM-DD
+    total_products = Column(Integer, default=0)
+    changed_products = Column(Integer, default=0)
+    updated_products = Column(Integer, default=0)
+    failed_products = Column(Integer, default=0)
+    validation_errors = Column(Integer, default=0)
+    apply_jobs = Column(Integer, default=0)
+    rollback_jobs = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
