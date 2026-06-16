@@ -230,19 +230,22 @@ async def fetch_product_prices(product_ids: list[int], force: bool = False) -> d
 
 
 async def fetch_categories() -> list[dict]:
-    """Return all WooCommerce product categories as [{id, name}]."""
+    """Return all WooCommerce product categories as [{id, name, parent}].
+
+    parent == 0 means top-level category; otherwise it's the parent category's id.
+    """
     categories: list[dict] = []
     page = 1
     async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
         while True:
             resp = await _get_with_retry(
                 client, f"{_base()}/products/categories",
-                params={"per_page": "100", "page": str(page), "_fields": "id,name"},
+                params={"per_page": "100", "page": str(page), "_fields": "id,name,parent"},
             )
             data = resp.json()
             if not data:
                 break
-            categories.extend({"id": c["id"], "name": c["name"]} for c in data)
+            categories.extend({"id": c["id"], "name": c["name"], "parent": c.get("parent", 0)} for c in data)
             if len(data) < 100:
                 break
             page += 1

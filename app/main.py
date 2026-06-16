@@ -811,6 +811,20 @@ def _is_valid_price(price: str | None) -> bool:
         return False
 
 
+def _row_has_image(cache_row, parent_cache_row=None) -> bool:
+    """True if the row's own product/variation has an image, or its parent does.
+
+    A WooCommerce variation commonly has no image of its own and visually inherits
+    the parent product's gallery image — that is not a real "missing image" problem,
+    so the warning must only fire when neither the row nor its parent has an image.
+    """
+    if cache_row and getattr(cache_row, "image_url", None):
+        return True
+    if parent_cache_row and getattr(parent_cache_row, "image_url", None):
+        return True
+    return False
+
+
 def _classify_row(
     pid: int,
     new_price: str,
@@ -818,6 +832,7 @@ def _classify_row(
     last_price_updated,
     cache_row,
     price_parse_error: bool = False,
+    parent_cache_row=None,
 ) -> dict:
     """Classify one preview row. Returns change_status + boolean flags.
 
@@ -832,6 +847,9 @@ def _classify_row(
     the product should be marked out of stock (see _stock_from_price/_is_zero_price).
     Only a genuine parse failure (non-numeric garbage caught by the sheet parser and
     flagged via price_parse_error) is classified as 'invalid'.
+
+    `parent_cache_row` (optional) is the ProductCache row for cache_row.parent_id, used
+    as an image fallback — see _row_has_image().
     """
     if not pid or pid <= 0 or price_parse_error:
         return {
@@ -847,7 +865,7 @@ def _classify_row(
             "price_changed": 0, "stock_changed": 0,
             "name_changed": 0, "category_changed": 0,
             "missing_cost": 0,
-            "missing_image": 1 if (not cache_row or not getattr(cache_row, "image_url", None)) else 0,
+            "missing_image": 0 if _row_has_image(cache_row, parent_cache_row) else 1,
         }
 
     old_price = wc.get("price") or None
@@ -857,7 +875,7 @@ def _classify_row(
     price_chg     = 1 if _price_differs(old_price, new_price) else 0
     stock_chg     = 1 if new_stock != wc_stock else 0
     missing_cost  = 1 if (not old_price or str(old_price).strip() == "") else 0
-    missing_image = 1 if (not cache_row or not getattr(cache_row, "image_url", None)) else 0
+    missing_image = 0 if _row_has_image(cache_row, parent_cache_row) else 1
 
     if price_chg or stock_chg:
         cs = "new" if last_price_updated is None else "changed"
@@ -2568,6 +2586,18 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
     last_synced = _get_last_synced(db, product_ids)
     cache_by_id = {r.wc_id: r for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(product_ids)).all()}
 
+    # Parent rows for image fallback — a variation missing its own image_url should
+    # not warn missing_image if its parent has one (see _row_has_image).
+    _parent_ids_for_image = {
+        r.parent_id for r in cache_by_id.values()
+        if getattr(r, "parent_id", 0) and not getattr(r, "image_url", None)
+    }
+    parent_cache_by_id: dict = {}
+    if _parent_ids_for_image:
+        parent_cache_by_id = {
+            r.wc_id: r for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(_parent_ids_for_image)).all()
+        }
+
     job = SyncJob(status=JobStatus.preview, total_count=len(sheet_items), sheet_hash=_sheet_hash)
     db.add(job)
     db.flush()
@@ -2579,9 +2609,12 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
         wc = wc_data.get(pid) or {}
         old_price = wc.get("price") or None
         sname = row.get("sheet_name") or wc.get("name") or None
+        _row_cache = cache_by_id.get(pid)
+        _row_parent_cache = parent_cache_by_id.get(getattr(_row_cache, "parent_id", 0))
         clf = _classify_row(
-            pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid),
+            pid, row["new_price"], wc, last_synced.get(pid), _row_cache,
             price_parse_error=row.get("price_parse_error", False),
+            parent_cache_row=_row_parent_cache,
         )
         clfs.append(clf)
         _cr = cache_by_id.get(pid)
@@ -2940,14 +2973,14 @@ async def preview_stream(
     request: Request,
     token: str | None = Query(None),
     pre_search: str | None = Query(None),
-    pre_cat: str | None = Query(None),
+    pre_cat: list[int] | None = Query(None),
 ):
     ip = _client_ip(request)
     _pre_search = (pre_search or "").strip().lower()
-    _pre_cat = (pre_cat or "").strip()
+    _pre_cat_ids: set[int] = set(pre_cat) if pre_cat else set()
     logger.warning(
         "FETCH_ROUTE_ENTERED: route=/api/preview/stream mode=preview_stream ip=%s pre_search=%r pre_cat=%r",
-        ip, _pre_search, _pre_cat,
+        ip, _pre_search, sorted(_pre_cat_ids),
     )
 
     async def generate():
@@ -2963,7 +2996,7 @@ async def preview_stream(
                 yield ev({"step": "excel", "status": "error", "msg": _exc.detail}); return
 
             _audit(user_data["sub"], "fetch_started", ip, None,
-                   {"pre_search": _pre_search or None, "pre_cat": _pre_cat or None})
+                   {"pre_search": _pre_search or None, "pre_cat": sorted(_pre_cat_ids) or None})
 
             yield ev({"step": "excel", "status": "running", "msg": "Downloading price list from Nextcloud…"})
             try:
@@ -2988,7 +3021,7 @@ async def preview_stream(
             filter_mode = "full"
             _filter_skipped = 0
             _filter_no_cache = 0
-            if _pre_search or _pre_cat:
+            if _pre_search or _pre_cat_ids:
                 all_ids = [i["product_id"] for i in sheet_items]
                 filter_meta = get_cached_by_ids(db, all_ids)
                 filtered_items = []
@@ -3006,9 +3039,9 @@ async def preview_stream(
                         sku  = (cached.get("sku") or "").lower()
                         if _pre_search not in name and _pre_search not in sku:
                             continue
-                    if _pre_cat:
+                    if _pre_cat_ids:
                         cats = cached.get("categories") or []
-                        if not any(str(c.get("id", "")) == _pre_cat for c in cats):
+                        if not any(c.get("id") in _pre_cat_ids for c in cats):
                             continue
                     filtered_items.append(item)
                 _filter_no_cache = len(skipped_no_cache)
@@ -3018,7 +3051,7 @@ async def preview_stream(
                 logger.info(
                     "preview_stream: pre-filter applied search=%r cat=%r "
                     "total=%d matched=%d skipped=%d no_cache=%d",
-                    _pre_search, _pre_cat, total_in_sheet, len(sheet_items),
+                    _pre_search, sorted(_pre_cat_ids), total_in_sheet, len(sheet_items),
                     _filter_skipped, _filter_no_cache,
                 )
                 if not sheet_items:
@@ -3126,6 +3159,17 @@ async def preview_stream(
                 _cmeta[_cr.wc_id] = (_cr.cache_version, _cr.last_synced_at)
                 cache_by_id[_cr.wc_id] = _cr
 
+            # Parent rows for image fallback — a variation missing its own image_url
+            # should not warn missing_image if its parent has one (see _row_has_image).
+            _parent_ids_for_image = {
+                _cr.parent_id for _cr in cache_by_id.values()
+                if getattr(_cr, "parent_id", 0) and not getattr(_cr, "image_url", None)
+            }
+            parent_cache_by_id: dict[int, "ProductCache"] = {}  # type: ignore[name-defined]
+            if _parent_ids_for_image:
+                for _pr in db.query(ProductCache).filter(ProductCache.wc_id.in_(_parent_ids_for_image)).all():
+                    parent_cache_by_id[_pr.wc_id] = _pr
+
             yield ev({"step": "calc", "status": "running", "msg": "Calculating price differences…"})
 
             last_synced = _get_last_synced(db, product_ids)
@@ -3144,9 +3188,12 @@ async def preview_stream(
                 sname = row.get("sheet_name") or wc.get("name") or None
                 _cver, _csync = _cmeta.get(pid, (None, None))
                 _src = "live_wc" if pid in freshly_fetched_ids else "cache"
+                _row_cache = cache_by_id.get(pid)
+                _row_parent_cache = parent_cache_by_id.get(getattr(_row_cache, "parent_id", 0))
                 clf = _classify_row(
-                    pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid),
+                    pid, row["new_price"], wc, last_synced.get(pid), _row_cache,
                     price_parse_error=row.get("price_parse_error", False),
+                    parent_cache_row=_row_parent_cache,
                 )
                 clfs.append(clf)
                 logger.debug(
@@ -3355,75 +3402,99 @@ async def apply_stream(
                         source="apply",
                     )
                 db.commit()
-                try:
-                    wc_results = await batch_update_prices(updates)
-                except Exception as exc:
-                    job.status = JobStatus.failed
-                    db.commit()
-                    _audit(user_data["sub"], "apply_failed", ip, job_id, {"error": str(exc)})
-                    yield ev({"type": "error", "msg": f"WooCommerce batch update failed: {exc}"}); return
 
                 now = datetime.utcnow()
-                result_map = {r["product_id"]: r for r in wc_results}
-                for item in to_update:
-                    r = result_map.get(item.product_id, {})
-                    item.status = ItemStatus.updated if r.get("success") else ItemStatus.failed
-                    item.error_message = r.get("error_message")
-                    item.synced_at = now
-                    _ep = (
-                        f"/products/{item.parent_id}/variations/{item.product_id}"
-                        if (item.parent_id or 0) > 0
-                        else f"/products/{item.product_id}"
-                    )
-                    logger.info(
-                        "apply item: job=%d pid=%d name=%r old=%s new=%s "
-                        "parent=%d endpoint=%s status=%s err=%s",
-                        job_id, item.product_id, item.product_name or "",
-                        item.old_price or "", item.new_price,
-                        item.parent_id or 0, _ep, item.status.value,
-                        item.error_message or "",
-                    )
-                    if r.get("success"):
-                        item.last_price_updated = now
-                        item.stock_status = _stock_from_price(item.new_price)
-                        if _is_zero_price(item.new_price):
-                            logger.info(
-                                "apply outofstock: pid=%d name=%r parent=%d "
-                                "blank/zero price → stock_status=outofstock",
-                                item.product_id, item.product_name or "", item.parent_id or 0,
-                            )
-                        _ch = patch_cached_product(db, item.product_id, {
-                            "regular_price": item.new_price,
-                            "final_price": item.new_price,
-                            "stock_status": _stock_from_price(item.new_price),
-                        })
-                        logger.info(
-                            "apply_stream: cache patched pid=%d price=%s hit=%s",
-                            item.product_id, item.new_price, _ch,
+                result_map: dict[int, dict] = {}
+                completed = 0
+                total_to_update = len(to_update)
+                _APPLY_CHUNK_SIZE = 10
+
+                for _chunk_start in range(0, total_to_update, _APPLY_CHUNK_SIZE):
+                    chunk_items = to_update[_chunk_start:_chunk_start + _APPLY_CHUNK_SIZE]
+                    chunk_updates = updates[_chunk_start:_chunk_start + _APPLY_CHUNK_SIZE]
+                    try:
+                        chunk_wc_results = await batch_update_prices(chunk_updates)
+                        chunk_result_map = {r["product_id"]: r for r in chunk_wc_results}
+                    except Exception as exc:
+                        logger.warning(
+                            "apply_stream: chunk update failed job=%d pids=%s: %s",
+                            job_id, [i.product_id for i in chunk_items], exc,
                         )
-                        # Phase C: per-product audit events
-                        _audit(user_data["sub"], "product_price_changed", ip, job_id, {
-                            "product_id": item.product_id,
-                            "old_value": item.old_price,
-                            "new_value": item.new_price,
-                            "source": "apply",
+                        _audit(user_data["sub"], "apply_chunk_failed", ip, job_id, {
+                            "product_ids": [i.product_id for i in chunk_items],
+                            "error": str(exc),
                         })
-                        if getattr(item, "stock_changed", 0):
-                            _audit(user_data["sub"], "product_stock_changed", ip, job_id, {
+                        chunk_result_map = {
+                            i.product_id: {"success": False, "error_message": str(exc)}
+                            for i in chunk_items
+                        }
+                    result_map.update(chunk_result_map)
+
+                    for item in chunk_items:
+                        r = chunk_result_map.get(item.product_id, {})
+                        item.status = ItemStatus.updated if r.get("success") else ItemStatus.failed
+                        item.error_message = r.get("error_message")
+                        item.synced_at = now
+                        _ep = (
+                            f"/products/{item.parent_id}/variations/{item.product_id}"
+                            if (item.parent_id or 0) > 0
+                            else f"/products/{item.product_id}"
+                        )
+                        logger.info(
+                            "apply item: job=%d pid=%d name=%r old=%s new=%s "
+                            "parent=%d endpoint=%s status=%s err=%s",
+                            job_id, item.product_id, item.product_name or "",
+                            item.old_price or "", item.new_price,
+                            item.parent_id or 0, _ep, item.status.value,
+                            item.error_message or "",
+                        )
+                        if r.get("success"):
+                            item.last_price_updated = now
+                            item.stock_status = _stock_from_price(item.new_price)
+                            if _is_zero_price(item.new_price):
+                                logger.info(
+                                    "apply outofstock: pid=%d name=%r parent=%d "
+                                    "blank/zero price → stock_status=outofstock",
+                                    item.product_id, item.product_name or "", item.parent_id or 0,
+                                )
+                            _ch = patch_cached_product(db, item.product_id, {
+                                "regular_price": item.new_price,
+                                "final_price": item.new_price,
+                                "stock_status": _stock_from_price(item.new_price),
+                            })
+                            logger.info(
+                                "apply_stream: cache patched pid=%d price=%s hit=%s",
+                                item.product_id, item.new_price, _ch,
+                            )
+                            # Phase C: per-product audit events
+                            _audit(user_data["sub"], "product_price_changed", ip, job_id, {
                                 "product_id": item.product_id,
-                                "new_value": _stock_from_price(item.new_price),
+                                "old_value": item.old_price,
+                                "new_value": item.new_price,
                                 "source": "apply",
                             })
-                    yield ev({
-                        "type": "item",
-                        "product_id": item.product_id,
-                        "product_name": item.product_name or "",
-                        "sku": item.sku or "",
-                        "status": item.status.value,
-                        "old_price": item.old_price or "",
-                        "new_price": item.new_price,
-                        "error": item.error_message or "",
-                    })
+                            if getattr(item, "stock_changed", 0):
+                                _audit(user_data["sub"], "product_stock_changed", ip, job_id, {
+                                    "product_id": item.product_id,
+                                    "new_value": _stock_from_price(item.new_price),
+                                    "source": "apply",
+                                })
+                        completed += 1
+                        yield ev({
+                            "type": "item",
+                            "product_id": item.product_id,
+                            "product_name": item.product_name or "",
+                            "sku": item.sku or "",
+                            "status": item.status.value,
+                            "old_price": item.old_price or "",
+                            "new_price": item.new_price,
+                            "error": item.error_message or "",
+                            "completed": completed,
+                            "total": total_to_update,
+                            "percentage": round(completed / total_to_update * 100),
+                        })
+                    # Commit progress per chunk so completed work survives a mid-apply crash.
+                    db.commit()
 
                 await _sync_parent_stock(updates, result_map, db)
 

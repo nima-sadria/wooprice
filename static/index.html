@@ -342,6 +342,19 @@ select.wp-sel:focus { border-color: var(--accent); }
 .pf-mode-badge.full { background: #dcfce7; color: #16a34a; }
 .pf-mode-badge.filtered { background: #dbeafe; color: #2563eb; }
 
+/* Multi-select category filter (Pre-Fetch card) */
+.pf-cat-multiselect { position: relative; flex: 0 1 280px; min-width: 220px; }
+.pf-cat-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 5px; }
+.pf-cat-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 9px; background: #eef2ff; color: #4338ca; border-radius: 999px; font-size: 11.5px; font-weight: 600; }
+.pf-cat-chip button { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: none; background: transparent; color: #4338ca; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.pf-cat-chip button:hover { color: #1e1b4b; }
+.pf-cat-dropdown { position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 40; background: var(--bg-card, #fff); border: 1.5px solid var(--border, #E8EAED); border-radius: 8px; max-height: 260px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+.pf-cat-row { display: flex; align-items: center; gap: 7px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+.pf-cat-row:hover { background: #f8f9fb; }
+.pf-cat-row input[type=checkbox] { cursor: pointer; }
+.pf-cat-row.is-child { padding-left: 26px; color: var(--wp-muted, #64748b); }
+.pf-cat-empty { padding: 10px; font-size: 12.5px; color: var(--wp-muted, #64748b); text-align: center; }
+
 /* Hide image column on very small screens */
 @media (max-width: 600px) {
   .wt-img, .ws-tbl thead th:nth-child(3), .ws-tbl tbody td:nth-child(3) { display: none; }
@@ -591,9 +604,12 @@ select.wp-sel:focus { border-color: var(--accent); }
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--wp-muted);font-weight:600;margin-bottom:10px">Pre-Fetch Filters <span style="font-weight:400;text-transform:none;letter-spacing:0">(applied before fetching — reduces WooCommerce API calls)</span></div>
           <div class="pf-bar">
             <input class="wp-search" id="pf-search" placeholder="Filter by name or SKU…" style="flex:0 1 220px" oninput="updateFetchModeBadge()">
-            <select class="wp-sel" id="pf-cat" onchange="updateFetchModeBadge()">
-              <option value="">All categories</option>
-            </select>
+            <div class="pf-cat-multiselect" id="pf-cat-wrap">
+              <div class="pf-cat-chips" id="pf-cat-chips"></div>
+              <input class="wp-search" id="pf-cat-search" placeholder="Select categories…" autocomplete="off"
+                     style="width:100%" oninput="renderCatDropdown()" onfocus="openCatDropdown()">
+              <div class="pf-cat-dropdown" id="pf-cat-dropdown" style="display:none"></div>
+            </div>
             <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="clearPreFetchFilters()">Clear</button>
             <span id="pf-active-label" style="font-size:12px;color:var(--wp-muted);display:none">
               Filters active — Fetch Preview will only process matching products
@@ -1019,6 +1035,8 @@ var previewItems = [];
 var selectedIds = new Set();
 var dryRunResult = null;  // Phase B: stores last dry run response
 var allCategories = [];
+var catTree = [];          // allCategories ordered parent-then-children, with .depth
+var pfSelectedCats = [];   // [{id, name}] — Pre-Fetch category filter selection
 var alarmThresholds = [];
 var analyticsData = null;
 var syncChart = null;
@@ -1396,16 +1414,102 @@ async function checkHealth() {
   }
 }
 
+function buildCategoryTree(categories) {
+  var byParent = {};
+  categories.forEach(function(c) {
+    var p = c.parent || 0;
+    (byParent[p] = byParent[p] || []).push(c);
+  });
+  var out = [];
+  function walk(parentId, depth) {
+    (byParent[parentId] || []).forEach(function(c) {
+      out.push({ id: c.id, name: c.name, depth: depth });
+      walk(c.id, depth + 1);
+    });
+  }
+  walk(0, 0);
+  // Categories whose parent id doesn't exist in this list (orphaned/parent on another page) — append flat.
+  var seen = {};
+  out.forEach(function(c) { seen[c.id] = true; });
+  categories.forEach(function(c) {
+    if (!seen[c.id]) out.push({ id: c.id, name: c.name, depth: 0 });
+  });
+  return out;
+}
+
 async function loadCategories() {
   try { allCategories = await api('GET', '/api/categories'); } catch(e) { allCategories = []; }
-  ['ws-cat', 'an-cat', 'pf-cat'].forEach(function(id) {
+  catTree = buildCategoryTree(allCategories);
+  ['ws-cat', 'an-cat'].forEach(function(id) {
     var sel = document.getElementById(id);
     if (!sel) return;
     sel.innerHTML = '<option value="">All categories</option>' +
       allCategories.map(function(c) { return '<option value="' + c.id + '">' + esc(c.name) + '</option>'; }).join('');
   });
+  renderCatChips();
   updateFetchModeBadge();
 }
+
+function openCatDropdown() {
+  renderCatDropdown();
+}
+
+function closeCatDropdown() {
+  var dd = document.getElementById('pf-cat-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+function renderCatDropdown() {
+  var dd = document.getElementById('pf-cat-dropdown');
+  if (!dd) return;
+  var q = (document.getElementById('pf-cat-search').value || '').trim().toLowerCase();
+  var selectedIds = {};
+  pfSelectedCats.forEach(function(c) { selectedIds[c.id] = true; });
+  var rows = catTree.filter(function(c) { return !q || c.name.toLowerCase().indexOf(q) !== -1; });
+  dd.innerHTML = rows.length
+    ? rows.map(function(c) {
+        return '<label class="pf-cat-row' + (c.depth > 0 ? ' is-child' : '') + '">' +
+          '<input type="checkbox" ' + (selectedIds[c.id] ? 'checked' : '') +
+          ' onchange="toggleCatFilter(' + c.id + ', this.checked)">' +
+          esc(c.name) + '</label>';
+      }).join('')
+    : '<div class="pf-cat-empty">No matching categories</div>';
+  dd.style.display = 'block';
+}
+
+function toggleCatFilter(id, checked) {
+  if (checked) {
+    if (!pfSelectedCats.some(function(c) { return c.id === id; })) {
+      var found = catTree.find(function(c) { return c.id === id; });
+      pfSelectedCats.push({ id: id, name: found ? found.name : ('#' + id) });
+    }
+  } else {
+    pfSelectedCats = pfSelectedCats.filter(function(c) { return c.id !== id; });
+  }
+  renderCatChips();
+  updateFetchModeBadge();
+}
+
+function removeCatFilter(id) {
+  pfSelectedCats = pfSelectedCats.filter(function(c) { return c.id !== id; });
+  renderCatChips();
+  renderCatDropdown();
+  updateFetchModeBadge();
+}
+
+function renderCatChips() {
+  var wrap = document.getElementById('pf-cat-chips');
+  if (!wrap) return;
+  wrap.innerHTML = pfSelectedCats.map(function(c) {
+    return '<span class="pf-cat-chip">' + esc(c.name) +
+      '<button type="button" onclick="removeCatFilter(' + c.id + ')" title="Remove">&times;</button></span>';
+  }).join('');
+}
+
+document.addEventListener('click', function(e) {
+  var wrap = document.getElementById('pf-cat-wrap');
+  if (wrap && !wrap.contains(e.target)) closeCatDropdown();
+});
 
 async function loadAlarmThresholds() {
   try { alarmThresholds = await api('GET', '/api/alarm-settings'); } catch(e) { alarmThresholds = []; }
@@ -1645,8 +1749,7 @@ async function waitForSheetUpdate() {
 // ══ Workspace ══════════════════════════════════════════════════════════════
 function updateFetchModeBadge() {
   var s = (document.getElementById('pf-search').value || '').trim();
-  var c = document.getElementById('pf-cat').value || '';
-  var isFiltered = !!(s || c);
+  var isFiltered = !!(s || pfSelectedCats.length);
   var badge = document.getElementById('fetch-mode-badge');
   var label = document.getElementById('pf-active-label');
   badge.style.display = 'inline-flex';
@@ -1663,7 +1766,10 @@ function updateFetchModeBadge() {
 
 function clearPreFetchFilters() {
   document.getElementById('pf-search').value = '';
-  document.getElementById('pf-cat').value = '';
+  document.getElementById('pf-cat-search').value = '';
+  pfSelectedCats = [];
+  renderCatChips();
+  closeCatDropdown();
   updateFetchModeBadge();
 }
 
@@ -1690,15 +1796,15 @@ function startPreview() {
   currentJobId = null;
 
   var pfSearch = (document.getElementById('pf-search').value || '').trim();
-  var pfCat    = document.getElementById('pf-cat').value || '';
   var streamUrl = '/api/preview/stream?token=' + encodeURIComponent(token);
   if (pfSearch) streamUrl += '&pre_search=' + encodeURIComponent(pfSearch);
-  if (pfCat)    streamUrl += '&pre_cat='    + encodeURIComponent(pfCat);
+  pfSelectedCats.forEach(function(c) { streamUrl += '&pre_cat=' + encodeURIComponent(c.id); });
 
   addLog('[ROUTE] GET /api/preview/stream → Preview Fetch (NOT Full Fetch, NOT Light Fetch)', 'info');
   addLog(
-    pfSearch || pfCat
-      ? 'Starting filtered Fetch Preview' + (pfSearch ? ' — search: "' + pfSearch + '"' : '') + (pfCat ? ' — category filtered' : '') + '…'
+    pfSearch || pfSelectedCats.length
+      ? 'Starting filtered Fetch Preview' + (pfSearch ? ' — search: "' + pfSearch + '"' : '') +
+        (pfSelectedCats.length ? ' — ' + pfSelectedCats.length + ' categor' + (pfSelectedCats.length === 1 ? 'y' : 'ies') + ' filtered' : '') + '…'
       : 'Starting full Fetch Preview…',
     'info'
   );
@@ -2403,8 +2509,13 @@ function runApplyStream() {
     }
 
     if (d.type === 'item') {
-      done++;
-      setProgress(done, total);
+      done = (typeof d.completed === 'number') ? d.completed : (done + 1);
+      var t = (typeof d.total === 'number') ? d.total : total;
+      setProgress(done, t);
+      if (done === t || done % 10 === 0) {
+        var pct = (typeof d.percentage === 'number') ? d.percentage : (t > 0 ? Math.round(done / t * 100) : 0);
+        addLog('Updating ' + done + ' / ' + t + ' products… (' + pct + '%)', 'info');
+      }
       if (d.status !== 'updated') {
         failed++;
         failedItems.push(d);
