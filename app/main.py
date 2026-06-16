@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import func, inspect as sa_inspect, text
+from sqlalchemy import func, inspect as sa_inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -699,6 +699,17 @@ def _record_change_history(
 ) -> ChangeHistory:
     """Insert a change_history row capturing prior state before a WC update.
     Caller is responsible for committing the session. Returns the (un-flushed) row."""
+    # Snapshot brand from products_cache at the moment of the change
+    _cache_row = db.get(ProductCache, product_id)
+    _brand_id = _cache_row.brand_id if _cache_row else None
+
+    # Pre-compute price delta percentage for future velocity analytics
+    _delta_pct: float | None = None
+    _old_f = _safe_price_float(old_price)
+    _new_f = _safe_price_float(new_price)
+    if _old_f is not None and _new_f is not None and _old_f != 0:
+        _delta_pct = round((_new_f - _old_f) / _old_f * 100, 4)
+
     row = ChangeHistory(
         product_id=product_id,
         parent_id=parent_id or 0,
@@ -715,6 +726,8 @@ def _record_change_history(
         job_id=job_id,
         source=source,
         rollback_of_id=rollback_of_id,
+        brand_id=_brand_id,
+        price_delta_pct=_delta_pct,
     )
     db.add(row)
     return row
@@ -809,6 +822,13 @@ def _is_valid_price(price: str | None) -> bool:
         return True
     except (ValueError, TypeError):
         return False
+
+
+def _safe_price_float(v) -> float | None:
+    """Parse a price string to float, returning None for empty/null/non-numeric values.
+    Delegates to validation._to_float which normalises Persian/Arabic digits."""
+    from .validation import _to_float as _vto_float
+    return _vto_float(v)
 
 
 def _row_has_image(cache_row, parent_cache_row=None) -> bool:
@@ -2328,6 +2348,317 @@ async def get_brand_coverage(user: dict = Depends(require_permission("can_access
         .all()
     )
     return _compute_brand_coverage(rows)
+
+
+# ── Analytics Dashboard v1 ────────────────────────────────────────────────────
+
+def _today_utc_start() -> datetime:
+    n = datetime.utcnow()
+    return n.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _updated_today_product_ids(db: Session) -> set[int]:
+    """Return product_ids that had at least one completed Apply today (UTC)."""
+    rows = (
+        db.query(ChangeHistory.product_id)
+        .filter(ChangeHistory.source == "apply", ChangeHistory.changed_at >= _today_utc_start())
+        .distinct()
+        .all()
+    )
+    return {r.product_id for r in rows}
+
+
+def _pc_summary(p: ProductCache) -> dict:
+    return {
+        "wc_id": p.wc_id,
+        "name": p.name or "",
+        "sku": p.sku or "",
+        "stock_status": p.stock_status or "",
+        "final_price": p.final_price or "",
+    }
+
+
+@app.get("/api/analytics/admin/overview")
+async def analytics_admin_overview(
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin overview cards: today's activity + live product-health counts."""
+    today = _today_str()
+    dm = db.query(DailyMetrics).filter(DailyMetrics.date == today).first()
+
+    total = db.query(func.count()).select_from(ProductCache).scalar() or 0
+    out_of_stock = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(ProductCache.stock_status == "outofstock").scalar() or 0
+    )
+    missing_image = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(ProductCache.image_url.is_(None)).scalar() or 0
+    )
+    missing_price = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(or_(ProductCache.final_price.is_(None), ProductCache.final_price == "")).scalar() or 0
+    )
+    price_changes_today = (
+        db.query(func.count()).select_from(ChangeHistory)
+        .filter(ChangeHistory.source == "apply", ChangeHistory.changed_at >= _today_utc_start())
+        .scalar() or 0
+    )
+
+    return {
+        "total_products": total,
+        "updated_products_today": dm.updated_products if dm else 0,
+        "apply_count_today": dm.apply_jobs if dm else 0,
+        "rollback_count_today": dm.rollback_jobs if dm else 0,
+        "price_changes_today": price_changes_today,
+        "out_of_stock": out_of_stock,
+        "missing_image": missing_image,
+        "missing_price": missing_price,
+    }
+
+
+@app.get("/api/analytics/admin/top-movements")
+async def analytics_admin_top_movements(
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Biggest price increases and decreases today (by percentage)."""
+    rows = (
+        db.query(ChangeHistory)
+        .filter(
+            ChangeHistory.source == "apply",
+            ChangeHistory.changed_at >= _today_utc_start(),
+            ChangeHistory.old_price.isnot(None),
+            ChangeHistory.new_price.isnot(None),
+        )
+        .all()
+    )
+
+    movements = []
+    for row in rows:
+        old_f = _safe_price_float(row.old_price)
+        new_f = _safe_price_float(row.new_price)
+        if old_f is None or new_f is None or old_f == 0:
+            continue
+        delta_pct = (new_f - old_f) / old_f * 100
+        if abs(delta_pct) < 0.01:
+            continue
+        movements.append({
+            "product_id": row.product_id,
+            "old_price": row.old_price,
+            "new_price": row.new_price,
+            "delta_pct": round(delta_pct, 1),
+            "name": "",
+            "sku": "",
+        })
+
+    if movements:
+        pids = list({m["product_id"] for m in movements})
+        cache_map = {
+            r.wc_id: r
+            for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(pids)).all()
+        }
+        for m in movements:
+            cr = cache_map.get(m["product_id"])
+            if cr:
+                m["name"] = cr.name or ""
+                m["sku"] = cr.sku or ""
+
+    increases = sorted([m for m in movements if m["delta_pct"] > 0], key=lambda x: x["delta_pct"], reverse=True)[:10]
+    decreases = sorted([m for m in movements if m["delta_pct"] < 0], key=lambda x: x["delta_pct"])[:10]
+    return {"increases": increases, "decreases": decreases}
+
+
+@app.get("/api/analytics/admin/trend")
+async def analytics_admin_trend(
+    days: int = Query(default=7, ge=1, le=30),
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Daily metrics for the last N days (1–30), with zero-fill for missing days."""
+    from datetime import date as _date
+    end = datetime.utcnow().date()
+    start_str = str(end - timedelta(days=days - 1))
+    rows = (
+        db.query(DailyMetrics)
+        .filter(DailyMetrics.date >= start_str)
+        .order_by(DailyMetrics.date)
+        .all()
+    )
+    date_map = {r.date: r for r in rows}
+    data = []
+    for i in range(days):
+        d = str(end - timedelta(days=days - 1 - i))
+        dm = date_map.get(d)
+        data.append({
+            "date": d,
+            "updated_products": dm.updated_products if dm else 0,
+            "apply_jobs": dm.apply_jobs if dm else 0,
+            "rollback_jobs": dm.rollback_jobs if dm else 0,
+            "changed_products": dm.changed_products if dm else 0,
+        })
+    return {"days": days, "data": data}
+
+
+@app.get("/api/analytics/seller/categories")
+async def analytics_seller_categories(
+    user: dict = Depends(require_permission("can_access_site")),
+    db: Session = Depends(get_db),
+):
+    """Per-category coverage: total products, updated today, drill-down lists."""
+    updated_ids = _updated_today_product_ids(db)
+    products = (
+        db.query(ProductCache)
+        .filter(ProductCache.parent_id == 0)
+        .all()
+    )
+
+    cat_map: dict[int, dict] = {}
+    for p in products:
+        try:
+            cats = json.loads(p.categories) if p.categories else []
+        except Exception:
+            cats = []
+        updated = p.wc_id in updated_ids
+        entry = _pc_summary(p)
+        entry["updated_today"] = updated
+        for c in cats:
+            cid = c.get("id")
+            if cid is None:
+                continue
+            if cid not in cat_map:
+                cat_map[cid] = {
+                    "category_id": cid,
+                    "category_name": c.get("name", ""),
+                    "total": 0,
+                    "updated_today": 0,
+                    "products_updated": [],
+                    "products_not_updated": [],
+                }
+            cat_map[cid]["total"] += 1
+            if updated:
+                cat_map[cid]["updated_today"] += 1
+                cat_map[cid]["products_updated"].append(entry)
+            else:
+                cat_map[cid]["products_not_updated"].append(entry)
+
+    result = sorted(cat_map.values(), key=lambda x: x["total"], reverse=True)
+    for r in result:
+        r["update_pct"] = round(r["updated_today"] / r["total"] * 100, 1) if r["total"] else 0.0
+
+    return {"categories": result, "scale_note": "Python JSON parsing — refactor to junction table if catalog exceeds 10k products"}
+
+
+@app.get("/api/analytics/seller/brands")
+async def analytics_seller_brands(
+    user: dict = Depends(require_permission("can_access_site")),
+    db: Session = Depends(get_db),
+):
+    """Per-brand coverage: total products, updated today via Apply, drill-down lists."""
+    updated_ids = _updated_today_product_ids(db)
+    products = (
+        db.query(ProductCache)
+        .filter(ProductCache.parent_id == 0)
+        .all()
+    )
+
+    brand_map: dict = {}
+    for p in products:
+        bid = p.brand_id
+        updated = p.wc_id in updated_ids
+        entry = _pc_summary(p)
+        entry["updated_today"] = updated
+        if bid not in brand_map:
+            brand_map[bid] = {
+                "brand_id": bid,
+                "brand_name": p.brand_name if bid is not None else "Unknown Brand",
+                "total": 0,
+                "updated_today": 0,
+                "products_updated": [],
+                "products_not_updated": [],
+            }
+        brand_map[bid]["total"] += 1
+        if updated:
+            brand_map[bid]["updated_today"] += 1
+            brand_map[bid]["products_updated"].append(entry)
+        else:
+            brand_map[bid]["products_not_updated"].append(entry)
+
+    known = sorted(
+        [v for v in brand_map.values() if v["brand_id"] is not None],
+        key=lambda x: x["total"], reverse=True,
+    )
+    unknown = brand_map.get(None, {
+        "brand_id": None, "brand_name": "Unknown Brand",
+        "total": 0, "updated_today": 0,
+        "products_updated": [], "products_not_updated": [],
+    })
+    total = sum(v["total"] for v in brand_map.values())
+    total_known = sum(v["total"] for v in known)
+    for v in list(known) + [unknown]:
+        v["update_pct"] = round(v["updated_today"] / v["total"] * 100, 1) if v["total"] else 0.0
+
+    return {
+        "total_products": total,
+        "brand_count": len(known),
+        "coverage_percent": round(total_known / total * 100, 1) if total else 0.0,
+        "brands": known,
+        "unknown_brand": unknown,
+    }
+
+
+@app.get("/api/analytics/seller/staleness")
+async def analytics_seller_staleness(
+    user: dict = Depends(require_permission("can_access_site")),
+    db: Session = Depends(get_db),
+):
+    """Products by staleness bucket based on last Apply date.
+    Stale = never applied, or last apply > 3 days ago."""
+    now = datetime.utcnow()
+    cutoff_3 = now - timedelta(days=3)
+    cutoff_5 = now - timedelta(days=5)
+
+    last_apply_sq = (
+        db.query(
+            ChangeHistory.product_id,
+            func.max(ChangeHistory.changed_at).label("last_applied"),
+        )
+        .filter(ChangeHistory.source == "apply")
+        .group_by(ChangeHistory.product_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(ProductCache, last_apply_sq.c.last_applied)
+        .outerjoin(last_apply_sq, ProductCache.wc_id == last_apply_sq.c.product_id)
+        .all()
+    )
+
+    stale_3_5: list[dict] = []
+    stale_5_plus: list[dict] = []
+    never_updated: list[dict] = []
+
+    for p, last_applied in rows:
+        entry = _pc_summary(p)
+        entry["last_applied"] = last_applied.isoformat() if last_applied else None
+        if last_applied is None:
+            never_updated.append(entry)
+        elif last_applied < cutoff_5:
+            stale_5_plus.append(entry)
+        elif last_applied < cutoff_3:
+            stale_3_5.append(entry)
+
+    return {
+        "stale_3_5": stale_3_5,
+        "stale_5_plus": stale_5_plus,
+        "never_updated": never_updated,
+        "counts": {
+            "stale_3_5": len(stale_3_5),
+            "stale_5_plus": len(stale_5_plus),
+            "never_updated": len(never_updated),
+        },
+    }
 
 
 # ── Live price/stock update ───────────────────────────────────────────────────

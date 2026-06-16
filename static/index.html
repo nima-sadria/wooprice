@@ -401,6 +401,63 @@ select.wp-sel:focus { border-color: var(--accent); }
   .d-sidebar.wp-sb-col .sb-collapse-btn { margin: 0 auto; }
   .shell.wp-sb-col .sb-collapse-btn svg { transform: rotate(180deg); }
 }
+/* ── Analytics Dashboard v1 ── */
+.an-tabs { margin-bottom: 20px; }
+.an-tab-content { display: none; }
+.an-tab-content.an-active { display: block; }
+
+/* Overview cards */
+.an-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
+.an-card { background: var(--bg-card, #fff); border: 1px solid var(--border, #E8EAED); border-radius: 10px; padding: 16px 18px; }
+.an-card-label { font-size: 11px; color: var(--wp-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.an-card-value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.an-card-value.warn { color: #d97706; }
+.an-card-value.danger { color: #dc2626; }
+.an-card-value.green { color: #16a34a; }
+.an-card-value.accent { color: var(--accent); }
+
+/* Top-movements */
+.an-movements { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 22px; }
+@media(max-width:700px){ .an-movements { grid-template-columns: 1fr; } }
+.an-move-tbl th { font-size: 11px; color: var(--wp-muted); padding: 5px 8px; text-align: left; }
+.an-move-tbl td { font-size: 12.5px; padding: 5px 8px; }
+.an-move-up { color: #16a34a; font-weight: 600; }
+.an-move-dn { color: #dc2626; font-weight: 600; }
+
+/* Trend chart */
+.an-trend-wrap { margin-bottom: 22px; }
+.an-trend-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
+.an-trend-toggle button { padding: 4px 12px; border: 1px solid var(--border, #E8EAED); border-radius: 6px; background: none; font-size: 12px; cursor: pointer; color: var(--wp-muted); }
+.an-trend-toggle button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.an-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding: 0 4px; }
+.an-bar-col { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
+.an-bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 2px; transition: height .2s; background: var(--accent); opacity: .75; }
+.an-bar:hover { opacity: 1; cursor: default; }
+.an-bar-lbl { font-size: 9px; color: var(--wp-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-align: center; }
+.an-chart-legend { display: flex; gap: 14px; margin-top: 6px; }
+.an-chart-legend span { font-size: 11px; color: var(--wp-muted); display: flex; align-items: center; gap: 4px; }
+.an-chart-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+/* Coverage tables */
+.an-cov-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.an-cov-tbl th { font-size: 11px; color: var(--wp-muted); padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border, #E8EAED); }
+.an-cov-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border, #E8EAED); vertical-align: middle; }
+.an-cov-tbl tr:last-child td { border-bottom: none; }
+.an-progress { height: 6px; background: var(--bg-base, #F5F6FA); border-radius: 3px; min-width: 80px; overflow: hidden; }
+.an-progress-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+.an-drill-btn { font-size: 11px; border: 1px solid var(--border, #E8EAED); background: none; border-radius: 5px; padding: 2px 8px; cursor: pointer; color: var(--wp-muted); margin-left: 4px; }
+.an-drill-btn:hover { background: var(--bg-base, #F5F6FA); }
+.an-drill-row { background: var(--bg-base, #F5F6FA); }
+.an-drill-inner { padding: 8px 10px 10px; }
+.an-drill-inner table { font-size: 12px; width: 100%; }
+.an-drill-inner td { padding: 3px 8px; }
+.an-drill-tabs { display: flex; gap: 6px; margin-bottom: 6px; }
+.an-drill-tab { padding: 3px 10px; border: 1px solid var(--border, #E8EAED); border-radius: 5px; background: none; font-size: 11px; cursor: pointer; }
+.an-drill-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* Staleness */
+.an-stale-section { margin-bottom: 18px; }
+.an-stale-hdr { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 </style>
 </head>
 <body data-active="home" data-crumbs="WooPrice | Dashboard">
@@ -800,59 +857,150 @@ select.wp-sel:focus { border-color: var(--accent); }
         <div class="wp-page-header">
           <div>
             <div class="wp-page-title">Analytics</div>
-            <div class="wp-page-sub">Product insights from latest sync</div>
+            <div class="wp-page-sub">Product insights &amp; update coverage</div>
           </div>
           <div class="wp-filter-bar">
-            <input class="wp-search" id="an-search" placeholder="Search name…" oninput="renderAnalytics()">
-            <select class="wp-sel" id="an-cat" onchange="renderAnalytics()">
-              <option value="">All categories</option>
-            </select>
-            <select class="wp-sel" id="an-sort" onchange="renderAnalytics()">
-              <option value="name">Sort: Name</option>
-              <option value="updated">Sort: Last Updated</option>
-            </select>
             <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="loadAnalytics()">Refresh</button>
           </div>
         </div>
 
-        <div class="wp-card">
-          <div class="wp-section-hdr">
-            <h3 style="color:#d97706">In Stock — No Price</h3>
-            <span class="wp-section-count" id="an-no-price-count"></span>
-          </div>
-          <div class="wp-tbl-wrap">
-            <table>
-              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Stock</th><th>Qty</th><th>Last Updated</th><th>Categories</th></tr></thead>
-              <tbody id="an-no-price-body"></tbody>
-            </table>
+        <!-- Tab nav -->
+        <div class="an-tabs">
+          <div class="wp-tab-bar">
+            <button class="wp-tab-btn active" id="an-tab-admin" onclick="anSwitchTab('admin', this)">Admin Overview</button>
+            <button class="wp-tab-btn" id="an-tab-seller" onclick="anSwitchTab('seller', this)">Coverage Report</button>
           </div>
         </div>
 
-        <div class="wp-card">
-          <div class="wp-section-hdr">
-            <h3 style="color:var(--wp-orange)">Has Price — Out of Stock</h3>
-            <span class="wp-section-count" id="an-no-stock-count"></span>
-          </div>
-          <div class="wp-tbl-wrap">
-            <table>
-              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th><th>Categories</th></tr></thead>
-              <tbody id="an-no-stock-body"></tbody>
-            </table>
-          </div>
-        </div>
+        <!-- ── Admin Tab ── -->
+        <div id="an-content-admin" class="an-tab-content an-active">
 
-        <div class="wp-card">
-          <div class="wp-section-hdr">
-            <h3 style="color:#dc2626">Not Updated &gt; 1 Week</h3>
-            <span class="wp-section-count" id="an-stale-count"></span>
+          <!-- Overview cards -->
+          <div class="wp-card" style="margin-bottom:16px">
+            <div class="wp-section-hdr" style="margin-bottom:12px"><h3>Today at a Glance</h3></div>
+            <div class="an-cards" id="an-admin-cards">
+              <div class="an-card"><div class="an-card-label">Updated Today</div><div class="an-card-value accent" id="anc-updated-today">—</div></div>
+              <div class="an-card"><div class="an-card-label">Apply Jobs Today</div><div class="an-card-value" id="anc-apply-today">—</div></div>
+              <div class="an-card"><div class="an-card-label">Rollback Jobs Today</div><div class="an-card-value warn" id="anc-rollback-today">—</div></div>
+              <div class="an-card"><div class="an-card-label">Price Changes Today</div><div class="an-card-value" id="anc-price-changes">—</div></div>
+              <div class="an-card"><div class="an-card-label">Out of Stock</div><div class="an-card-value danger" id="anc-oos">—</div></div>
+              <div class="an-card"><div class="an-card-label">Missing Image</div><div class="an-card-value warn" id="anc-no-img">—</div></div>
+              <div class="an-card"><div class="an-card-label">Missing Price</div><div class="an-card-value warn" id="anc-no-price">—</div></div>
+            </div>
           </div>
-          <div class="wp-tbl-wrap">
-            <table>
-              <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th><th>Categories</th></tr></thead>
-              <tbody id="an-stale-body"></tbody>
-            </table>
+
+          <!-- Top price movements -->
+          <div class="wp-card" style="margin-bottom:16px">
+            <div class="wp-section-hdr" style="margin-bottom:12px"><h3>Biggest Price Movements Today</h3></div>
+            <div class="an-movements">
+              <div>
+                <div style="font-size:12px;font-weight:600;color:#16a34a;margin-bottom:6px">Top Increases</div>
+                <div class="wp-tbl-wrap">
+                  <table class="an-move-tbl">
+                    <thead><tr><th>Product</th><th>SKU</th><th>Change</th></tr></thead>
+                    <tbody id="an-move-up-body"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:12px;font-weight:600;color:#dc2626;margin-bottom:6px">Top Decreases</div>
+                <div class="wp-tbl-wrap">
+                  <table class="an-move-tbl">
+                    <thead><tr><th>Product</th><th>SKU</th><th>Change</th></tr></thead>
+                    <tbody id="an-move-dn-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+
+          <!-- Trend chart -->
+          <div class="wp-card">
+            <div class="wp-section-hdr" style="margin-bottom:12px">
+              <h3>Update Trend</h3>
+              <div class="an-trend-toggle">
+                <button class="active" id="an-trend-7" onclick="anSetTrend(7, this)">7 Days</button>
+                <button id="an-trend-30" onclick="anSetTrend(30, this)">30 Days</button>
+              </div>
+            </div>
+            <div class="an-chart" id="an-trend-chart"></div>
+          </div>
+
+        </div><!-- /admin tab -->
+
+        <!-- ── Seller Tab ── -->
+        <div id="an-content-seller" class="an-tab-content">
+
+          <!-- Category coverage -->
+          <div class="wp-card" style="margin-bottom:16px">
+            <div class="wp-section-hdr" style="margin-bottom:12px"><h3>Category Coverage</h3></div>
+            <div class="wp-tbl-wrap">
+              <table class="an-cov-tbl">
+                <thead><tr><th>Category</th><th>Total</th><th>Updated Today</th><th>Coverage</th><th></th></tr></thead>
+                <tbody id="an-cat-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Brand coverage -->
+          <div class="wp-card" style="margin-bottom:16px">
+            <div class="wp-section-hdr" style="margin-bottom:12px"><h3>Brand Coverage</h3></div>
+            <div class="wp-tbl-wrap">
+              <table class="an-cov-tbl">
+                <thead><tr><th>Brand</th><th>Total</th><th>Updated Today</th><th>Coverage</th><th></th></tr></thead>
+                <tbody id="an-brand-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Staleness -->
+          <div class="wp-card">
+            <div class="wp-section-hdr" style="margin-bottom:12px"><h3>Staleness Report</h3></div>
+
+            <div class="an-stale-section">
+              <div class="an-stale-hdr">
+                <span style="width:10px;height:10px;border-radius:2px;background:#d97706;display:inline-block"></span>
+                3–5 Days Without Update
+                <span class="wp-section-count" id="an-stale-35-count"></span>
+              </div>
+              <div class="wp-tbl-wrap">
+                <table class="an-cov-tbl">
+                  <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th></tr></thead>
+                  <tbody id="an-stale-35-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="an-stale-section" style="margin-top:16px">
+              <div class="an-stale-hdr">
+                <span style="width:10px;height:10px;border-radius:2px;background:#dc2626;display:inline-block"></span>
+                More Than 5 Days Without Update
+                <span class="wp-section-count" id="an-stale-5p-count"></span>
+              </div>
+              <div class="wp-tbl-wrap">
+                <table class="an-cov-tbl">
+                  <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th><th>Last Updated</th></tr></thead>
+                  <tbody id="an-stale-5p-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="an-stale-section" style="margin-top:16px">
+              <div class="an-stale-hdr">
+                <span style="width:10px;height:10px;border-radius:2px;background:#6b7280;display:inline-block"></span>
+                Never Updated
+                <span class="wp-section-count" id="an-stale-nv-count"></span>
+              </div>
+              <div class="wp-tbl-wrap">
+                <table class="an-cov-tbl">
+                  <thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th></tr></thead>
+                  <tbody id="an-stale-nv-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /seller tab -->
       </div>
 
       <!-- ── Logs ── -->
@@ -2675,55 +2823,280 @@ async function doWriteback() {
   } catch(e) { addLog('Writeback failed: ' + e.message, 'err'); }
 }
 
-// ══ Analytics ══════════════════════════════════════════════════════════════
-async function loadAnalytics() {
-  try {
-    analyticsData = await api('GET', '/api/analytics');
-    renderAnalytics();
-  } catch(e) { console.error('Analytics error:', e); }
+// ══ Analytics v1 ═══════════════════════════════════════════════════════════
+var _anTrendDays = 7;
+var _anDrillState = {}; // track open drill-down rows
+
+function anSwitchTab(name, btn) {
+  document.querySelectorAll('.an-tab-content').forEach(function(el) { el.classList.remove('an-active'); });
+  document.querySelectorAll('#an-tab-admin, #an-tab-seller').forEach(function(el) { el.classList.remove('active'); });
+  document.getElementById('an-content-' + name).classList.add('an-active');
+  btn.classList.add('active');
 }
 
-function renderAnalytics() {
-  if (!analyticsData) return;
-  var search = document.getElementById('an-search').value.toLowerCase();
-  var catFilter = document.getElementById('an-cat').value;
-  var sort = document.getElementById('an-sort').value;
+function anSetTrend(days, btn) {
+  _anTrendDays = days;
+  document.querySelectorAll('.an-trend-toggle button').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  if (window._anTrendData) _renderTrendChart(window._anTrendData);
+}
 
-  function filterItems(items) {
-    return items.filter(function(i) {
-      if (search && !(i.product_name || '').toLowerCase().includes(search)) return false;
-      if (catFilter && !(i.categories || []).some(function(c) { return String(c.id) === catFilter; })) return false;
-      return true;
-    }).sort(function(a, b) {
-      if (sort === 'updated') {
-        var ta = a.wc_date_modified || a.last_price_updated || a.synced_at || '';
-        var tb = b.wc_date_modified || b.last_price_updated || b.synced_at || '';
-        return ta < tb ? 1 : -1;
-      }
-      return (a.product_name || '').localeCompare(b.product_name || '');
-    });
+async function loadAnalytics() {
+  var isAdmin = currentUser && currentUser.is_admin;
+
+  // Hide admin tab if not admin
+  var adminTab = document.getElementById('an-tab-admin');
+  if (adminTab) adminTab.style.display = isAdmin ? '' : 'none';
+  if (!isAdmin) {
+    // switch to seller tab
+    var sellerBtn = document.getElementById('an-tab-seller');
+    if (sellerBtn) anSwitchTab('seller', sellerBtn);
   }
 
-  var noPrice = filterItems(analyticsData.in_stock_no_price);
-  var noStock = filterItems(analyticsData.has_price_out_of_stock);
-  var stale   = filterItems(analyticsData.stale_products);
+  // Always load seller endpoints
+  var sellerPromises = [
+    api('GET', '/api/analytics/seller/categories').catch(function() { return null; }),
+    api('GET', '/api/analytics/seller/brands').catch(function() { return null; }),
+    api('GET', '/api/analytics/seller/staleness').catch(function() { return null; }),
+  ];
 
-  document.getElementById('an-no-price-count').textContent = noPrice.length + ' products';
-  document.getElementById('an-no-stock-count').textContent = noStock.length + ' products';
-  document.getElementById('an-stale-count').textContent    = stale.length + ' products';
+  // Admin endpoints only for admins
+  var adminPromises = isAdmin ? [
+    api('GET', '/api/analytics/admin/overview').catch(function() { return null; }),
+    api('GET', '/api/analytics/admin/top-movements').catch(function() { return null; }),
+    api('GET', '/api/analytics/admin/trend?days=30').catch(function() { return null; }),
+  ] : [null, null, null];
 
-  document.getElementById('an-no-price-body').innerHTML = noPrice.map(function(i) {
-    return '<tr><td lang="en">' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td>' + stockBadge(i.stock_status) + '</td><td lang="en">' + (i.stock_quantity != null ? i.stock_quantity : '—') + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+  try {
+    var results = await Promise.all(sellerPromises.concat(adminPromises));
+    var catData    = results[0];
+    var brandData  = results[1];
+    var staleData  = results[2];
+    var overview   = results[3];
+    var movements  = results[4];
+    var trendData  = results[5];
+
+    if (catData)   _renderCategories(catData);
+    if (brandData) _renderBrands(brandData);
+    if (staleData) _renderStaleness(staleData);
+
+    if (isAdmin) {
+      if (overview)  _renderOverview(overview);
+      if (movements) _renderMovements(movements);
+      if (trendData) { window._anTrendData = trendData; _renderTrendChart(trendData); }
+    }
+  } catch(e) { console.error('Analytics load error:', e); }
+}
+
+// ── Admin: Overview cards ──────────────────────────────────────────────────
+function _renderOverview(d) {
+  function setCard(id, val, cls) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val != null ? String(val) : '—';
+    if (cls) { el.className = 'an-card-value ' + cls; }
+  }
+  setCard('anc-updated-today',  d.updated_products_today, 'accent');
+  setCard('anc-apply-today',    d.apply_count_today,      '');
+  setCard('anc-rollback-today', d.rollback_count_today,   d.rollback_count_today > 0 ? 'warn' : '');
+  setCard('anc-price-changes',  d.price_changes_today,    '');
+  setCard('anc-oos',            d.out_of_stock,           d.out_of_stock > 0 ? 'danger' : 'green');
+  setCard('anc-no-img',         d.missing_image,          d.missing_image > 0 ? 'warn' : 'green');
+  setCard('anc-no-price',       d.missing_price,          d.missing_price > 0 ? 'warn' : 'green');
+}
+
+// ── Admin: Top movements ───────────────────────────────────────────────────
+function _renderMovements(d) {
+  function mvRow(item, dir) {
+    var pct = item.delta_pct != null ? (item.delta_pct > 0 ? '+' : '') + item.delta_pct.toFixed(1) + '%' : '—';
+    var cls = dir === 'up' ? 'an-move-up' : 'an-move-dn';
+    return '<tr><td class="an-name-cell" title="' + esc(item.name||'') + '">' + esc(item.name||'—') + '</td><td style="color:var(--wp-muted)">' + esc(item.sku||'—') + '</td><td class="' + cls + ' number">' + pct + '</td></tr>';
+  }
+  var upBody = document.getElementById('an-move-up-body');
+  var dnBody = document.getElementById('an-move-dn-body');
+  if (upBody) upBody.innerHTML = (d.increases || []).map(function(i) { return mvRow(i, 'up'); }).join('') || '<tr><td colspan="3" style="color:var(--wp-muted);text-align:center">No increases today</td></tr>';
+  if (dnBody) dnBody.innerHTML = (d.decreases || []).map(function(i) { return mvRow(i, 'dn'); }).join('') || '<tr><td colspan="3" style="color:var(--wp-muted);text-align:center">No decreases today</td></tr>';
+}
+
+// ── Admin: Trend chart ─────────────────────────────────────────────────────
+function _renderTrendChart(trendResp) {
+  var chart = document.getElementById('an-trend-chart');
+  if (!chart) return;
+  var days = _anTrendDays;
+  var rows = (trendResp.data || []).slice(-days);
+  if (!rows.length) { chart.innerHTML = '<span style="color:var(--wp-muted);font-size:12px">No data</span>'; return; }
+  var maxVal = Math.max.apply(null, rows.map(function(r) { return r.updated_products || 0; })) || 1;
+  chart.innerHTML = rows.map(function(r) {
+    var v = r.updated_products || 0;
+    var pct = Math.round(v / maxVal * 100);
+    // Show abbreviated date label (MM/DD)
+    var lbl = r.date ? r.date.slice(5) : '';
+    return '<div class="an-bar-col"><div class="an-bar" style="height:' + pct + '%" title="' + r.date + ': ' + v + ' updated"></div><div class="an-bar-lbl">' + esc(lbl) + '</div></div>';
   }).join('');
+}
 
-  document.getElementById('an-no-stock-body').innerHTML = noStock.map(function(i) {
-    return '<tr><td lang="en">' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:var(--wp-muted)">' + toJalaliStr(i.wc_date_modified || i.last_price_updated || i.synced_at) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+// ── Seller: Category coverage ──────────────────────────────────────────────
+function _renderCategories(d) {
+  var tbody = document.getElementById('an-cat-body');
+  if (!tbody) return;
+  var cats = d.categories || [];
+  if (!cats.length) { tbody.innerHTML = '<tr><td colspan="5" style="color:var(--wp-muted)">No category data</td></tr>'; return; }
+  tbody.innerHTML = cats.map(function(c, idx) {
+    var pct = c.total > 0 ? Math.round(c.updated_today / c.total * 100) : 0;
+    var drillId = 'an-cat-drill-' + idx;
+    return '<tr>' +
+      '<td>' + esc(c.category_name || '—') + '</td>' +
+      '<td lang="en">' + (c.total || 0) + '</td>' +
+      '<td lang="en" class="' + (c.updated_today > 0 ? 'green' : '') + '">' + (c.updated_today || 0) + '</td>' +
+      '<td><div class="an-progress"><div class="an-progress-fill" style="width:' + pct + '%"></div></div> <span style="font-size:11px;color:var(--wp-muted)">' + pct + '%</span></td>' +
+      '<td><button class="an-drill-btn" onclick="anToggleCatDrill(' + idx + ', \'' + esc(c.category_name||'') + '\')" id="an-cat-drill-btn-' + idx + '">Details</button></td>' +
+      '</tr>' +
+      '<tr id="' + drillId + '" class="an-drill-row" style="display:none"><td colspan="5"><div class="an-drill-inner" id="' + drillId + '-inner">Loading…</div></td></tr>';
   }).join('');
+}
 
-  document.getElementById('an-stale-body').innerHTML = stale.map(function(i) {
-    var lu = i.wc_date_modified || i.last_price_updated || i.synced_at;
-    return '<tr><td lang="en">' + i.product_id + '</td><td class="an-name-cell" title="' + esc(i.product_name||'') + '">' + esc(i.product_name || '') + '</td><td style="color:var(--wp-muted)">' + esc(i.sku || '—') + '</td><td class="number">' + fmtPrice(i.new_price) + '</td><td>' + stockBadge(i.stock_status) + '</td><td style="font-size:12px;color:#dc2626">' + toJalaliStr(lu) + '</td><td>' + catsHtml(i.categories) + '</td></tr>';
+function anToggleCatDrill(idx, catName) {
+  var row = document.getElementById('an-cat-drill-' + idx);
+  var btn = document.getElementById('an-cat-drill-btn-' + idx);
+  if (!row) return;
+  var open = row.style.display !== 'none';
+  row.style.display = open ? 'none' : '';
+  btn.textContent = open ? 'Details' : 'Close';
+  if (!open && !_anDrillState['cat-' + idx]) {
+    _anDrillState['cat-' + idx] = true;
+    _loadCatDrill(idx, catName);
+  }
+}
+
+async function _loadCatDrill(idx, catName) {
+  var inner = document.getElementById('an-cat-drill-' + idx + '-inner');
+  if (!inner) return;
+  try {
+    // Load staleness filtered by category by reusing the staleness endpoint
+    // (v1: client-side filter from already-loaded staleness data is not available here;
+    //  instead show products_cache for this category from the categories endpoint)
+    var data = await api('GET', '/api/analytics/seller/categories');
+    var cat = (data.categories || []).find(function(c) { return c.category_name === catName; });
+    if (!cat) { inner.textContent = 'No data.'; return; }
+    var updated = cat.products_updated || [];
+    var notUpdated = cat.products_not_updated || [];
+    inner.innerHTML =
+      '<div class="an-drill-tabs">' +
+        '<button class="an-drill-tab active" onclick="anCatDrillTab(this,' + idx + ',\'updated\')">Updated Today (' + updated.length + ')</button>' +
+        '<button class="an-drill-tab" onclick="anCatDrillTab(this,' + idx + ',\'not\')">Not Updated (' + notUpdated.length + ')</button>' +
+      '</div>' +
+      '<div id="an-cat-drill-' + idx + '-updated">' + _drillTable(updated) + '</div>' +
+      '<div id="an-cat-drill-' + idx + '-not" style="display:none">' + _drillTable(notUpdated) + '</div>';
+  } catch(e) { inner.textContent = 'Error loading details.'; }
+}
+
+function anCatDrillTab(btn, idx, which) {
+  btn.closest('.an-drill-inner').querySelectorAll('.an-drill-tab').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  var updEl = document.getElementById('an-cat-drill-' + idx + '-updated');
+  var notEl = document.getElementById('an-cat-drill-' + idx + '-not');
+  if (updEl) updEl.style.display = which === 'updated' ? '' : 'none';
+  if (notEl) notEl.style.display = which === 'not' ? '' : 'none';
+}
+
+function _drillTable(products) {
+  if (!products || !products.length) return '<p style="color:var(--wp-muted);font-size:12px;padding:6px 0">None</p>';
+  return '<table><thead><tr><th>ID</th><th>Name</th><th>SKU</th><th>Price</th><th>Stock</th></tr></thead><tbody>' +
+    products.slice(0, 50).map(function(p) {
+      return '<tr><td lang="en" style="color:var(--wp-muted)">' + (p.wc_id||'') + '</td><td class="an-name-cell">' + esc(p.name||'') + '</td><td style="color:var(--wp-muted)">' + esc(p.sku||'—') + '</td><td class="number">' + fmtPrice(p.final_price) + '</td><td>' + stockBadge(p.stock_status) + '</td></tr>';
+    }).join('') +
+    (products.length > 50 ? '<tr><td colspan="5" style="color:var(--wp-muted);font-size:11px">… and ' + (products.length - 50) + ' more</td></tr>' : '') +
+    '</tbody></table>';
+}
+
+// ── Seller: Brand coverage ─────────────────────────────────────────────────
+function _renderBrands(d) {
+  var tbody = document.getElementById('an-brand-body');
+  if (!tbody) return;
+  var brands = (d.brands || []).concat(d.unknown_brand && d.unknown_brand.total > 0 ? [d.unknown_brand] : []);
+  if (!brands.length) { tbody.innerHTML = '<tr><td colspan="5" style="color:var(--wp-muted)">No brand data</td></tr>'; return; }
+  tbody.innerHTML = brands.map(function(b, idx) {
+    var pct = b.total > 0 ? Math.round(b.updated_today / b.total * 100) : 0;
+    var drillId = 'an-brand-drill-' + idx;
+    var label = (b.brand_id && b.brand_name) ? b.brand_name : (b.brand_id ? 'Brand #' + b.brand_id : 'No Brand');
+    return '<tr>' +
+      '<td>' + esc(label) + '</td>' +
+      '<td lang="en">' + (b.total || 0) + '</td>' +
+      '<td lang="en" class="' + (b.updated_today > 0 ? 'green' : '') + '">' + (b.updated_today || 0) + '</td>' +
+      '<td><div class="an-progress"><div class="an-progress-fill" style="width:' + pct + '%"></div></div> <span style="font-size:11px;color:var(--wp-muted)">' + pct + '%</span></td>' +
+      '<td><button class="an-drill-btn" onclick="anToggleBrandDrill(' + idx + ',' + (b.brand_id||'null') + ')" id="an-brand-drill-btn-' + idx + '">Details</button></td>' +
+      '</tr>' +
+      '<tr id="' + drillId + '" class="an-drill-row" style="display:none"><td colspan="5"><div class="an-drill-inner" id="' + drillId + '-inner">Loading…</div></td></tr>';
   }).join('');
+}
+
+function anToggleBrandDrill(idx, brandId) {
+  var row = document.getElementById('an-brand-drill-' + idx);
+  var btn = document.getElementById('an-brand-drill-btn-' + idx);
+  if (!row) return;
+  var open = row.style.display !== 'none';
+  row.style.display = open ? 'none' : '';
+  btn.textContent = open ? 'Details' : 'Close';
+  if (!open && !_anDrillState['brand-' + idx]) {
+    _anDrillState['brand-' + idx] = true;
+    _loadBrandDrill(idx, brandId);
+  }
+}
+
+async function _loadBrandDrill(idx, brandId) {
+  var inner = document.getElementById('an-brand-drill-' + idx + '-inner');
+  if (!inner) return;
+  try {
+    var data = await api('GET', '/api/analytics/seller/brands');
+    var brand = (data.brands || [])[idx];
+    if (!brand) { inner.textContent = 'No data.'; return; }
+    var updated = brand.products_updated || [];
+    var notUpdated = brand.products_not_updated || [];
+    inner.innerHTML =
+      '<div class="an-drill-tabs">' +
+        '<button class="an-drill-tab active" onclick="anBrandDrillTab(this,' + idx + ',\'updated\')">Updated Today (' + updated.length + ')</button>' +
+        '<button class="an-drill-tab" onclick="anBrandDrillTab(this,' + idx + ',\'not\')">Not Updated (' + notUpdated.length + ')</button>' +
+      '</div>' +
+      '<div id="an-brand-drill-' + idx + '-updated">' + _drillTable(updated) + '</div>' +
+      '<div id="an-brand-drill-' + idx + '-not" style="display:none">' + _drillTable(notUpdated) + '</div>';
+  } catch(e) { inner.textContent = 'Error loading details.'; }
+}
+
+function anBrandDrillTab(btn, idx, which) {
+  btn.closest('.an-drill-inner').querySelectorAll('.an-drill-tab').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  var updEl = document.getElementById('an-brand-drill-' + idx + '-updated');
+  var notEl = document.getElementById('an-brand-drill-' + idx + '-not');
+  if (updEl) updEl.style.display = which === 'updated' ? '' : 'none';
+  if (notEl) notEl.style.display = which === 'not' ? '' : 'none';
+}
+
+// ── Seller: Staleness ──────────────────────────────────────────────────────
+function _renderStaleness(d) {
+  function staleRow(p, showDate) {
+    var row = '<tr><td lang="en" style="color:var(--wp-muted)">' + (p.wc_id||'') + '</td><td class="an-name-cell">' + esc(p.name||'') + '</td><td style="color:var(--wp-muted)">' + esc(p.sku||'—') + '</td><td class="number">' + fmtPrice(p.final_price) + '</td><td>' + stockBadge(p.stock_status) + '</td>';
+    if (showDate) row += '<td style="font-size:12px;color:#dc2626">' + toJalaliStr(p.last_applied) + '</td>';
+    return row + '</tr>';
+  }
+
+  var s35   = d.stale_3_5       || [];
+  var s5p   = d.stale_5_plus    || [];
+  var snv   = d.never_updated   || [];
+
+  var b35 = document.getElementById('an-stale-35-body');
+  var b5p = document.getElementById('an-stale-5p-body');
+  var bnv = document.getElementById('an-stale-nv-body');
+  var c35 = document.getElementById('an-stale-35-count');
+  var c5p = document.getElementById('an-stale-5p-count');
+  var cnv = document.getElementById('an-stale-nv-count');
+
+  if (c35) c35.textContent = s35.length + ' products';
+  if (c5p) c5p.textContent = s5p.length + ' products';
+  if (cnv) cnv.textContent = snv.length + ' products';
+
+  if (b35) b35.innerHTML = s35.length ? s35.map(function(p) { return staleRow(p, true); }).join('') : '<tr><td colspan="6" style="color:var(--wp-muted);text-align:center">None</td></tr>';
+  if (b5p) b5p.innerHTML = s5p.length ? s5p.map(function(p) { return staleRow(p, true); }).join('') : '<tr><td colspan="6" style="color:var(--wp-muted);text-align:center">None</td></tr>';
+  if (bnv) bnv.innerHTML = snv.length ? snv.map(function(p) { return staleRow(p, false); }).join('') : '<tr><td colspan="5" style="color:var(--wp-muted);text-align:center">None</td></tr>';
 }
 
 // ══ Logs ═══════════════════════════════════════════════════════════════════

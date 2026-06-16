@@ -184,6 +184,8 @@ class ChangeHistory(Base):
     job_id = Column(Integer, nullable=True, index=True)
     source = Column(String, nullable=True)              # apply | direct_edit | rollback
     rollback_of_id = Column(Integer, ForeignKey("change_history.id"), nullable=True)
+    brand_id = Column(Integer, nullable=True)           # brand active at change time (for velocity metrics)
+    price_delta_pct = Column(Float, nullable=True)      # pre-computed (new-old)/old*100
 
 
 class ChangeTracking(Base):
