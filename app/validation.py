@@ -111,7 +111,7 @@ def validate_price(
     # not as a non-numeric error — matches existing _stock_from_price semantics.
     if new_price is None or str(new_price).strip() == "":
         out.append(ValidationResult(
-            ValidationLevel.warning, "zero_price", product_id, "new_price", new_price,
+            ValidationLevel.warning, "zero_price_or_blank_means_out_of_stock", product_id, "new_price", new_price,
             "Price is blank — product will be marked out of stock.",
         ))
         return out
@@ -133,7 +133,7 @@ def validate_price(
 
     if new_f == 0:
         out.append(ValidationResult(
-            ValidationLevel.warning, "zero_price", product_id, "new_price", new_price,
+            ValidationLevel.warning, "zero_price_or_blank_means_out_of_stock", product_id, "new_price", new_price,
             "Price is zero — product will be marked out of stock.",
         ))
         return out

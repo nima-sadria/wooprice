@@ -806,17 +806,23 @@ def _classify_row(
     wc: dict,
     last_price_updated,
     cache_row,
+    price_parse_error: bool = False,
 ) -> dict:
     """Classify one preview row. Returns change_status + boolean flags.
 
     change_status values:
-      'invalid'              — price non-numeric or product_id missing
+      'invalid'              — price failed to parse as a number, or product_id missing
       'missing_from_wc_cache'— product not found in WooCommerce
       'new'                  — found in WC, has changes, never synced by WooPrice
       'changed'              — found in WC, has changes, previously synced
       'unchanged'            — found in WC, price and stock match exactly
+
+    Business rule: a BLANK sheet price is NOT invalid — it is an explicit signal that
+    the product should be marked out of stock (see _stock_from_price/_is_zero_price).
+    Only a genuine parse failure (non-numeric garbage caught by the sheet parser and
+    flagged via price_parse_error) is classified as 'invalid'.
     """
-    if not _is_valid_price(new_price):
+    if not pid or pid <= 0 or price_parse_error:
         return {
             "change_status": "invalid",
             "price_changed": 0, "stock_changed": 0,
@@ -1098,7 +1104,7 @@ def _compute_dry_run_summary(
         if getattr(item, "missing_cost", 0):
             warnings_list.append({"type": "missing_cost", "product_id": pid, "name": name})
         if _is_zero_price(item.new_price):
-            warnings_list.append({"type": "zero_price", "product_id": pid, "name": name})
+            warnings_list.append({"type": "zero_price_or_blank_means_out_of_stock", "product_id": pid, "name": name})
         if alarm_threshold < float("inf") and item.old_price and item.new_price:
             try:
                 old_f2 = float(item.old_price)
@@ -2513,7 +2519,10 @@ async def create_preview(user: dict = Depends(require_permission("can_fetch")), 
         wc = wc_data.get(pid) or {}
         old_price = wc.get("price") or None
         sname = row.get("sheet_name") or wc.get("name") or None
-        clf = _classify_row(pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid))
+        clf = _classify_row(
+            pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid),
+            price_parse_error=row.get("price_parse_error", False),
+        )
         clfs.append(clf)
         _cr = cache_by_id.get(pid)
         _vlevel = _row_validation_level(pid, row["new_price"], old_price, _cr)
@@ -3070,7 +3079,10 @@ async def preview_stream(
                 sname = row.get("sheet_name") or wc.get("name") or None
                 _cver, _csync = _cmeta.get(pid, (None, None))
                 _src = "live_wc" if pid in freshly_fetched_ids else "cache"
-                clf = _classify_row(pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid))
+                clf = _classify_row(
+                    pid, row["new_price"], wc, last_synced.get(pid), cache_by_id.get(pid),
+                    price_parse_error=row.get("price_parse_error", False),
+                )
                 clfs.append(clf)
                 logger.debug(
                     "preview pid=%d sheet=%s wc_source=%s wc_price=%s cv=%s synced=%s change_status=%s",

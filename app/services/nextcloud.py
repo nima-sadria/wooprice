@@ -180,18 +180,34 @@ def _parse_sheet_rows(ws) -> list[dict]:
             skipped_bad_id += 1
             continue
 
+        # Blank price is a valid business signal ("out of stock" intent), not an error.
+        # Non-numeric garbage is a true parse failure and must stay distinguishable from
+        # blank — the raw text is preserved in new_price (instead of being collapsed to
+        # "") so downstream classification can flag it as invalid with its original value.
         if col_c is None or str(col_c).strip() == "":
             new_price = ""
+            price_parse_error = False
         else:
             price_str = str(col_c).replace(",", "").strip()
             try:
                 new_price = f"{float(price_str):.2f}"
+                price_parse_error = False
             except (ValueError, TypeError):
-                new_price = ""
+                new_price = price_str
+                price_parse_error = True
+                logger.warning("_parse_sheet_rows: sheet='%s' row %d product_id=%d "
+                                "non-numeric price %r — flagged invalid",
+                                ws.title, row_idx, pid, col_c)
 
         row_color = _extract_row_color(ws, row_idx)
         sheet_name = str(col_a).strip() if col_a is not None else ""
-        items.append({"product_id": pid, "new_price": new_price, "row_color": row_color, "sheet_name": sheet_name})
+        items.append({
+            "product_id": pid,
+            "new_price": new_price,
+            "price_parse_error": price_parse_error,
+            "row_color": row_color,
+            "sheet_name": sheet_name,
+        })
 
     logger.info("_parse_sheet_rows: sheet='%s' parsed=%d skipped(no_b=%d bad_id=%d)",
                 ws.title, len(items), skipped_no_b, skipped_bad_id)
