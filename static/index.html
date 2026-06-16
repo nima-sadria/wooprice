@@ -1986,7 +1986,9 @@ function renderPreview() {
       '<td class="wt-stock" id="stock-cell-' + item.product_id + '" onclick="editStock(' + item.product_id + ')"><span class="editable-cell">' + stockBadge(item.stock_status) + '</span></td>' +
       '<td class="wt-qty" id="qty-cell-' + item.product_id + '" onclick="editQty(' + item.product_id + ')" lang="en"><span class="editable-cell">' + (item.stock_quantity != null ? item.stock_quantity : '—') + '</span></td>' +
       '<td class="wt-date">' + toJalaliStr(item.wc_date_modified || item.last_price_updated) + '</td>' +
-      '<td class="wt-cats">' + catsHtml(item.categories) + '</td>' +
+      '<td class="wt-cats">' + catsHtml(item.categories) +
+        ((currentUser && currentUser.is_admin) ? ' <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" style="color:#b45309;padding:1px 6px" title="Roll back latest change in WooCommerce" onclick="event.stopPropagation();rollbackProduct(' + item.product_id + ')">↩</button>' : '') +
+      '</td>' +
       '</tr>';
   }).join('');
 
@@ -2467,6 +2469,27 @@ function runApplyStream() {
       addLog('Apply blocked — spreadsheet changed after preview was created', 'err');
     }
 
+    if (d.type === 'freshness_unverifiable') {
+      evSource.close();
+      document.getElementById('apply-progress-section').style.display = 'none';
+      document.getElementById('apply-result-section').style.display = 'block';
+      document.getElementById('apply-result-banner').innerHTML =
+        '<div class="wp-result-banner error" style="flex-direction:column;align-items:flex-start;gap:12px">' +
+          '<div style="display:flex;align-items:center;gap:12px">' +
+            '<div class="wp-result-banner-icon" style="flex-shrink:0"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div>' +
+            '<div class="wp-result-banner-body">' +
+              '<h4>Spreadsheet freshness could not be verified — Apply blocked</h4>' +
+              '<p>' + esc(d.msg || 'Could not verify the spreadsheet is still current.') + '</p>' +
+            '</div>' +
+          '</div>' +
+          '<button class="wp-btn wp-btn-primary wp-btn-sm" onclick="startPreview()" style="align-self:flex-start">' +
+            'Re-run Fetch Preview' +
+          '</button>' +
+        '</div>';
+      document.getElementById('apply-btn').disabled = true;
+      addLog('Apply blocked — could not verify spreadsheet freshness', 'err');
+    }
+
     if (d.type === 'error') {
       evSource.close();
       document.getElementById('apply-progress-section').style.display = 'none';
@@ -2590,11 +2613,36 @@ async function loadAuditLog() {
 
 async function loadHistory() {
   try {
+    var isAdmin = currentUser && currentUser.is_admin;
     var jobs = await api('GET', '/api/jobs?limit=50');
     document.getElementById('history-tbody').innerHTML = jobs.map(function(j) {
-      return '<tr><td>#' + j.id + '</td><td>' + fmt(j.created_at) + '</td><td>' + (j.completed_at ? fmt(j.completed_at) : '—') + '</td><td>' + jobBadge(j.status) + '</td><td style="color:#16a34a">' + j.updated_count + '</td><td style="color:#dc2626">' + j.failed_count + '</td><td style="color:var(--wp-muted)">' + j.skipped_count + '</td><td>' + (j.status === 'completed' ? '<button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="writebackJob(' + j.id + ')">Write Back</button>' : '') + '</td></tr>';
+      var actions = '';
+      if (j.status === 'completed') {
+        actions += '<button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" onclick="writebackJob(' + j.id + ')">Write Back</button>';
+        if (isAdmin && j.updated_count > 0) {
+          actions += ' <button class="wp-btn wp-btn-ghost wp-btn-sm" type="button" style="color:#b45309" onclick="rollbackJob(' + j.id + ')">Rollback</button>';
+        }
+      }
+      return '<tr><td>#' + j.id + '</td><td>' + fmt(j.created_at) + '</td><td>' + (j.completed_at ? fmt(j.completed_at) : '—') + '</td><td>' + jobBadge(j.status) + '</td><td style="color:#16a34a">' + j.updated_count + '</td><td style="color:#dc2626">' + j.failed_count + '</td><td style="color:var(--wp-muted)">' + j.skipped_count + '</td><td>' + actions + '</td></tr>';
     }).join('');
   } catch(e) { console.error(e); }
+}
+
+async function rollbackJob(jobId) {
+  if (!confirm('Roll back ALL price/stock changes from job #' + jobId + ' in WooCommerce? This cannot be undone.')) return;
+  try {
+    var res = await api('POST', '/api/rollback/job/' + jobId);
+    alert('Rollback complete: ' + res.succeeded + ' restored, ' + res.failed + ' failed.');
+    loadHistory();
+  } catch(e) { alert('Rollback failed: ' + e.message); }
+}
+
+async function rollbackProduct(pid) {
+  if (!confirm('Roll back the latest change for product ' + pid + ' in WooCommerce?')) return;
+  try {
+    await api('POST', '/api/rollback/product/' + pid);
+    alert('Product ' + pid + ' rolled back to its previous price/stock.');
+  } catch(e) { alert('Rollback failed: ' + e.message); }
 }
 
 function switchLogTab(name, btn) {
