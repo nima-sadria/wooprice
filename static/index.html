@@ -185,11 +185,14 @@ select.wp-sel:focus { border-color: var(--accent); }
 .wp-settings-val { font-size: 13px; font-family: monospace; color: var(--text-base, #1C2434); }
 
 /* Threshold editor */
-.wp-threshold-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border, #E8EAED); }
+.wp-threshold-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--border, #E8EAED); }
 .wp-threshold-row:last-child { border-bottom: none; }
-.wp-threshold-label { flex: 1; font-size: 13px; }
+.wp-threshold-label { flex: 1; min-width: 140px; font-size: 13px; }
+.wp-threshold-group { display: flex; align-items: center; gap: 6px; }
+.wp-threshold-sublabel { font-size: 11px; color: var(--wp-muted); white-space: nowrap; }
 .wp-threshold-input { width: 80px; padding: 6px 10px; background: var(--bg-base, #F5F6FA); border: 1.5px solid var(--border, #E8EAED); border-radius: 6px; color: var(--text-base, #1C2434); font-size: 13px; outline: none; font-family: inherit; }
 .wp-threshold-input:focus { border-color: var(--accent); }
+.wp-threshold-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--wp-muted); white-space: nowrap; }
 
 /* Responsive overrides */
 @media (max-width: 1100px) { .wp-grid-4 { grid-template-columns: repeat(2, 1fr); } }
@@ -889,7 +892,7 @@ select.wp-sel:focus { border-color: var(--accent); }
         </div>
         <div class="wp-card">
           <div class="wp-card-title">Price Alarm Thresholds</div>
-          <p style="color:var(--wp-muted);font-size:12.5px;margin-bottom:14px">Warn before applying changes that exceed these percentages.</p>
+          <p style="color:var(--wp-muted);font-size:12.5px;margin-bottom:14px">"Warn at" surfaces a Dry Run warning. "Block at" only takes effect when "Block" is checked — it turns a Dry Run warning into a blocking critical error for that category (or globally).</p>
           <div id="threshold-list"></div>
           <div style="margin-top:14px">
             <button class="wp-btn wp-btn-blue wp-btn-sm" type="button" onclick="saveThresholds()">Save Thresholds</button>
@@ -2317,7 +2320,8 @@ function renderDryRunPanel(result) {
     critSec.style.display = 'block';
     critList.innerHTML = result.critical_errors.map(function(e) {
       return '<div style="background:#fee2e2;border-radius:6px;padding:6px 12px;font-size:12.5px;color:#dc2626">' +
-        '<b>#' + e.product_id + '</b> ' + esc(e.name) + ' — ' + esc((e.type||'').replace(/_/g,' ')) + '</div>';
+        '<b>#' + e.product_id + '</b> ' + esc(e.name) + ' — ' + esc((e.type||'').replace(/_/g,' ')) +
+        (e.change_pct ? ' (' + e.change_pct + '%)' : '') + '</div>';
     }).join('');
   } else {
     critSec.style.display = 'none';
@@ -2688,27 +2692,55 @@ function settRow(k, v) {
   return '<div class="wp-settings-row"><span class="wp-settings-key">' + esc(k) + '</span><span class="wp-settings-val">' + esc(String(v || '')) + '</span></div>';
 }
 
+function _thresholdRowHtml(key, label, t) {
+  var warn = t ? t.threshold_percent : (key === 'global' ? 20 : '');
+  var crit = (t && t.critical_threshold_percent != null) ? t.critical_threshold_percent : '';
+  var blockChecked = (t && t.block_enabled) ? 'checked' : '';
+  return '<div class="wp-threshold-row">' +
+    '<span class="wp-threshold-label">' + esc(label) + '</span>' +
+    '<span class="wp-threshold-group"><span class="wp-threshold-sublabel">Warn at</span>' +
+      '<input class="wp-threshold-input" type="number" id="thresh-' + key + '" value="' + warn + '" placeholder="—" min="1" max="1000"><span style="font-size:12px;color:var(--wp-muted)">%</span></span>' +
+    '<span class="wp-threshold-group"><span class="wp-threshold-sublabel">Block at</span>' +
+      '<input class="wp-threshold-input" type="number" id="thresh-' + key + '-crit" value="' + crit + '" placeholder="—" min="1" max="1000"><span style="font-size:12px;color:var(--wp-muted)">%</span></span>' +
+    '<label class="wp-threshold-toggle"><input type="checkbox" id="thresh-' + key + '-block-enabled" ' + blockChecked + '>Block</label>' +
+    '</div>';
+}
+
 function renderThresholds() {
   var list = document.getElementById('threshold-list');
   var globalT = alarmThresholds.find(function(t) { return t.category_id === null; });
-  var html = '<div class="wp-threshold-row"><span class="wp-threshold-label">Global (all categories)</span><input class="wp-threshold-input" type="number" id="thresh-global" value="' + (globalT ? globalT.threshold_percent : 20) + '" min="1" max="100"><span style="font-size:12px;color:var(--wp-muted)">%</span></div>';
+  var html = _thresholdRowHtml('global', 'Global (all categories)', globalT);
   allCategories.forEach(function(cat) {
     var t = alarmThresholds.find(function(a) { return a.category_id === cat.id; });
-    html += '<div class="wp-threshold-row"><span class="wp-threshold-label">' + esc(cat.name) + '</span><input class="wp-threshold-input" type="number" id="thresh-cat-' + cat.id + '" value="' + (t ? t.threshold_percent : '') + '" placeholder="—" min="1" max="100"><span style="font-size:12px;color:var(--wp-muted)">%</span></div>';
+    html += _thresholdRowHtml('cat-' + cat.id, cat.name, t);
   });
   list.innerHTML = html;
 }
 
+function _readThresholdRow(key, categoryId) {
+  var wEl = document.getElementById('thresh-' + key);
+  var cEl = document.getElementById('thresh-' + key + '-crit');
+  var bEl = document.getElementById('thresh-' + key + '-block-enabled');
+  if (!wEl || !wEl.value) return null;
+  var w = parseFloat(wEl.value);
+  if (isNaN(w) || w <= 0) return null;
+  var c = (cEl && cEl.value !== '') ? parseFloat(cEl.value) : null;
+  if (c !== null && isNaN(c)) c = null;
+  return {
+    category_id: categoryId,
+    threshold_percent: w,
+    critical_threshold_percent: c,
+    block_enabled: !!(bEl && bEl.checked),
+  };
+}
+
 async function saveThresholds() {
   var thresholds = [];
-  var gv = parseFloat(document.getElementById('thresh-global').value);
-  if (!isNaN(gv) && gv > 0) thresholds.push({ category_id: null, threshold_percent: gv });
+  var g = _readThresholdRow('global', null);
+  if (g) thresholds.push(g);
   allCategories.forEach(function(cat) {
-    var el = document.getElementById('thresh-cat-' + cat.id);
-    if (el && el.value) {
-      var v = parseFloat(el.value);
-      if (!isNaN(v) && v > 0) thresholds.push({ category_id: cat.id, threshold_percent: v });
-    }
+    var t = _readThresholdRow('cat-' + cat.id, cat.id);
+    if (t) thresholds.push(t);
   });
   try {
     await api('PUT', '/api/alarm-settings', thresholds);

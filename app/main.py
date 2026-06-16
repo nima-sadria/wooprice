@@ -153,6 +153,15 @@ def _run_column_migrations():
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE sync_jobs ADD COLUMN {col_name} {col_type}"))
 
+        if "alarm_thresholds" in existing_tables:
+            existing_cols = {c["name"] for c in inspector.get_columns("alarm_thresholds")}
+            for col_name, col_type in [
+                ("critical_threshold_percent", "REAL"),
+                ("block_enabled",              "INTEGER DEFAULT 0"),
+            ]:
+                if col_name not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE alarm_thresholds ADD COLUMN {col_name} {col_type}"))
+
         if "products_cache" in existing_tables:
             existing_cols = {c["name"] for c in inspector.get_columns("products_cache")}
             for col_name, col_type in [
@@ -366,6 +375,8 @@ class LoginRequest(BaseModel):
 class AlarmThresholdItem(BaseModel):
     category_id: int | None = None
     threshold_percent: float
+    critical_threshold_percent: float | None = None
+    block_enabled: bool = False
 
 
 class PriceUpdateRequest(BaseModel):
@@ -1027,16 +1038,48 @@ def _split_items_for_apply(
     return to_update, to_skip
 
 
+def _resolve_alarm_threshold(
+    item: "SyncItem",  # type: ignore[name-defined]
+    alarm_threshold: float,
+    category_thresholds: dict | None,
+) -> dict:
+    """Resolve the effective {warning, critical, block_enabled} threshold for one item.
+
+    category_thresholds maps category_id (None = global) -> {warning, critical, block_enabled}.
+    When the item belongs to a category with its own row, that row wins; otherwise the
+    global row (or the bare `alarm_threshold` float, for backward-compatible callers
+    that don't pass category_thresholds at all) applies.
+    """
+    default = {"warning": alarm_threshold, "critical": None, "block_enabled": False}
+    if not category_thresholds:
+        return default
+    try:
+        cats = json.loads(item.categories) if getattr(item, "categories", None) else []
+    except (ValueError, TypeError):
+        cats = []
+    for c in cats:
+        cid = c.get("id") if isinstance(c, dict) else None
+        if cid is not None and cid in category_thresholds:
+            return category_thresholds[cid]
+    return category_thresholds.get(None, default)
+
+
 def _compute_dry_run_summary(
     items: list,
     alarm_threshold: float,
     selected_ids: set | None = None,
     cache_map: dict | None = None,
+    category_thresholds: dict | None = None,
 ) -> dict:
     """Pure computation — no WooCommerce calls. Returns dry-run summary dict.
 
     Critical errors are detected across ALL items (invalid + missing_from_wc_cache rows
     are blockers regardless of selection). products_to_update is scoped to selected_ids.
+
+    `category_thresholds` (optional) maps category_id (None = global) -> a dict of
+    {warning, critical, block_enabled} — see _resolve_alarm_threshold. When omitted,
+    every item just uses the flat `alarm_threshold` as its warning threshold with no
+    critical/blocking behavior (legacy callers keep working unchanged).
 
     Phase C: the reusable validation engine (app/validation.py) is also run across the
     items that would actually be applied. Any `critical` validation finding is promoted
@@ -1105,16 +1148,23 @@ def _compute_dry_run_summary(
             warnings_list.append({"type": "missing_cost", "product_id": pid, "name": name})
         if _is_zero_price(item.new_price):
             warnings_list.append({"type": "out_of_stock_marker", "product_id": pid, "name": name})
-        if alarm_threshold < float("inf") and item.old_price and item.new_price:
+        thr = _resolve_alarm_threshold(item, alarm_threshold, category_thresholds)
+        if item.old_price and item.new_price:
             try:
                 old_f2 = float(item.old_price)
                 if old_f2 > 0:
                     pct = abs(float(item.new_price) - old_f2) / old_f2 * 100
-                    if pct > alarm_threshold:
+                    if thr["block_enabled"] and thr["critical"] is not None and pct > thr["critical"]:
+                        critical_errors.append({
+                            "type": "extreme_price_change",
+                            "product_id": pid, "name": name,
+                            "change_pct": round(pct, 1), "threshold": thr["critical"],
+                        })
+                    elif thr["warning"] < float("inf") and pct > thr["warning"]:
                         warnings_list.append({
                             "type": "large_price_change",
                             "product_id": pid, "name": name,
-                            "change_pct": round(pct, 1), "threshold": alarm_threshold,
+                            "change_pct": round(pct, 1), "threshold": thr["warning"],
                         })
             except (ValueError, TypeError, ZeroDivisionError):
                 pass
@@ -2048,7 +2098,12 @@ async def get_app_settings(user: dict = Depends(require_permission("can_view_set
 @app.get("/api/alarm-settings")
 async def get_alarm_settings(user: dict = Depends(require_permission("can_view_settings")), db: Session = Depends(get_db)):
     rows = db.query(AlarmThreshold).all()
-    return [{"category_id": r.category_id, "threshold_percent": r.threshold_percent} for r in rows]
+    return [{
+        "category_id": r.category_id,
+        "threshold_percent": r.threshold_percent,
+        "critical_threshold_percent": r.critical_threshold_percent,
+        "block_enabled": bool(r.block_enabled),
+    } for r in rows]
 
 
 @app.put("/api/alarm-settings")
@@ -2060,7 +2115,12 @@ async def set_alarm_settings(
     db.query(AlarmThreshold).delete()
     for t in thresholds:
         if t.threshold_percent > 0:
-            db.add(AlarmThreshold(category_id=t.category_id, threshold_percent=t.threshold_percent))
+            db.add(AlarmThreshold(
+                category_id=t.category_id,
+                threshold_percent=t.threshold_percent,
+                critical_threshold_percent=t.critical_threshold_percent,
+                block_enabled=t.block_enabled,
+            ))
     db.commit()
     return {"message": "Alarm thresholds saved"}
 
@@ -2786,18 +2846,23 @@ async def dry_run_sync(
     try:
         items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
 
-        global_thr = (
-            db.query(AlarmThreshold)
-            .filter(AlarmThreshold.category_id.is_(None))
-            .first()
-        )
-        alarm_threshold = global_thr.threshold_percent if global_thr else float("inf")
+        all_thr = db.query(AlarmThreshold).all()
+        global_row = next((t for t in all_thr if t.category_id is None), None)
+        alarm_threshold = global_row.threshold_percent if global_row else float("inf")
+        category_thresholds = {
+            t.category_id: {
+                "warning": t.threshold_percent,
+                "critical": t.critical_threshold_percent,
+                "block_enabled": bool(t.block_enabled),
+            }
+            for t in all_thr
+        } if all_thr else None
 
         _pids = [i.product_id for i in items]
         cache_map = {
             r.wc_id: r for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(_pids)).all()
         } if _pids else {}
-        summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids, cache_map)
+        summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids, cache_map, category_thresholds)
         # Phase C: emit a validation_failed audit when the engine flags blockers.
         _v_critical = [v for v in summary.get("validation", []) if v.get("level") == "critical"]
         if _v_critical:

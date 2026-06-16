@@ -112,8 +112,8 @@ def validate_price(
       non-numeric  → critical (invalid_price)
       negative     → critical (negative_price)
       < 0.001      → critical (extremely_low)
-      > 999999     → critical (extremely_high)
-      zero         → warning  (zero_price)
+      > 999999     → warning  (extremely_high) — advisory only, does not block apply
+      zero         → warning  (out_of_stock_marker)
       > 10x old    → warning  (large_increase)
     """
     out: list[ValidationResult] = []
@@ -155,9 +155,13 @@ def validate_price(
             f"Price {new_f} is below the minimum allowed ({PRICE_EXTREMELY_LOW}).",
         ))
     if new_f > PRICE_EXTREMELY_HIGH:
+        # Advisory only — does not block apply. Catalogs priced in Rial/Toman routinely
+        # exceed this absolute figure; blocking on it surprise-blocked valid products.
+        # Real protection against extreme/runaway price changes is the configurable,
+        # opt-in percentage-based critical threshold applied in _compute_dry_run_summary.
         out.append(ValidationResult(
-            ValidationLevel.critical, "extremely_high", product_id, "new_price", new_price,
-            f"Price {new_f} exceeds the maximum allowed ({PRICE_EXTREMELY_HIGH:.0f}).",
+            ValidationLevel.warning, "extremely_high", product_id, "new_price", new_price,
+            f"Price {new_f} exceeds {PRICE_EXTREMELY_HIGH:.0f} — please double-check this is correct.",
         ))
 
     old_f = _to_float(old_price)

@@ -94,7 +94,9 @@ class AlarmThreshold(Base):
 
     id = Column(Integer, primary_key=True)
     category_id = Column(Integer, nullable=True, index=True)  # None = global
-    threshold_percent = Column(Float, nullable=False)
+    threshold_percent = Column(Float, nullable=False)  # warning threshold (%)
+    critical_threshold_percent = Column(Float, nullable=True)  # optional blocking threshold (%)
+    block_enabled = Column(Boolean, nullable=False, default=False)  # gate for critical_threshold_percent
 
 
 class ProductCache(Base):
