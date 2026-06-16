@@ -2287,6 +2287,49 @@ async def get_analytics(user: dict = Depends(require_permission("can_access_site
     }
 
 
+def _compute_brand_coverage(rows: list[tuple]) -> dict:
+    """Pure aggregation step for brand coverage — kept separate from the route
+    so it's directly testable without a DB.
+
+    rows: [(brand_id, brand_name, product_count), ...] already grouped by brand.
+    brand_id is None means WooCommerce has no brand assigned for those
+    products — surfaced explicitly as 'unknown_brand', never guessed.
+    """
+    total = sum(count for _, _, count in rows)
+    brands = []
+    unknown_count = 0
+    for brand_id, brand_name, count in rows:
+        if brand_id is None:
+            unknown_count += count
+            continue
+        brands.append({"brand_id": brand_id, "brand_name": brand_name, "product_count": count})
+    brands.sort(key=lambda b: b["product_count"], reverse=True)
+    return {
+        "total_products": total,
+        "brand_count": len(brands),
+        "brands": brands,
+        "unknown_brand": {"brand_id": None, "brand_name": "Unknown brand", "product_count": unknown_count},
+        "coverage_percent": round((total - unknown_count) / total * 100, 1) if total else 0.0,
+    }
+
+
+@app.get("/api/analytics/brands")
+async def get_brand_coverage(user: dict = Depends(require_permission("can_access_site")), db: Session = Depends(get_db)):
+    """Read-only brand coverage report computed from the local products_cache.
+
+    Counts top-level products only (parent_id == 0) — variations always
+    inherit their parent's brand (see services/woocommerce.py), so including
+    them too would double-count the same brand assignment.
+    """
+    rows = (
+        db.query(ProductCache.brand_id, ProductCache.brand_name, func.count(ProductCache.wc_id))
+        .filter(ProductCache.parent_id == 0)
+        .group_by(ProductCache.brand_id, ProductCache.brand_name)
+        .all()
+    )
+    return _compute_brand_coverage(rows)
+
+
 # ── Live price/stock update ───────────────────────────────────────────────────
 
 @app.get("/api/products/{product_id}/lookup")
@@ -3125,7 +3168,7 @@ async def preview_stream(
                                 _cats = json.loads(_pr.categories) if _pr.categories else []
                             except Exception:
                                 _cats = []
-                            _parent_info[_pid] = (_pr.name or "", _cats, _pr.image_url)
+                            _parent_info[_pid] = (_pr.name or "", _cats, _pr.image_url, (_pr.brand_id, _pr.brand_name))
                         yield ev({"step": "wc", "status": "running",
                                   "msg": f"Fetching variation images for {len(_var_parent_ids)} parent(s) ({len(_var_rows_no_img)} variation(s) missing images)…"})
                         try:
