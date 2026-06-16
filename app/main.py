@@ -719,28 +719,65 @@ def _should_apply(item: "SyncItem") -> bool:  # type: ignore[name-defined]
     return _price_differs(item.old_price, item.new_price)
 
 
+APPLYABLE_DRY_RUN_STATES: frozenset[str] = frozenset({"passed", "warnings"})
+
+
+def _normalize_scope(
+    selected_ids: "set[int] | None",
+    *,
+    items: "list | None" = None,
+    job: "SyncJob | None" = None,  # type: ignore[name-defined]
+) -> "set[int]":
+    """Return an explicit product-id set for the apply/dry-run scope.
+
+    Priority:
+    1. selected_ids if not None — caller supplied an explicit selection.
+    2. items if provided — dry_run_sync path; all item product_ids.
+    3. job.dry_run_scope if stored — apply path; reuse scope that was analysed.
+    4. empty set — fallback (should not happen in normal flow).
+    """
+    if selected_ids is not None:
+        return set(selected_ids)
+    if items is not None:
+        return {i.product_id for i in items}
+    if job is not None:
+        scope_raw = getattr(job, "dry_run_scope", None)
+        if scope_raw:
+            return set(json.loads(scope_raw))
+    return set()
+
+
 def _check_dry_run_guards(
     job: "SyncJob",  # type: ignore[name-defined]
-    selected_ids: set[int] | None,
-) -> tuple[bool, str, str, int]:
+    selected_ids: "set[int] | None",
+) -> "tuple[bool, str, str, int]":
     """Validate all dry-run gates synchronously.
 
-    Returns (ok, event_type, message, http_status).
-    event_type is always 'error'. http_status is 0 when ok=True.
+    selected_ids MUST already be normalised via _normalize_scope before calling.
+    Returns (ok, event_type, message, http_status). http_status is 0 when ok=True.
     """
     dr_status = getattr(job, "dry_run_status", None)
-    if dr_status is None:
-        return False, "error", "dry_run_required: Run a dry run before applying.", 400
-    if dr_status == "blocked":
-        return False, "error", "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run.", 409
-    if dr_status == "invalidated":
-        return False, "error", "dry_run_invalidated: Items were edited after the last dry run. Re-run dry run.", 409
+    # Allow-list: only passed/warnings are applyable; everything else is rejected.
+    if dr_status not in APPLYABLE_DRY_RUN_STATES:
+        if dr_status is None:
+            return False, "error", "dry_run_required: Run a dry run before applying.", 400
+        if dr_status == "blocked":
+            return False, "error", "apply_blocked_by_dry_run: Dry run found critical errors. Fix them and re-run.", 409
+        if dr_status == "invalidated":
+            return False, "error", "dry_run_invalidated: Items were edited after the last dry run. Re-run dry run.", 409
+        return False, "error", (
+            f"dry_run_required: Dry run status '{dr_status}' is not applyable. Re-run dry run."
+        ), 409
+    # Scope check (selected_ids is already normalised — compares set vs set).
     scope_raw = getattr(job, "dry_run_scope", None)
     if scope_raw is not None:
         dr_scope = set(json.loads(scope_raw))
-        cur_scope = selected_ids or set()
+        cur_scope = selected_ids if selected_ids is not None else set()
         if cur_scope != dr_scope:
-            return False, "error", "dry_run_scope_mismatch: Selection changed since dry run was run. Re-run dry run with the current selection.", 409
+            return False, "error", (
+                "dry_run_scope_mismatch: Selection changed since dry run was run. "
+                "Re-run dry run with the current selection."
+            ), 409
     return True, "", "", 0
 
 
@@ -770,6 +807,38 @@ def _invalidate_dry_run(job: "SyncJob") -> None:  # type: ignore[name-defined]
     job.dry_run_status = "invalidated"
     job.dry_run_scope = None
     job.dry_run_summary = None
+
+
+def _invalidate_dry_runs_for_product(db: "Session", product_id: int) -> int:  # type: ignore[name-defined]
+    """Invalidate every active dry run (in preview jobs) that contains product_id.
+
+    'Active' means dry_run_status IS set and is not already 'invalidated'.
+    This is called unconditionally after any successful WooCommerce update so that
+    no dry run can remain valid after WC state has changed, regardless of job_id.
+    Caller must commit after this returns.
+    """
+    from sqlalchemy import and_
+
+    affected_jobs = (
+        db.query(SyncJob)  # type: ignore[name-defined]
+        .join(SyncItem, SyncItem.job_id == SyncJob.id)  # type: ignore[name-defined]
+        .filter(
+            SyncItem.product_id == product_id,
+            SyncJob.status == JobStatus.preview,  # type: ignore[name-defined]
+            SyncJob.dry_run_status.isnot(None),
+            SyncJob.dry_run_status != "invalidated",
+        )
+        .distinct()
+        .all()
+    )
+    for job in affected_jobs:
+        _invalidate_dry_run(job)
+    if affected_jobs:
+        logger.info(
+            "_invalidate_dry_runs_for_product: invalidated %d job(s) for product_id=%d",
+            len(affected_jobs), product_id,
+        )
+    return len(affected_jobs)
 
 
 def _split_items_for_apply(
@@ -2000,14 +2069,12 @@ async def update_price(
     # WooCommerce state has changed. Commit cache patch + dry-run invalidation atomically
     # BEFORE the Excel writeback so that even if writeback raises, the dry run is already
     # invalidated and apply cannot proceed on stale analysis.
+    # Invalidation is unconditional — does not require job_id from the caller.
     cache_hit = patch_cached_product(db, product_id, {
         "regular_price": body.new_price,
         "final_price": body.new_price,
     })
-    if body.job_id:
-        _pr_job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
-        if _pr_job and getattr(_pr_job, "dry_run_status", None) not in (None, "invalidated"):
-            _invalidate_dry_run(_pr_job)
+    _invalidate_dry_runs_for_product(db, product_id)
     db.commit()
     logger.info("update_price: cache patched product_id=%s cache_hit=%s", product_id, cache_hit)
     _audit(user["sub"], "update_price", ip=ip, detail={
@@ -2069,15 +2136,12 @@ async def update_stock(
         raise HTTPException(502, f"WooCommerce update failed: {exc}")
 
     # Commit cache patch + dry-run invalidation atomically before Excel writeback
-    # (same fail-safe pattern as update_price).
+    # (same fail-safe pattern as update_price; unconditional — no job_id needed).
     cache_fields: dict = {"stock_status": body.stock_status}
     if body.stock_quantity is not None:
         cache_fields["stock_quantity"] = body.stock_quantity
     cache_hit = patch_cached_product(db, product_id, cache_fields)
-    if body.job_id:
-        _st_job = db.query(SyncJob).filter(SyncJob.id == body.job_id).first()
-        if _st_job and getattr(_st_job, "dry_run_status", None) not in (None, "invalidated"):
-            _invalidate_dry_run(_st_job)
+    _invalidate_dry_runs_for_product(db, product_id)
     db.commit()
     logger.info("update_stock: cache patched product_id=%s cache_hit=%s", product_id, cache_hit)
     _audit(user["sub"], "update_stock", ip=ip, detail={
@@ -2267,14 +2331,16 @@ async def confirm_sync(
     if job.status != JobStatus.preview:
         raise HTTPException(400, f"Job is '{job.status}', expected 'preview'")
 
-    selected_ids = set(sid) if sid else None
+    # Normalise scope: if caller sent no sid, fall back to the stored dry_run_scope
+    # so that job-wide apply matches a job-wide dry run without a scope mismatch.
+    selected_ids = _normalize_scope(set(sid) if sid else None, job=job)
 
     # Spreadsheet freshness check
     sheet_ok, _, sheet_msg = await _check_sheet_hash(job)
     if not sheet_ok:
         raise HTTPException(409, sheet_msg)
 
-    # All dry-run guards (status, blocked, invalidated, scope)
+    # All dry-run guards (allow-list status check + normalised scope check)
     dr_ok, _, dr_msg, dr_status_code = _check_dry_run_guards(job, selected_ids)
     if not dr_ok:
         if "blocked" in dr_msg or "invalidated" in dr_msg:
@@ -2288,7 +2354,7 @@ async def confirm_sync(
     db.commit()
 
     items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
-    to_update, to_skip = _split_items_for_apply(items, selected_ids)
+    to_update, to_skip = _split_items_for_apply(items, selected_ids or None)
 
     for item in to_skip:
         item.status = ItemStatus.skipped
@@ -2394,12 +2460,8 @@ async def dry_run_sync(
         summary = _compute_dry_run_summary(items, alarm_threshold, selected_ids)
         dr_status = summary["dry_run_status"]
 
-        # Always store an explicit scope — never null.
-        # Job-wide dry run stores all item product_ids so any post-dry-run
-        # selection change is detected as a scope mismatch.
-        effective_scope = sorted(selected_ids) if selected_ids else sorted(
-            {i.product_id for i in items}
-        )
+        # Always store an explicit scope (never null) via _normalize_scope.
+        effective_scope = sorted(_normalize_scope(selected_ids, items=items))
         scope_json = json.dumps(effective_scope, ensure_ascii=False)
         job.dry_run_summary      = json.dumps(summary, ensure_ascii=False)
         job.dry_run_status       = dr_status
@@ -2788,8 +2850,8 @@ async def apply_stream(
                 logger.warning("apply_stream: stale preview job=%d", job_id)
                 yield ev({"type": sheet_etype, "msg": sheet_msg}); return
 
-            # All dry-run guards (status, blocked, invalidated, scope)
-            selected_ids = set(sid) if sid else None
+            # Normalise scope then run all dry-run guards (allow-list + scope check)
+            selected_ids = _normalize_scope(set(sid) if sid else None, job=job)
             dr_ok, dr_etype, dr_msg, _ = _check_dry_run_guards(job, selected_ids)
             if not dr_ok:
                 if "blocked" in dr_msg or "invalidated" in dr_msg:
@@ -2805,8 +2867,8 @@ async def apply_stream(
 
             items = db.query(SyncItem).filter(SyncItem.job_id == job_id).all()
 
-            # selected_ids already computed above for scope validation
-            to_update, to_skip = _split_items_for_apply(items, selected_ids)
+            # selected_ids is already normalised; pass None when empty (→ apply-all)
+            to_update, to_skip = _split_items_for_apply(items, selected_ids or None)
 
             yield ev({"type": "start", "total": len(to_update), "skipped": len(to_skip)})
 

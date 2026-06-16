@@ -2473,6 +2473,19 @@ function runApplyStream() {
       document.getElementById('apply-result-section').style.display = 'block';
       var _eMsg = d.msg || 'Unexpected error';
       var _isDrErr = _eMsg.indexOf('dry_run_required') === 0 || _eMsg.indexOf('apply_blocked_by_dry_run') === 0 || _eMsg.indexOf('dry_run_scope_mismatch') === 0 || _eMsg.indexOf('dry_run_invalidated') === 0;
+      // When the backend reports invalidation, the client's cached result is now stale.
+      // Reset it so updateApplyButtonState() disables Apply correctly.
+      if (_eMsg.indexOf('dry_run_invalidated') === 0) {
+        dryRunResult = null;
+        var _invPanel = document.getElementById('dry-run-panel');
+        if (_invPanel) {
+          _invPanel.style.display = 'block';
+          _invPanel.innerHTML =
+            '<div style="padding:12px 16px;background:#fef3c7;border-radius:8px;color:#92400e;font-size:13px;">' +
+              '<b>⚠ Dry Run Invalidated</b> — items were edited after the last dry run. Re-run Dry Run before applying.' +
+            '</div>';
+        }
+      }
       var _eBody = _eMsg.replace(/^[^:]+:\s*/, '');
       document.getElementById('apply-result-banner').innerHTML =
         '<div class="wp-result-banner ' + (_isDrErr ? 'warning' : 'error') + '">' +
