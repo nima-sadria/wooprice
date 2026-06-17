@@ -2877,15 +2877,45 @@ async function loadAnalytics() {
     var trendData  = results[5];
 
     if (catData)   _renderCategories(catData);
+    else           _anErrSection('an-cat-body', 5);
     if (brandData) _renderBrands(brandData);
+    else           _anErrSection('an-brand-body', 5);
     if (staleData) _renderStaleness(staleData);
+    else           _anStalenessErr();
 
     if (isAdmin) {
       if (overview)  _renderOverview(overview);
+      else           _anErrCards();
       if (movements) _renderMovements(movements);
+      else           _anErrMovements();
       if (trendData) { window._anTrendData = trendData; _renderTrendChart(trendData); }
+      else           { var ch = document.getElementById('an-trend-chart'); if(ch) ch.innerHTML = '<span style="color:#dc2626;font-size:12px">Failed to load trend data</span>'; }
     }
-  } catch(e) { console.error('Analytics load error:', e); }
+  } catch(e) {
+    console.error('Analytics load error:', e);
+    _anErrSection('an-cat-body', 5);
+    _anErrSection('an-brand-body', 5);
+    _anStalenessErr();
+  }
+}
+
+function _anErrSection(tbodyId, colspan) {
+  var el = document.getElementById(tbodyId);
+  if (el) el.innerHTML = '<tr><td colspan="' + colspan + '" style="color:#dc2626;text-align:center;font-size:12px">Failed to load — check connection or refresh</td></tr>';
+}
+function _anStalenessErr() {
+  ['an-stale-35-body','an-stale-5p-body','an-stale-nv-body'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.innerHTML = '<tr><td colspan="6" style="color:#dc2626;text-align:center;font-size:12px">Failed to load</td></tr>';
+  });
+}
+function _anErrCards() {
+  ['anc-updated-today','anc-apply-today','anc-rollback-today','anc-price-changes','anc-oos','anc-no-img','anc-no-price'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) { el.textContent = '!'; el.className = 'an-card-value danger'; }
+  });
+}
+function _anErrMovements() {
+  var up = document.getElementById('an-move-up-body'); if(up) up.innerHTML = '<tr><td colspan="3" style="color:#dc2626">Failed to load</td></tr>';
+  var dn = document.getElementById('an-move-dn-body'); if(dn) dn.innerHTML = '<tr><td colspan="3" style="color:#dc2626">Failed to load</td></tr>';
 }
 
 // ── Admin: Overview cards ──────────────────────────────────────────────────
@@ -2949,13 +2979,13 @@ function _renderCategories(d) {
       '<td lang="en">' + (c.total || 0) + '</td>' +
       '<td lang="en" class="' + (c.updated_today > 0 ? 'green' : '') + '">' + (c.updated_today || 0) + '</td>' +
       '<td><div class="an-progress"><div class="an-progress-fill" style="width:' + pct + '%"></div></div> <span style="font-size:11px;color:var(--wp-muted)">' + pct + '%</span></td>' +
-      '<td><button class="an-drill-btn" onclick="anToggleCatDrill(' + idx + ', \'' + esc(c.category_name||'') + '\')" id="an-cat-drill-btn-' + idx + '">Details</button></td>' +
+      '<td><button class="an-drill-btn" onclick="anToggleCatDrill(' + idx + ',' + c.category_id + ')" id="an-cat-drill-btn-' + idx + '">Details</button></td>' +
       '</tr>' +
       '<tr id="' + drillId + '" class="an-drill-row" style="display:none"><td colspan="5"><div class="an-drill-inner" id="' + drillId + '-inner">Loading…</div></td></tr>';
   }).join('');
 }
 
-function anToggleCatDrill(idx, catName) {
+function anToggleCatDrill(idx, catId) {
   var row = document.getElementById('an-cat-drill-' + idx);
   var btn = document.getElementById('an-cat-drill-btn-' + idx);
   if (!row) return;
@@ -2964,19 +2994,17 @@ function anToggleCatDrill(idx, catName) {
   btn.textContent = open ? 'Details' : 'Close';
   if (!open && !_anDrillState['cat-' + idx]) {
     _anDrillState['cat-' + idx] = true;
-    _loadCatDrill(idx, catName);
+    _loadCatDrill(idx, catId);
   }
 }
 
-async function _loadCatDrill(idx, catName) {
+async function _loadCatDrill(idx, catId) {
   var inner = document.getElementById('an-cat-drill-' + idx + '-inner');
   if (!inner) return;
   try {
-    // Load staleness filtered by category by reusing the staleness endpoint
-    // (v1: client-side filter from already-loaded staleness data is not available here;
-    //  instead show products_cache for this category from the categories endpoint)
     var data = await api('GET', '/api/analytics/seller/categories');
-    var cat = (data.categories || []).find(function(c) { return c.category_name === catName; });
+    // MEDIUM 2 fix: match by category_id (integer), not category_name (string, can be duplicate/unsafe)
+    var cat = (data.categories || []).find(function(c) { return c.category_id === catId; });
     if (!cat) { inner.textContent = 'No data.'; return; }
     var updated = cat.products_updated || [];
     var notUpdated = cat.products_not_updated || [];
@@ -3048,7 +3076,13 @@ async function _loadBrandDrill(idx, brandId) {
   if (!inner) return;
   try {
     var data = await api('GET', '/api/analytics/seller/brands');
-    var brand = (data.brands || [])[idx];
+    // MEDIUM 1 fix: find by brand_id, not array index (unknown_brand lives outside data.brands)
+    var brand;
+    if (brandId === null) {
+      brand = data.unknown_brand;
+    } else {
+      brand = (data.brands || []).find(function(b) { return b.brand_id === brandId; });
+    }
     if (!brand) { inner.textContent = 'No data.'; return; }
     var updated = brand.products_updated || [];
     var notUpdated = brand.products_not_updated || [];

@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -24,6 +24,9 @@ class ItemStatus(str, enum.Enum):
 
 class SyncJob(Base):
     __tablename__ = "sync_jobs"
+    __table_args__ = (
+        Index("ix_sync_jobs_status_created_at", "status", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -102,6 +105,10 @@ class AlarmThreshold(Base):
 class ProductCache(Base):
     """Persistent local cache of WooCommerce products and variations."""
     __tablename__ = "products_cache"
+    __table_args__ = (
+        Index("ix_products_cache_stock_status", "stock_status"),
+        Index("ix_products_cache_last_synced_at", "last_synced_at"),
+    )
 
     wc_id = Column(Integer, primary_key=True)
     parent_id = Column(Integer, default=0, index=True)
@@ -167,6 +174,9 @@ class ChangeHistory(Base):
     """Phase C — immutable record of every WooCommerce price/stock change, enabling rollback.
     One row is written immediately BEFORE each WC update, capturing the prior state."""
     __tablename__ = "change_history"
+    __table_args__ = (
+        Index("ix_change_history_source_changed_at", "source", "changed_at"),
+    )
 
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, nullable=False, index=True)

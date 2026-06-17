@@ -2386,15 +2386,24 @@ async def analytics_admin_overview(
     """Admin overview cards: today's activity + live product-health counts."""
     today = _today_str()
     dm = db.query(DailyMetrics).filter(DailyMetrics.date == today).first()
+    today_start = _today_utc_start()
+
+    # HIGH 1: updated_today from change_history (source=apply), distinct products
+    updated_today = (
+        db.query(func.count(func.distinct(ChangeHistory.product_id)))
+        .filter(ChangeHistory.source == "apply", ChangeHistory.changed_at >= today_start)
+        .scalar() or 0
+    )
 
     total = db.query(func.count()).select_from(ProductCache).scalar() or 0
     out_of_stock = (
         db.query(func.count()).select_from(ProductCache)
         .filter(ProductCache.stock_status == "outofstock").scalar() or 0
     )
+    # HIGH 2: missing image — top-level products only (parent_id=0); variations inherit from parent
     missing_image = (
         db.query(func.count()).select_from(ProductCache)
-        .filter(ProductCache.image_url.is_(None)).scalar() or 0
+        .filter(ProductCache.parent_id == 0, ProductCache.image_url.is_(None)).scalar() or 0
     )
     missing_price = (
         db.query(func.count()).select_from(ProductCache)
@@ -2402,13 +2411,13 @@ async def analytics_admin_overview(
     )
     price_changes_today = (
         db.query(func.count()).select_from(ChangeHistory)
-        .filter(ChangeHistory.source == "apply", ChangeHistory.changed_at >= _today_utc_start())
+        .filter(ChangeHistory.source == "apply", ChangeHistory.changed_at >= today_start)
         .scalar() or 0
     )
 
     return {
         "total_products": total,
-        "updated_products_today": dm.updated_products if dm else 0,
+        "updated_products_today": updated_today,
         "apply_count_today": dm.apply_jobs if dm else 0,
         "rollback_count_today": dm.rollback_jobs if dm else 0,
         "price_changes_today": price_changes_today,
@@ -2423,38 +2432,63 @@ async def analytics_admin_top_movements(
     user: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Biggest price increases and decreases today (by percentage)."""
-    rows = (
+    """Biggest price increases and decreases today (by percentage).
+
+    MEDIUM 4: Use pre-computed price_delta_pct for SQL ordering/limiting.
+    Falls back to Python-side computation only for legacy rows where the column is NULL.
+    """
+    today_start = _today_utc_start()
+    base_filter = [
+        ChangeHistory.source == "apply",
+        ChangeHistory.changed_at >= today_start,
+        ChangeHistory.old_price.isnot(None),
+        ChangeHistory.new_price.isnot(None),
+    ]
+
+    # SQL path: rows with price_delta_pct already computed — bounded by LIMIT
+    sql_rows = (
         db.query(ChangeHistory)
-        .filter(
-            ChangeHistory.source == "apply",
-            ChangeHistory.changed_at >= _today_utc_start(),
-            ChangeHistory.old_price.isnot(None),
-            ChangeHistory.new_price.isnot(None),
-        )
+        .filter(*base_filter, ChangeHistory.price_delta_pct.isnot(None))
+        .order_by(func.abs(ChangeHistory.price_delta_pct).desc())
+        .limit(40)
+        .all()
+    )
+    # Python fallback: pre-migration rows without price_delta_pct (should be empty after rollout)
+    legacy_rows = (
+        db.query(ChangeHistory)
+        .filter(*base_filter, ChangeHistory.price_delta_pct.is_(None))
         .all()
     )
 
-    movements = []
-    for row in rows:
+    seen: dict[int, dict] = {}  # product_id → best movement (largest abs delta)
+
+    def _add(row: ChangeHistory, delta_pct: float) -> None:
+        if abs(delta_pct) < 0.01:
+            return
+        pid = row.product_id
+        if pid not in seen or abs(delta_pct) > abs(seen[pid]["delta_pct"]):
+            seen[pid] = {
+                "product_id": pid,
+                "old_price": row.old_price,
+                "new_price": row.new_price,
+                "delta_pct": round(delta_pct, 1),
+                "name": "",
+                "sku": "",
+            }
+
+    for row in sql_rows:
+        _add(row, row.price_delta_pct)
+
+    for row in legacy_rows:
         old_f = _safe_price_float(row.old_price)
         new_f = _safe_price_float(row.new_price)
         if old_f is None or new_f is None or old_f == 0:
             continue
-        delta_pct = (new_f - old_f) / old_f * 100
-        if abs(delta_pct) < 0.01:
-            continue
-        movements.append({
-            "product_id": row.product_id,
-            "old_price": row.old_price,
-            "new_price": row.new_price,
-            "delta_pct": round(delta_pct, 1),
-            "name": "",
-            "sku": "",
-        })
+        _add(row, (new_f - old_f) / old_f * 100)
 
+    movements = list(seen.values())
     if movements:
-        pids = list({m["product_id"] for m in movements})
+        pids = list(seen)
         cache_map = {
             r.wc_id: r
             for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(pids)).all()
@@ -2477,7 +2511,6 @@ async def analytics_admin_trend(
     db: Session = Depends(get_db),
 ):
     """Daily metrics for the last N days (1–30), with zero-fill for missing days."""
-    from datetime import date as _date
     end = datetime.utcnow().date()
     start_str = str(end - timedelta(days=days - 1))
     rows = (
