@@ -1,8 +1,8 @@
 export default function Analytics() {
   return (
-    <main className="p-7">
-      <h1 className="text-2xl font-bold text-text-base">Analytics</h1>
-      <p className="text-wp-muted text-sm mt-1">Phase 4b stub</p>
-    </main>
+    <div className="p-7">
+      <h1 className="text-[22px] font-bold text-text-base">Analytics</h1>
+      <p className="text-[13px] text-wp-muted mt-0.5">Phase 4b — coming soon</p>
+    </div>
   )
 }
