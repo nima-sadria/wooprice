@@ -6,15 +6,11 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.git/
 .DS_Store
-
 .claude/
-
-adminator.zip
-adminator_theme/
 .review/
-
-# React frontend build artifacts
+.vscode/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/

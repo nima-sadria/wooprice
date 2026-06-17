@@ -1,0 +1,54 @@
+/* ── IRANYekanX variable font ── */
+@font-face {
+  font-family: 'IRANYekanX';
+  src: url('/static/fonts/IRANYekanXVF.woff2') format('woff2-variations'),
+       url('/static/fonts/IRANYekanXVF.woff') format('woff-variations');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IRANYekanX';
+  src: url('/static/fonts/IRANYekanX-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IRANYekanX';
+  src: url('/static/fonts/IRANYekanX-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── WooPrice design tokens ── */
+:root {
+  --accent: #4880FF;
+  --wp-green: #22c55e;
+  --wp-red: #ef4444;
+  --wp-yellow: #f59e0b;
+  --wp-orange: #f97316;
+  --wp-purple: #a855f7;
+  --wp-muted: #8E97A7;
+  --bg-base: #F5F6FA;
+  --bg-card: #ffffff;
+  --border: #E8EAED;
+  --text-base: #1C2434;
+}
+
+@layer base {
+  body {
+    @apply font-sans bg-bg-base text-text-base;
+    font-feature-settings: "locl" 0;
+  }
+  @supports (font-variation-settings: normal) {
+    body {
+      font-variation-settings: 'wght' 400;
+    }
+  }
+}
