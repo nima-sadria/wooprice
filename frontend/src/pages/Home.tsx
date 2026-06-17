@@ -9,6 +9,7 @@ import {
   Legend,
 } from 'chart.js'
 import { Bar, Doughnut } from 'react-chartjs-2'
+import { useAuth } from '../auth'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend)
 
@@ -90,6 +91,7 @@ const DONUT_OPTS = {
 } as const
 
 export default function Home() {
+  const { authFetch } = useAuth()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -98,12 +100,10 @@ export default function Home() {
     setLoading(true)
     setError(null)
     try {
-      const token = localStorage.getItem('wp_token') ?? ''
-      const r = await fetch('/api/dashboard', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
+      const r = await authFetch('/api/dashboard')
       if (r.status === 401 || r.status === 403) {
-        setError('Not authenticated — please sign in via the main interface.')
+        setData(null)
+        setError(r.status === 401 ? 'Login required. Please sign in via the main interface.' : 'Access denied.')
         return
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -113,7 +113,7 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [authFetch])
 
   useEffect(() => { void load() }, [load])
 

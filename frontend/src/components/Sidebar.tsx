@@ -1,16 +1,12 @@
 import { NavLink } from 'react-router-dom'
-
-export interface WpUser {
-  username: string
-  role: string
-}
+import type { AuthUser } from '../auth'
 
 interface Props {
   open: boolean
   collapsed: boolean
   onClose: () => void
   onToggleCollapse: () => void
-  user: WpUser | null
+  user: AuthUser | null
 }
 
 function initials(name: string) {
@@ -39,10 +35,10 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
 
       <aside
         className={[
-          'flex flex-col bg-bg-card border-r border-border h-screen flex-shrink-0',
-          'fixed md:sticky top-0 z-30',
+          'flex flex-col bg-bg-card border-e border-border h-screen flex-shrink-0',
+          'fixed md:sticky top-0 inset-y-0 ltr:left-0 rtl:right-0 z-30',
           'transition-all duration-200 ease-in-out',
-          open ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+          open ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full md:translate-x-0',
           collapsed ? 'w-[58px]' : 'w-60',
         ].join(' ')}
       >
@@ -141,7 +137,7 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
             {!collapsed && <span>Settings</span>}
           </NavLink>
 
-          {user?.role === 'admin' && (
+          {user?.is_admin && (
             <NavLink to="/admin" className={linkCls} onClick={onClose}>
               <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
