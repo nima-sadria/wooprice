@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -122,6 +122,8 @@ type ModalState =
   | { title: string; rows: Movement[]; movement: true }
   | null
 
+type Severity = 'ok' | 'warning' | 'critical'
+
 class ApiStatusError extends Error {
   status: number
   constructor(status: number) {
@@ -144,6 +146,38 @@ function fmt(n: number | undefined) {
   return (n ?? 0).toLocaleString('en')
 }
 
+function formatPrice(val: string | undefined | null): string {
+  if (!val) return '-'
+  const n = Number(val)
+  if (!Number.isFinite(n)) return val
+  try {
+    return n.toLocaleString('fa-IR')
+  } catch {
+    return n.toLocaleString()
+  }
+}
+
+function getSeverity(count: number, total: number): Severity {
+  if (total === 0 || count === 0) return 'ok'
+  const ratio = count / total
+  if (ratio >= 0.05) return 'critical'
+  if (ratio >= 0.01) return 'warning'
+  return 'ok'
+}
+
+function coverageFill(updatePct: number): string {
+  if (updatePct < 20) return 'bg-[#ef4444]'
+  if (updatePct < 60) return 'bg-[#f59e0b]'
+  return 'bg-accent'
+}
+
+function timeAgo(date: Date): string {
+  const mins = Math.floor((Date.now() - date.getTime()) / 60000)
+  if (mins < 1) return 'just now'
+  if (mins === 1) return '1 min ago'
+  return `${mins} min ago`
+}
+
 function productId(row: ProductRow) {
   return row.wc_id ?? row.product_id ?? 0
 }
@@ -153,11 +187,29 @@ function productName(row: ProductRow) {
 }
 
 function price(row: ProductRow) {
-  return row.final_price || row.new_price || '-'
+  return formatPrice(row.final_price || row.new_price)
 }
 
 function topRows(rows: CoverageRow[], limit = 6) {
   return rows.slice(0, limit)
+}
+
+const SEVERITY_STYLES: Record<Severity, { card: string; badge: string; label: string }> = {
+  critical: {
+    card: 'border-[#ef4444] bg-[#fef2f2] hover:border-[#dc2626]',
+    badge: 'bg-[#fee2e2] text-[#dc2626]',
+    label: 'Critical',
+  },
+  warning: {
+    card: 'border-[#f59e0b] bg-[#fffbeb] hover:border-[#d97706]',
+    badge: 'bg-[#fef9c3] text-[#b45309]',
+    label: 'Warning',
+  },
+  ok: {
+    card: 'border-border bg-bg-card hover:border-accent',
+    badge: 'bg-[#dcfce7] text-[#16a34a]',
+    label: 'OK',
+  },
 }
 
 const chartText = '#8E97A7'
@@ -171,6 +223,7 @@ export default function Analytics() {
   const [accessState, setAccessState] = useState<'login_required' | 'permission_denied' | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [trendWindow, setTrendWindow] = useState<7 | 30>(30)
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -199,6 +252,7 @@ export default function Analytics() {
       }
 
       setData({ issues, categories, brands, staleness, adminOverview, trend7, trend30, movements })
+      setRefreshedAt(new Date())
     } catch (e) {
       setData(null)
       if (e instanceof ApiStatusError) {
@@ -221,6 +275,18 @@ export default function Analytics() {
     const total = data.adminOverview?.total_products ?? data.brands.total_products
     const freshPct = total ? Math.max(0, Math.round(((total - staleCount) / total) * 1000) / 10) : 0
     return { updatedToday, staleCount, total, freshPct }
+  }, [data])
+
+  // Deduplicated list of products updated today (across all categories)
+  const allUpdatedToday = useMemo(() => {
+    if (!data) return []
+    const seen = new Set<number>()
+    return data.categories.categories.flatMap(c => c.products_updated).filter(p => {
+      const id = productId(p)
+      if (seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
   }, [data])
 
   if (accessState) return <AccessState status={accessState} />
@@ -260,18 +326,31 @@ export default function Analytics() {
 
   return (
     <div className="p-4 sm:p-7 flex flex-col gap-5">
+      {/* Page header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-[22px] font-bold text-text-base">Analytics</h1>
           <p className="text-[13px] text-wp-muted mt-0.5">Catalog coverage, freshness, and pricing movement</p>
         </div>
-        <button
-          onClick={() => { void load() }}
-          disabled={loading}
-          className="px-[18px] py-[9px] rounded-lg border-[1.5px] border-border bg-bg-card text-text-base text-[13px] font-medium hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          {refreshedAt && !loading && (
+            <span className="text-[12px] text-wp-muted">
+              Updated {timeAgo(refreshedAt)}
+            </span>
+          )}
+          <button
+            onClick={() => { void load() }}
+            disabled={loading}
+            className="flex items-center gap-2 px-[18px] py-[9px] rounded-lg border-[1.5px] border-border bg-bg-card text-text-base text-[13px] font-medium hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
+          >
+            {loading && (
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
+              </svg>
+            )}
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -288,13 +367,61 @@ export default function Analytics() {
         </div>
       ) : data && totals ? (
         <>
+          {/* KPI cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <Kpi title="Total Products" value={fmt(totals.total)} tone="blue" />
-            <Kpi title="Updated Today" value={fmt(data.adminOverview?.updated_products_today ?? totals.updatedToday)} tone="green" />
-            <Kpi title="Stale Products" value={fmt(totals.staleCount)} tone="orange" />
-            <Kpi title="Brand Coverage" value={pct(data.brands.coverage_percent)} tone="purple" />
+            <Kpi
+              title="Total Products"
+              value={fmt(totals.total)}
+              tone="blue"
+              icon={
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                  <line x1="12" y1="22.08" x2="12" y2="12" />
+                </svg>
+              }
+            />
+            <Kpi
+              title="Updated Today"
+              value={fmt(data.adminOverview?.updated_products_today ?? totals.updatedToday)}
+              tone="green"
+              icon={
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                  <polyline points="17 6 23 6 23 12" />
+                </svg>
+              }
+              onClick={allUpdatedToday.length > 0
+                ? () => setModal({ title: 'Updated Today', rows: allUpdatedToday })
+                : undefined}
+            />
+            <Kpi
+              title="Stale Products"
+              value={fmt(totals.staleCount)}
+              tone="orange"
+              icon={
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              }
+              onClick={totals.staleCount > 0
+                ? () => setModal({ title: 'All Stale Products', rows: [...data.staleness.stale_3_5, ...data.staleness.stale_5_plus, ...data.staleness.never_updated] })
+                : undefined}
+            />
+            <Kpi
+              title="Brand Coverage"
+              value={pct(data.brands.coverage_percent)}
+              tone="purple"
+              icon={
+                <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              }
+            />
           </div>
 
+          {/* Freshness gauge + trend chart */}
           <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-4">
             <section className="bg-bg-card border border-border rounded-card shadow-card p-5">
               <SectionTitle title="Catalog Freshness" action={`${pct(totals.freshPct)} fresh`} />
@@ -352,6 +479,7 @@ export default function Analytics() {
             </section>
           </div>
 
+          {/* Coverage panels */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <CoveragePanel
               title="Top Category Coverage"
@@ -367,12 +495,14 @@ export default function Analytics() {
             />
           </div>
 
+          {/* Issue severity cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <StaleCard title="In Stock, No Price" count={data.issues.in_stock_no_price.length} rows={data.issues.in_stock_no_price} onOpen={setModal} />
-            <StaleCard title="Priced, Out of Stock" count={data.issues.has_price_out_of_stock.length} rows={data.issues.has_price_out_of_stock} onOpen={setModal} />
-            <StaleCard title="Legacy Stale Items" count={data.issues.stale_products.length} rows={data.issues.stale_products} onOpen={setModal} />
+            <StaleCard title="In Stock, No Price" count={data.issues.in_stock_no_price.length} rows={data.issues.in_stock_no_price} total={totals.total} onOpen={setModal} />
+            <StaleCard title="Priced, Out of Stock" count={data.issues.has_price_out_of_stock.length} rows={data.issues.has_price_out_of_stock} total={totals.total} onOpen={setModal} />
+            <StaleCard title="Legacy Stale Items" count={data.issues.stale_products.length} rows={data.issues.stale_products} total={totals.total} onOpen={setModal} />
           </div>
 
+          {/* Price movement panels (admin) */}
           {user?.is_admin && data.movements && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <MovementPanel title="Biggest Increases" rows={data.movements.increases} onOpen={() => setModal({ title: 'Biggest Increases', rows: data.movements?.increases ?? [], movement: true })} />
@@ -391,24 +521,49 @@ export default function Analytics() {
   )
 }
 
-function Kpi({ title, value, tone }: { title: string; value: string; tone: 'blue' | 'green' | 'orange' | 'purple' }) {
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Kpi({
+  title,
+  value,
+  tone,
+  icon,
+  onClick,
+}: {
+  title: string
+  value: string
+  tone: 'blue' | 'green' | 'orange' | 'purple'
+  icon: ReactNode
+  onClick?: () => void
+}) {
   const tones = {
-    blue: 'bg-[#dbeafe] text-[#2563eb]',
-    green: 'bg-[#dcfce7] text-[#16a34a]',
+    blue:   'bg-[#dbeafe] text-[#2563eb]',
+    green:  'bg-[#dcfce7] text-[#16a34a]',
     orange: 'bg-[#ffedd5] text-[#ea580c]',
     purple: 'bg-[#ede9fe] text-[#7c3aed]',
   }
-  return (
-    <div className="bg-bg-card border border-border rounded-card shadow-card p-5 flex items-center justify-between gap-4">
+  const base = 'bg-bg-card border border-border rounded-card shadow-card p-5 flex items-center justify-between gap-4 w-full text-left'
+  const inner = (
+    <>
       <div className="min-w-0">
         <div className="text-[12px] text-wp-muted">{title}</div>
         <div className="text-[28px] leading-tight font-bold text-text-base mt-1 truncate">{value}</div>
+        {onClick && <div className="text-[11px] text-wp-muted mt-1">Tap to review ↗</div>}
       </div>
-      <div className={['w-11 h-11 rounded-lg flex items-center justify-center font-bold text-[16px]', tones[tone]].join(' ')}>
-        {title.slice(0, 1)}
+      <div className={['w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0', tones[tone]].join(' ')}>
+        {icon}
       </div>
-    </div>
+    </>
   )
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${base} hover:border-accent hover:shadow-md transition-all cursor-pointer`}>
+        {inner}
+      </button>
+    )
+  }
+  return <div className={base}>{inner}</div>
 }
 
 function SectionTitle({ title, action }: { title: string; action?: string }) {
@@ -451,7 +606,10 @@ function CoveragePanel({
               <span className="text-wp-muted">{fmt(row.updated_today)} / {fmt(row.total)}</span>
             </div>
             <div className="h-2 rounded-full bg-bg-base overflow-hidden">
-              <div className="h-full rounded-full bg-accent group-hover:bg-accent-hover transition-colors" style={{ width: `${Math.min(row.update_pct, 100)}%` }} />
+              <div
+                className={['h-full rounded-full transition-colors', coverageFill(row.update_pct)].join(' ')}
+                style={{ width: `${Math.min(row.update_pct, 100)}%` }}
+              />
             </div>
           </button>
         )) : <div className="text-[13px] text-wp-muted py-6 text-center">No coverage data</div>}
@@ -460,17 +618,46 @@ function CoveragePanel({
   )
 }
 
-function StaleCard({ title, count, rows, onOpen }: { title: string; count: number; rows: ProductRow[]; onOpen: (modal: ModalState) => void }) {
+function StaleCard({
+  title,
+  count,
+  rows,
+  total,
+  onOpen,
+}: {
+  title: string
+  count: number
+  rows: ProductRow[]
+  total: number
+  onOpen: (modal: ModalState) => void
+}) {
+  const sev = getSeverity(count, total)
+  const style = SEVERITY_STYLES[sev]
+  const ratioPct = total > 0 ? Math.round((count / total) * 100) : 0
+
   return (
-    <button onClick={() => onOpen({ title, rows })} className="bg-bg-card border border-border rounded-card shadow-card p-5 text-left hover:border-accent transition-colors">
-      <div className="text-[12px] text-wp-muted">{title}</div>
-      <div className="text-[30px] leading-tight font-bold text-text-base mt-1">{fmt(count)}</div>
-      <div className="text-[12px] text-wp-muted mt-2">Open product list</div>
+    <button
+      onClick={() => onOpen({ title, rows })}
+      className={['rounded-card border shadow-card p-5 text-left transition-all', style.card].join(' ')}
+    >
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="text-[12px] text-wp-muted font-medium">{title}</div>
+        <span className={['text-[10px] font-bold px-2 py-0.5 rounded-full', style.badge].join(' ')}>
+          {style.label}
+        </span>
+      </div>
+      <div className="text-[30px] leading-tight font-bold text-text-base">{fmt(count)}</div>
+      <div className="text-[11px] text-wp-muted mt-2">
+        {count === 0
+          ? 'No issues found'
+          : `${ratioPct}% of catalog · tap to review`}
+      </div>
     </button>
   )
 }
 
 function MovementPanel({ title, rows, onOpen }: { title: string; rows: Movement[]; onOpen: () => void }) {
+  const isIncrease = title.toLowerCase().includes('increase')
   return (
     <section className="bg-bg-card border border-border rounded-card shadow-card p-5">
       <SectionTitle title={title} action="admin only" />
@@ -479,14 +666,24 @@ function MovementPanel({ title, rows, onOpen }: { title: string; rows: Movement[
           <div key={`${title}-${row.product_id}`} className="flex items-center gap-3 bg-bg-base border border-border rounded-lg px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium text-text-base truncate">{row.name || `Product ${row.product_id}`}</div>
-              <div className="text-[11px] text-wp-muted">{row.old_price} → {row.new_price}</div>
+              <div className="text-[11px] text-wp-muted font-mono">
+                {formatPrice(row.old_price)} → {formatPrice(row.new_price)}
+              </div>
             </div>
-            <div className={['text-[13px] font-bold', row.delta_pct > 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'].join(' ')}>
-              {pct(row.delta_pct)}
+            <div className={[
+              'flex items-center gap-1 text-[12px] font-bold px-2 py-0.5 rounded-full flex-shrink-0',
+              isIncrease ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#fee2e2] text-[#dc2626]',
+            ].join(' ')}>
+              <svg viewBox="0 0 24 24" className={['w-3 h-3', isIncrease ? '' : 'rotate-180'].join(' ')} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <polyline points="18 15 12 9 6 15" />
+              </svg>
+              {pct(Math.abs(row.delta_pct))}
             </div>
           </div>
         ))}
-        <button onClick={onOpen} className="mt-1 text-[12px] text-accent hover:text-accent-hover font-medium text-left">Open drill-down</button>
+        <button onClick={onOpen} className="mt-1 text-[12px] text-accent hover:text-accent-hover font-medium text-left">
+          Open drill-down
+        </button>
       </div>
     </section>
   )
@@ -559,8 +756,8 @@ function MovementTable({ rows }: { rows: Movement[] }) {
         <tr>
           <th className="text-left font-medium px-4 py-3">ID</th>
           <th className="text-left font-medium px-4 py-3">Product</th>
-          <th className="text-left font-medium px-4 py-3">Old</th>
-          <th className="text-left font-medium px-4 py-3">New</th>
+          <th className="text-left font-medium px-4 py-3">Old Price</th>
+          <th className="text-left font-medium px-4 py-3">New Price</th>
           <th className="text-left font-medium px-4 py-3">Change</th>
         </tr>
       </thead>
@@ -569,9 +766,11 @@ function MovementTable({ rows }: { rows: Movement[] }) {
           <tr key={row.product_id} className="border-t border-border">
             <td className="px-4 py-3 text-wp-muted">{row.product_id}</td>
             <td className="px-4 py-3 text-text-base min-w-[220px]">{row.name || '-'}</td>
-            <td className="px-4 py-3 text-wp-muted">{row.old_price}</td>
-            <td className="px-4 py-3 text-wp-muted">{row.new_price}</td>
-            <td className={['px-4 py-3 font-bold', row.delta_pct > 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'].join(' ')}>{pct(row.delta_pct)}</td>
+            <td className="px-4 py-3 text-wp-muted font-mono">{formatPrice(row.old_price)}</td>
+            <td className="px-4 py-3 text-wp-muted font-mono">{formatPrice(row.new_price)}</td>
+            <td className={['px-4 py-3 font-bold', row.delta_pct > 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'].join(' ')}>
+              {row.delta_pct > 0 ? '+' : ''}{pct(row.delta_pct)}
+            </td>
           </tr>
         ))}
       </tbody>
