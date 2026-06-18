@@ -23,7 +23,7 @@ export default function App() {
                 path="/analytics"
                 element={<RequirePermission permission="can_access_site"><Analytics /></RequirePermission>}
               />
-              <Route path="/logs" element={<Logs />} />
+              <Route path="/logs" element={<RequirePermission permission="can_view_logs"><Logs /></RequirePermission>} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/admin" element={<RequirePermission adminOnly><Admin /></RequirePermission>} />
             </Route>
