@@ -131,8 +131,8 @@ export function AccessState({
   return (
     <div className="p-7">
       <div className="max-w-xl bg-bg-card border border-border rounded-card shadow-card p-6">
-        <h1 className="text-[22px] font-bold text-text-base" dir="ltr">{title}</h1>
-        <p className="text-[13px] text-wp-muted mt-2" dir="ltr">{body}</p>
+        <h1 className="text-[22px] font-bold text-text-base">{title}</h1>
+        <p className="text-[13px] text-wp-muted mt-2">{body}</p>
       </div>
     </div>
   )

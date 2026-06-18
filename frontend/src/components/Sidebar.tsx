@@ -36,9 +36,9 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
       <aside
         className={[
           'flex flex-col bg-bg-card border-e border-border h-screen flex-shrink-0',
-          'fixed md:sticky top-0 inset-y-0 ltr:left-0 rtl:right-0 z-30',
+          'fixed md:sticky top-0 inset-y-0 start-0 z-30',
           'transition-all duration-200 ease-in-out',
-          open ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full md:!translate-x-0',
+          open ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full md:!translate-x-0',
           collapsed ? 'w-[58px]' : 'w-60',
         ].join(' ')}
       >

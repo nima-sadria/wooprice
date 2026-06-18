@@ -53,7 +53,7 @@ export default function Topbar({ onMenuClick, health, user }: Props) {
         <span className="font-medium text-text-base">{title}</span>
       </div>
 
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ms-auto flex items-center gap-4">
         {/* Health indicator */}
         <div className="flex items-center gap-1.5 text-[12px] text-wp-muted">
           <span className={['w-2 h-2 rounded-full flex-shrink-0', healthDot].join(' ')} />
