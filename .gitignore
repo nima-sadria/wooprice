@@ -18,3 +18,9 @@ adminator_theme/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Local audit/test artifacts
+.postman/
+postman/
+screenshots/
+frontend/screenshots/
