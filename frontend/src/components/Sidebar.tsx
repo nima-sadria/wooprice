@@ -184,8 +184,8 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
             onClick={handleLogout}
             title="Sign out"
             className={[
-              'flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium',
-              'text-wp-muted hover:text-wp-red hover:bg-bg-base transition-colors',
+              'flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium border',
+              'border-wp-red/30 text-wp-red bg-wp-red/5 hover:bg-wp-red/10 transition-colors',
               collapsed ? 'justify-center' : 'w-full',
             ].join(' ')}
           >

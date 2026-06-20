@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 const PAGE_TITLES: Record<string, string> = {
@@ -9,14 +10,24 @@ const PAGE_TITLES: Record<string, string> = {
   '/admin': 'Admin',
 }
 
+const SIGNOUT_ICON = (
+  <svg viewBox="0 0 24 24" className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+)
+
 interface Props {
   onMenuClick: () => void
   health: 'ok' | 'error' | 'loading'
   user: { username: string } | null
+  onLogout: () => void
 }
 
-export default function Topbar({ onMenuClick, health, user }: Props) {
+export default function Topbar({ onMenuClick, health, user, onLogout }: Props) {
   const location = useLocation()
+  const [menuOpen, setMenuOpen] = useState(false)
   const title = PAGE_TITLES[location.pathname] ?? 'WooPrice'
 
   const healthDot =
@@ -28,6 +39,11 @@ export default function Topbar({ onMenuClick, health, user }: Props) {
     health === 'ok' ? 'Connected' :
     health === 'error' ? 'Offline' :
     '—'
+
+  function handleLogout() {
+    setMenuOpen(false)
+    onLogout()
+  }
 
   return (
     <header className="h-16 bg-bg-card border-b border-border flex items-center px-4 gap-4 flex-shrink-0">
@@ -60,13 +76,39 @@ export default function Topbar({ onMenuClick, health, user }: Props) {
           <span className="hidden sm:inline">{healthLabel}</span>
         </div>
 
-        {/* Avatar */}
+        {/* Avatar — click opens user menu */}
         {user && (
           <div
-            className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-bold cursor-pointer select-none"
-            title={user.username}
+            className="relative"
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setMenuOpen(false)
+              }
+            }}
           >
-            {user.username.slice(0, 2).toUpperCase()}
+            <button
+              onClick={() => setMenuOpen(o => !o)}
+              aria-label="User menu"
+              aria-expanded={menuOpen}
+              className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-bold select-none hover:ring-2 hover:ring-accent/40 transition-shadow"
+            >
+              {user.username.slice(0, 2).toUpperCase()}
+            </button>
+
+            {menuOpen && (
+              <div className="absolute end-0 top-full mt-1.5 w-44 bg-bg-card border border-border rounded-lg shadow-card py-1 z-50">
+                <div className="px-3 py-2 text-[12px] text-wp-muted border-b border-border truncate">
+                  {user.username}
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-wp-red hover:bg-bg-base transition-colors"
+                >
+                  {SIGNOUT_ICON}
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

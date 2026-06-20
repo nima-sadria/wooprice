@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
@@ -7,7 +7,8 @@ import Topbar from './Topbar'
 type HealthStatus = 'ok' | 'error' | 'loading'
 
 export default function AppShell() {
-  const { user } = useAuth()
+  const { user, clearAuth } = useAuth()
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('wp-sb-col') === '1'
@@ -27,6 +28,11 @@ export default function AppShell() {
     const id = setInterval(() => { void check() }, 30_000)
     return () => clearInterval(id)
   }, [])
+
+  function handleLogout() {
+    clearAuth()
+    navigate('/login', { replace: true })
+  }
 
   function handleToggleCollapse() {
     setSidebarCollapsed(c => {
@@ -50,6 +56,7 @@ export default function AppShell() {
           onMenuClick={() => setSidebarOpen(o => !o)}
           health={health}
           user={user}
+          onLogout={handleLogout}
         />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
