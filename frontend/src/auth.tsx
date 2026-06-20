@@ -126,7 +126,7 @@ export function AccessState({
       ? 'Your account does not have permission to view this content.'
       : status === 'loading'
         ? 'Verifying your session with the server.'
-        : 'Please sign in through the main interface.')
+        : 'Please sign in to continue.')
 
   return (
     <div className="p-7">

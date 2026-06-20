@@ -103,7 +103,7 @@ export default function Home() {
       const r = await authFetch('/api/dashboard')
       if (r.status === 401 || r.status === 403) {
         setData(null)
-        setError(r.status === 401 ? 'Login required. Please sign in via the main interface.' : 'Access denied.')
+        setError(r.status === 401 ? 'Session expired. Redirecting to sign-in…' : 'Access denied.')
         return
       }
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
