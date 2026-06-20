@@ -123,6 +123,24 @@ type ModalState =
   | null
 
 type Severity = 'ok' | 'warning' | 'critical'
+type TabId = 'overview' | 'changes'
+
+interface ChangeRecord {
+  id: number
+  product_id: number
+  name: string
+  sku: string
+  brand_name: string
+  old_price: string | null
+  new_price: string | null
+  old_stock_status: string | null
+  new_stock_status: string | null
+  old_stock_quantity: number | null
+  new_stock_quantity: number | null
+  changed_at: string | null
+  username: string | null
+  job_id: number | null
+}
 
 class ApiStatusError extends Error {
   status: number
@@ -217,6 +235,7 @@ const chartGrid = '#E8EAED'
 
 export default function Analytics() {
   const { user, authFetch } = useAuth()
+  const [tab, setTab] = useState<TabId>('overview')
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -332,34 +351,56 @@ export default function Analytics() {
           <h1 className="text-[22px] font-bold text-text-base">Analytics</h1>
           <p className="text-[13px] text-wp-muted mt-0.5">Catalog coverage, freshness, and pricing movement</p>
         </div>
-        <div className="flex items-center gap-3">
-          {refreshedAt && !loading && (
-            <span className="text-[12px] text-wp-muted">
-              Updated {timeAgo(refreshedAt)}
-            </span>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Tab switcher */}
+          <div className="flex bg-bg-base border border-border rounded-lg p-0.5">
+            {(['overview', 'changes'] as TabId[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={[
+                  'px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors',
+                  tab === t ? 'bg-bg-card text-accent shadow-card' : 'text-wp-muted hover:text-text-base',
+                ].join(' ')}
+              >
+                {t === 'overview' ? 'Overview' : 'Change History'}
+              </button>
+            ))}
+          </div>
+          {tab === 'overview' && (
+            <>
+              {refreshedAt && !loading && (
+                <span className="text-[12px] text-wp-muted">
+                  Updated {timeAgo(refreshedAt)}
+                </span>
+              )}
+              <button
+                onClick={() => { void load() }}
+                disabled={loading}
+                className="flex items-center gap-2 px-[18px] py-[9px] rounded-lg border-[1.5px] border-border bg-bg-card text-text-base text-[13px] font-medium hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
+              >
+                {loading && (
+                  <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
+                  </svg>
+                )}
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+            </>
           )}
-          <button
-            onClick={() => { void load() }}
-            disabled={loading}
-            className="flex items-center gap-2 px-[18px] py-[9px] rounded-lg border-[1.5px] border-border bg-bg-card text-text-base text-[13px] font-medium hover:border-accent hover:text-accent transition-colors disabled:opacity-40"
-          >
-            {loading && (
-              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
-              </svg>
-            )}
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
         </div>
       </div>
 
-      {error && (
+      {tab === 'changes' && <ChangeHistoryTab authFetch={authFetch} isAdmin={user?.is_admin ?? false} />}
+
+      {tab === 'overview' && error && (
         <div className="bg-[#fee2e2] border border-[#ef4444]/30 rounded-card px-4 py-3 text-[13px] text-[#dc2626]">
           {error}
         </div>
       )}
 
-      {loading && !data ? (
+      {tab === 'overview' && (
+        loading && !data ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-[116px] rounded-card border border-border bg-bg-card shadow-card animate-pulse" />
@@ -514,6 +555,7 @@ export default function Analytics() {
         <div className="bg-bg-card border border-border rounded-card shadow-card p-6 text-[13px] text-wp-muted">
           No analytics data available.
         </div>
+      )
       )}
 
       {modal && <DrilldownModal modal={modal} onClose={() => setModal(null)} />}
@@ -775,5 +817,207 @@ function MovementTable({ rows }: { rows: Movement[] }) {
         ))}
       </tbody>
     </table>
+  )
+}
+
+// ─── Change History Tab ───────────────────────────────────────────────────────
+
+type AuthFetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+
+function FilterField({
+  label,
+  type = 'text',
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  type?: 'text' | 'date'
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <label className="block text-[12px] text-wp-muted mb-1">{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full border border-border rounded-lg px-3 py-2 text-[13px] bg-bg-base text-text-base focus:outline-none focus:border-accent placeholder:text-wp-muted"
+      />
+    </div>
+  )
+}
+
+function ChangeHistoryTab({ authFetch, isAdmin }: { authFetch: AuthFetchFn; isAdmin: boolean }) {
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [brandName, setBrandName] = useState('')
+  const [sku, setSku] = useState('')
+  const [productName, setProductName] = useState('')
+  const [changeType, setChangeType] = useState('')
+  const [results, setResults] = useState<ChangeRecord[] | null>(null)
+  const [loadingQ, setLoadingQ] = useState(false)
+  const [errorQ, setErrorQ] = useState<string | null>(null)
+
+  async function applyFilters() {
+    setLoadingQ(true)
+    setErrorQ(null)
+    const p = new URLSearchParams({ limit: '200' })
+    if (fromDate) p.set('from_date', fromDate)
+    if (toDate) p.set('to_date', toDate)
+    if (brandName.trim()) p.set('brand_name', brandName.trim())
+    if (sku.trim()) p.set('sku', sku.trim())
+    if (productName.trim()) p.set('product_name', productName.trim())
+    if (changeType) p.set('change_type', changeType)
+    try {
+      const r = await authFetch(`/api/analytics/change-log?${p}`)
+      if (r.status === 403) {
+        setErrorQ('You do not have permission to view change history.')
+        return
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json() as { changes: ChangeRecord[]; total: number }
+      setResults(data.changes)
+    } catch (e) {
+      setErrorQ(e instanceof Error ? e.message : 'Failed to load change history')
+    } finally {
+      setLoadingQ(false)
+    }
+  }
+
+  function reset() {
+    setFromDate('')
+    setToDate('')
+    setBrandName('')
+    setSku('')
+    setProductName('')
+    setChangeType('')
+    setResults(null)
+    setErrorQ(null)
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Filter panel */}
+      <div className="bg-bg-card border border-border rounded-card shadow-card p-5">
+        <p className="text-[13px] font-semibold text-text-base mb-4">Filter Change History</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <FilterField label="From Date" type="date" value={fromDate} onChange={setFromDate} />
+          <FilterField label="To Date" type="date" value={toDate} onChange={setToDate} />
+          <FilterField label="Brand" placeholder="e.g. Samsung" value={brandName} onChange={setBrandName} />
+          <FilterField label="SKU" placeholder="Exact or partial SKU" value={sku} onChange={setSku} />
+          <FilterField label="Product Name" placeholder="Search name…" value={productName} onChange={setProductName} />
+          <div>
+            <label className="block text-[12px] text-wp-muted mb-1">Change Type</label>
+            <select
+              value={changeType}
+              onChange={e => setChangeType(e.target.value)}
+              className="w-full border border-border rounded-lg px-3 py-2 text-[13px] bg-bg-base text-text-base focus:outline-none focus:border-accent"
+            >
+              <option value="">All types</option>
+              <option value="price_update">Price Updated</option>
+              <option value="stock_in">Became In-Stock</option>
+              <option value="stock_out">Became Out-of-Stock</option>
+              <option value="stock_updated">Stock Changed</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={() => { void applyFilters() }}
+            disabled={loadingQ}
+            className="px-4 py-2 bg-accent text-white text-[13px] font-semibold rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50"
+          >
+            {loadingQ ? 'Loading…' : 'Apply Filters'}
+          </button>
+          <button
+            onClick={reset}
+            className="px-4 py-2 border border-border text-[13px] text-wp-muted rounded-lg hover:border-accent hover:text-accent transition-colors"
+          >
+            Reset
+          </button>
+        </div>
+        {!isAdmin && (
+          <p className="text-[11px] text-wp-muted mt-3">Requires <code>can_view_logs</code> permission.</p>
+        )}
+      </div>
+
+      {/* Error */}
+      {errorQ && (
+        <div className="bg-[#fee2e2] border border-[#ef4444]/30 rounded-card px-4 py-3 text-[13px] text-[#dc2626]">
+          {errorQ}
+        </div>
+      )}
+
+      {/* Results table */}
+      {results !== null && (
+        <div className="bg-bg-card border border-border rounded-card shadow-card overflow-hidden">
+          <div className="px-5 py-3 border-b border-border flex items-center gap-3">
+            <span className="text-[14px] font-bold text-text-base">Results</span>
+            <span className="text-[12px] text-wp-muted">{results.length.toLocaleString('en')} records</span>
+          </div>
+          {results.length === 0 ? (
+            <div className="text-center text-[13px] text-wp-muted py-8">No changes match the selected filters.</div>
+          ) : (
+            <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-bg-base text-wp-muted sticky top-0">
+                  <tr>
+                    <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Date</th>
+                    <th className="text-left font-medium px-4 py-3">Product</th>
+                    <th className="text-left font-medium px-4 py-3">Brand</th>
+                    <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Old Price</th>
+                    <th className="text-left font-medium px-4 py-3 whitespace-nowrap">New Price</th>
+                    <th className="text-left font-medium px-4 py-3 whitespace-nowrap">Stock</th>
+                    <th className="text-left font-medium px-4 py-3">User</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map(r => (
+                    <tr key={r.id} className="border-t border-border hover:bg-bg-base transition-colors">
+                      <td className="px-4 py-2.5 text-wp-muted whitespace-nowrap">
+                        {r.changed_at ? r.changed_at.slice(0, 16).replace('T', ' ') : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 min-w-[180px]">
+                        <div className="text-text-base font-medium truncate max-w-[200px]">
+                          {r.name || `#${r.product_id}`}
+                        </div>
+                        {r.sku && <div className="text-[11px] text-wp-muted">{r.sku}</div>}
+                      </td>
+                      <td className="px-4 py-2.5 text-wp-muted">{r.brand_name || '—'}</td>
+                      <td className="px-4 py-2.5 font-mono text-wp-muted">{r.old_price || '—'}</td>
+                      <td className={[
+                        'px-4 py-2.5 font-mono font-medium',
+                        r.old_price !== r.new_price && r.old_price && r.new_price ? 'text-accent' : 'text-wp-muted',
+                      ].join(' ')}>
+                        {r.new_price || '—'}
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        {r.old_stock_status !== r.new_stock_status ? (
+                          <span className={[
+                            'text-[11px] px-2 py-0.5 rounded-full font-medium',
+                            r.new_stock_status === 'instock'
+                              ? 'bg-[#dcfce7] text-[#16a34a]'
+                              : 'bg-[#fee2e2] text-[#dc2626]',
+                          ].join(' ')}>
+                            {r.old_stock_status} → {r.new_stock_status}
+                          </span>
+                        ) : (
+                          <span className="text-wp-muted">{r.new_stock_status || '—'}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-wp-muted">{r.username || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

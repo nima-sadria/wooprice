@@ -2171,10 +2171,29 @@ async def set_alarm_settings(
 @app.get("/api/audit-logs")
 async def get_audit_logs(
     limit: int = 200,
+    from_date: str = Query(default=None),
+    to_date: str = Query(default=None),
+    filter_action: str = Query(default=None),
+    filter_username: str = Query(default=None),
     user: dict = Depends(require_permission("can_view_logs")),
     db: Session = Depends(get_db),
 ):
-    logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
+    q = db.query(AuditLog)
+    if from_date:
+        try:
+            q = q.filter(AuditLog.timestamp >= datetime.strptime(from_date, "%Y-%m-%d"))
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            q = q.filter(AuditLog.timestamp < datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1))
+        except ValueError:
+            pass
+    if filter_action:
+        q = q.filter(AuditLog.action == filter_action)
+    if filter_username:
+        q = q.filter(AuditLog.username.ilike(f"%{filter_username}%"))
+    logs = q.order_by(AuditLog.timestamp.desc()).limit(limit).all()
     result = []
     for l in logs:
         entry = {
@@ -2214,6 +2233,40 @@ async def get_categories(user: dict = Depends(require_permission("can_access_sit
     return data
 
 
+# ── Currency proxy ───────────────────────────────────────────────────────────
+
+_currency_cache: dict = {"data": None, "ts": 0.0}
+
+
+@app.get("/api/currency")
+async def get_currency():
+    """Proxy USD→IRR and EUR→IRR exchange rates. Cached 5 min. No auth required."""
+    if _currency_cache["data"] is not None and time.time() - _currency_cache["ts"] < 300:
+        return {**_currency_cache["data"], "cached": True}
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get("https://open.er-api.com/v6/latest/USD")
+            r.raise_for_status()
+            raw = r.json()
+        rates = raw.get("rates", {})
+        irr = rates.get("IRR")
+        eur = rates.get("EUR")
+        data = {
+            "base": "USD",
+            "usd_to_irr": irr,
+            "eur_to_irr": round(irr / eur, 0) if irr and eur else None,
+            "last_updated": raw.get("time_last_update_utc", ""),
+            "source": "open.er-api.com",
+        }
+        _currency_cache["data"] = data
+        _currency_cache["ts"] = time.time()
+        return {**data, "cached": False}
+    except Exception as exc:
+        if _currency_cache["data"] is not None:
+            return {**_currency_cache["data"], "cached": True, "stale": True}
+        raise HTTPException(503, f"Currency service unavailable: {exc}")
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/dashboard")
@@ -2247,6 +2300,27 @@ async def get_dashboard(user: dict = Depends(require_permission("can_access_site
 
     recent_logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(8).all()
 
+    # Sheet coverage: compare latest job SyncItems against top-level ProductCache
+    total_cache = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(ProductCache.parent_id == 0).scalar() or 0
+    )
+    sheet_products = product_stats["total"]
+    not_covered = max(0, total_cache - sheet_products)
+    coverage_pct = round(sheet_products / total_cache * 100, 1) if total_cache > 0 else 0.0
+
+    # Stock from ProductCache (current WC state, not just the latest-job snapshot)
+    cache_in_stock = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(ProductCache.stock_status == "instock", ProductCache.parent_id == 0)
+        .scalar() or 0
+    )
+    cache_out_of_stock = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(ProductCache.stock_status == "outofstock", ProductCache.parent_id == 0)
+        .scalar() or 0
+    )
+
     return {
         "total_syncs": total_syncs,
         "latest_job": _job_out(latest_job) if latest_job else None,
@@ -2261,6 +2335,16 @@ async def get_dashboard(user: dict = Depends(require_permission("can_access_site
             }
             for l in recent_logs
         ],
+        "sheet_coverage": {
+            "total_cache": total_cache,
+            "sheet_products": sheet_products,
+            "not_covered": not_covered,
+            "coverage_pct": coverage_pct,
+        },
+        "cache_stock": {
+            "in_stock": cache_in_stock,
+            "out_of_stock": cache_out_of_stock,
+        },
     }
 
 
@@ -2695,6 +2779,131 @@ async def analytics_seller_staleness(
             "never_updated": len(never_updated),
         },
     }
+
+
+# ── Analytics Phase 7A ────────────────────────────────────────────────────────
+
+@app.get("/api/analytics/daily-changes")
+async def analytics_daily_changes(
+    days: int = Query(default=30, ge=1, le=90),
+    user: dict = Depends(require_permission("can_access_site")),
+    db: Session = Depends(get_db),
+):
+    """4-color daily bar chart: became_instock, became_outofstock, price_updated, stock_updated."""
+    end = datetime.utcnow().date()
+    start = end - timedelta(days=days - 1)
+    start_dt = datetime(start.year, start.month, start.day)
+
+    rows = (
+        db.query(ChangeHistory)
+        .filter(ChangeHistory.changed_at >= start_dt, ChangeHistory.source == "apply")
+        .all()
+    )
+
+    daily: dict[str, dict] = defaultdict(lambda: {
+        "became_instock": 0,
+        "became_outofstock": 0,
+        "price_updated": 0,
+        "stock_updated": 0,
+    })
+
+    for row in rows:
+        d = row.changed_at.strftime("%Y-%m-%d")
+        old_s = row.old_stock_status or ""
+        new_s = row.new_stock_status or ""
+        old_p = row.old_price or ""
+        new_p = row.new_price or ""
+        if old_s and old_s != "instock" and new_s == "instock":
+            daily[d]["became_instock"] += 1
+        if old_s == "instock" and new_s and new_s != "instock":
+            daily[d]["became_outofstock"] += 1
+        if old_p and new_p and old_p != new_p:
+            daily[d]["price_updated"] += 1
+        if old_s != new_s or row.old_stock_quantity != row.new_stock_quantity:
+            daily[d]["stock_updated"] += 1
+
+    zero = {"became_instock": 0, "became_outofstock": 0, "price_updated": 0, "stock_updated": 0}
+    result = [
+        {"date": str(end - timedelta(days=days - 1 - i)), **daily.get(str(end - timedelta(days=days - 1 - i)), zero)}
+        for i in range(days)
+    ]
+    return {"days": days, "data": result}
+
+
+@app.get("/api/analytics/change-log")
+async def analytics_change_log(
+    from_date: str = Query(default=None),
+    to_date: str = Query(default=None),
+    brand_name: str = Query(default=None),
+    sku: str = Query(default=None),
+    product_name: str = Query(default=None),
+    change_type: str = Query(default=None),  # price_update | stock_in | stock_out | stock_updated
+    limit: int = Query(default=100, ge=1, le=500),
+    user: dict = Depends(require_permission("can_view_logs")),
+    db: Session = Depends(get_db),
+):
+    """Filterable change history with product info for the Analytics detail view."""
+    q = db.query(ChangeHistory).filter(ChangeHistory.source == "apply")
+    if from_date:
+        try:
+            q = q.filter(ChangeHistory.changed_at >= datetime.strptime(from_date, "%Y-%m-%d"))
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            q = q.filter(ChangeHistory.changed_at < datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1))
+        except ValueError:
+            pass
+    if change_type == "price_update":
+        q = q.filter(
+            ChangeHistory.old_price.isnot(None),
+            ChangeHistory.new_price.isnot(None),
+            ChangeHistory.old_price != ChangeHistory.new_price,
+        )
+    elif change_type == "stock_in":
+        q = q.filter(ChangeHistory.new_stock_status == "instock")
+    elif change_type == "stock_out":
+        q = q.filter(ChangeHistory.new_stock_status == "outofstock")
+    elif change_type == "stock_updated":
+        q = q.filter(ChangeHistory.old_stock_status != ChangeHistory.new_stock_status)
+    if brand_name or sku or product_name:
+        pq = db.query(ProductCache.wc_id)
+        if brand_name:
+            pq = pq.filter(ProductCache.brand_name.ilike(f"%{brand_name}%"))
+        if sku:
+            pq = pq.filter(ProductCache.sku.ilike(f"%{sku}%"))
+        if product_name:
+            pq = pq.filter(ProductCache.name.ilike(f"%{product_name}%"))
+        ids = [r.wc_id for r in pq.all()]
+        if not ids:
+            return {"changes": [], "total": 0}
+        q = q.filter(ChangeHistory.product_id.in_(ids))
+    rows = q.order_by(ChangeHistory.changed_at.desc()).limit(limit).all()
+    pids = list({r.product_id for r in rows})
+    cache_map = (
+        {p.wc_id: p for p in db.query(ProductCache).filter(ProductCache.wc_id.in_(pids)).all()}
+        if pids else {}
+    )
+    result = []
+    for r in rows:
+        pc = cache_map.get(r.product_id)
+        result.append({
+            "id": r.id,
+            "product_id": r.product_id,
+            "name": pc.name if pc else "",
+            "sku": pc.sku if pc else "",
+            "brand_name": (pc.brand_name if pc else "") or "",
+            "old_price": r.old_price,
+            "new_price": r.new_price,
+            "old_stock_status": r.old_stock_status,
+            "new_stock_status": r.new_stock_status,
+            "old_stock_quantity": r.old_stock_quantity,
+            "new_stock_quantity": r.new_stock_quantity,
+            "changed_at": r.changed_at.isoformat() if r.changed_at else None,
+            "username": r.username,
+            "job_id": r.job_id,
+        })
+    return {"changes": result, "total": len(result)}
 
 
 # ── Live price/stock update ───────────────────────────────────────────────────
