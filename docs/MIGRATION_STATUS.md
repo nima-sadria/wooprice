@@ -3,8 +3,10 @@
 **As of:** 2026-06-20
 **Stabilization commit:** `5a2eeff` (Phase 5 initial documentation)
 **Codex remediation commit:** `377acae` (Phase 5 Codex findings resolved)
+**Phase 6 stabilization commit:** pending (see below)
 **Branch:** `main` (up to date with `origin/main`)
-**Phase 5 status:** Codex remediation complete — pending final Codex re-audit
+**Phase 5 status:** Complete
+**Phase 6 status:** Implementation complete — pending Codex audit
 
 ---
 
@@ -38,15 +40,40 @@ Phase 5 scope: build verification, serving architecture analysis, and documentat
 | Risk list (7 risks) | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
 | Agent path fix (`docs/agents/`) | Complete — `docs/docs/agents/` removed | 2026-06-20 |
 | MD5 verification (`static/index.html`) | `55fdb8ccc3e26a9a2ad9b23b0f067791` confirmed | 2026-06-20 |
+| Codex audit | Complete | 2026-06-20 |
+| Project owner approval | Complete — Phase 6 authorized | 2026-06-20 |
+
+## Phase 6 — Legacy Frontend Replacement
+
+**Status:** Implementation complete — pending Codex audit
+
+| Step | Result | Date |
+|---|---|---|
+| `.gitignore`: add `static/assets/` | Complete | 2026-06-20 |
+| `Dockerfile`: two targeted COPY lines replacing one | Complete | 2026-06-20 |
+| `app/main.py`: `/assets/` static mount added | Complete | 2026-06-20 |
+| `app/main.py`: SPA catch-all route appended | Complete | 2026-06-20 |
+| `static/index.html`: replaced with React SPA entry point | Complete | 2026-06-20 |
+| `npm run build` | PASS — 0 TS errors | 2026-06-20 |
+| `pytest` | PASS — 47 passed | 2026-06-20 |
+| Stabilization commit | Pending | — |
 | Codex audit | Pending | — |
-| Project owner approval | Pending | — |
+
+### Build Output (Phase 6)
+
+```
+dist/index.html                  0.70 kB │ gzip:   0.46 kB
+dist/assets/index-ZVdSgp51.css  25.41 kB │ gzip:   5.50 kB
+dist/assets/index-Ba_i4MKP.js  452.21 kB │ gzip: 140.86 kB
+```
+
+Matches Phase 5 reference build exactly.
 
 ## Pending Phases
 
 | Phase | Label | Description | Prerequisite |
 |---|---|---|---|
-| Phase 5 | Production Cutover Preparation | Planning complete — pending Codex audit and owner approval | WS-D complete ✓ |
-| Phase 6 | Legacy Frontend Replacement | Implement proposed code changes; deploy React SPA to production | Phase 5 approved |
+| Phase 6 deployment | Production Cutover | `docker compose up -d --build` on production server | Codex audit passed; owner approval |
 
 ---
 

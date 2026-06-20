@@ -33,50 +33,47 @@ Latest Stable Commit:
 
 ## Current Phase
 
-Phase 5
-
-Production Cutover Preparation
-
-Status:
-
-Codex remediation complete — pending final Codex re-audit
-
-Goals achieved:
-
-* React production serving analyzed
-* FastAPI frontend serving analyzed
-* Cutover checklist written (docs/PHASE_5_CUTOVER_PLAN.md)
-* Rollback checklist written (docs/PHASE_5_CUTOVER_PLAN.md)
-* Risk list written (docs/PHASE_5_CUTOVER_PLAN.md)
-* Deployment strategy documented
-* Agent files moved to correct path (docs/agents/)
-* Build verified: PASS
-* Tests verified: 47 passed
-* static/index.html MD5 verified: 55fdb8ccc3e26a9a2ad9b23b0f067791
-
-Not performed (Phase 5 constraint):
-
-* Deployment
-* Production cutover
-* Replacing static/index.html
-* Any application code changes
-
-Pending:
-
-* Codex audit
-* Project owner approval
-
-## Upcoming Phases
-
-### Phase 6
+Phase 6
 
 Legacy Frontend Replacement
 
+Status:
+
+Implementation complete — pending Codex audit
+
+Goals achieved:
+
+* `.gitignore`: `static/assets/` excluded
+* `Dockerfile`: two targeted COPY lines (dist/assets → static/assets; dist/index.html → static/index.html)
+* `app/main.py`: `/assets/` static mount added
+* `app/main.py`: SPA catch-all route appended (last route in file)
+* `static/index.html`: replaced with React SPA entry point (700 bytes)
+* Build verified: PASS — 0 TS errors
+* Tests verified: 47 passed
+
+Not performed (Phase 6 constraint — no deployment):
+
+* `docker compose up -d --build`
+* Production cutover
+* Smoke test execution
+
+Pending:
+
+* Codex audit of Phase 6 stabilization commit
+* Project owner approval for deployment
+
+## Completed Phases (summary)
+
+* Phase 5 — Production Cutover Preparation: Complete (commit 377acae)
+
+## Upcoming
+
+Phase 6 deployment
+
 Prerequisites:
 
-* Phase 5 approved
-* Codex audit passed
-* Rollback plan approved
+* Codex audit of Phase 6 changes passed
+* Project owner approval
 
 ## Open Findings
 

@@ -19,10 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Copy React build output alongside the existing static files.
-# At Phase 5 cutover this COPY destination changes to /app/static/
-# and static/index.html is removed. Until then both coexist.
-COPY --from=frontend-build /frontend/dist /app/static-react
+COPY --from=frontend-build /frontend/dist/assets /app/static/assets
+COPY --from=frontend-build /frontend/dist/index.html /app/static/index.html
 
 RUN mkdir -p /app/data
 
