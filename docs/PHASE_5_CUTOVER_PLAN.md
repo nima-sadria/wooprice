@@ -285,7 +285,7 @@ never committed (`.gitignore` confirmed).
 | Deploy command | `docker compose up -d --build` |
 | Expected downtime | ~5 seconds (Uvicorn restart) |
 
-Strategy: **in-place Docker image rebuild + container restart.** No blue-green deployment. Acceptable because the backend is unchanged and rollback takes < 3 minutes.
+Strategy: **in-place Docker image rebuild + container restart.** No blue-green deployment. Acceptable because the backend is unchanged and rollback takes approximately 5 minutes.
 
 ---
 
