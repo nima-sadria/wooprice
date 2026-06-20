@@ -1,5 +1,6 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import type { AuthUser } from '../auth'
+import { useAuth } from '../auth'
 
 interface Props {
   open: boolean
@@ -14,6 +15,9 @@ function initials(name: string) {
 }
 
 export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, user }: Props) {
+  const { clearAuth } = useAuth()
+  const navigate = useNavigate()
+
   const linkCls = ({ isActive }: { isActive: boolean }) =>
     [
       'flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors mb-0.5',
@@ -22,6 +26,11 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
         ? 'bg-accent text-white'
         : 'text-wp-muted hover:text-text-base hover:bg-bg-base',
     ].join(' ')
+
+  function handleLogout() {
+    clearAuth()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <>
@@ -151,7 +160,8 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-border p-3 flex-shrink-0">
+        <div className="border-t border-border p-3 flex-shrink-0 flex flex-col gap-2">
+          {/* User identity */}
           <div
             className={[
               'flex items-center gap-2.5',
@@ -168,6 +178,24 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
               </div>
             )}
           </div>
+
+          {/* Logout */}
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            className={[
+              'flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium',
+              'text-wp-muted hover:text-wp-red hover:bg-bg-base transition-colors',
+              collapsed ? 'justify-center' : 'w-full',
+            ].join(' ')}
+          >
+            <svg viewBox="0 0 24 24" className="w-[16px] h-[16px] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            {!collapsed && <span>Sign out</span>}
+          </button>
         </div>
       </aside>
     </>
