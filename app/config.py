@@ -1,5 +1,17 @@
+import sys
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_database_url() -> str:
+    # On Windows (clean clone, no DATABASE_URL set) use a data/ subdirectory so
+    # the project root stays uncluttered and the path is gitignored via data/.
+    # On Linux (including Docker) the env var is always set explicitly, so this
+    # default is only reached in local dev — keep the existing flat-file path.
+    if sys.platform == "win32":
+        return "sqlite:///./data/wooprice-local.db"
+    return "sqlite:///./wooprice.db"
 
 
 class Settings(BaseSettings):
@@ -12,7 +24,7 @@ class Settings(BaseSettings):
     wc_key: str
     wc_secret: str
 
-    database_url: str = "sqlite:///./wooprice.db"
+    database_url: str = Field(default_factory=_default_database_url)
 
     # Auth — set JWT_SECRET to a long random string in production
     jwt_secret: str = "change-me-in-production"
