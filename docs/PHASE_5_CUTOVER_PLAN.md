@@ -227,17 +227,35 @@ async def spa_fallback(full_path: str):
 
 > Execute if any smoke test fails or errors appear in logs after C9.
 
-- [ ] **RB1** — Revert the Dockerfile change (restore single COPY line to `/app/static-react`)
-- [ ] **RB2** — Revert the `/assets/` static mount from `app/main.py`
-- [ ] **RB3** — Revert the SPA catch-all route from `app/main.py`
-- [ ] **RB4** — `docker compose up -d --build`
-- [ ] **RB5** — Verify: `GET /` returns Adminator HTML (legacy styling, legacy page title)
-- [ ] **RB6** — Verify: `docker compose logs -f` — no errors
-- [ ] **RB7** — Document what failed and open a remediation task
+**Preferred rollback — revert the entire Phase 6 commit atomically:**
 
-**Estimated rollback time:** ~3 minutes (2 file reverts + one Docker rebuild).
+```bash
+git revert 1969a1c
+# commit message will be pre-filled; save and close editor
+docker compose up -d --build
+```
 
-**Git safety:** The legacy `static/index.html` is in git history. If the file is inadvertently overwritten, `git checkout static/index.html` restores it. The React build output (`frontend/dist/`) is never committed (`.gitignore` confirmed).
+This single command restores `.gitignore`, `Dockerfile`, `app/main.py`, and `static/index.html` to their pre-Phase-6 state in one operation.
+
+**Manual rollback — if git revert is not available:**
+
+- [ ] **RB1** — Restore `static/index.html` from git history:
+  ```bash
+  git checkout 377acae -- static/index.html
+  ```
+  This step is **mandatory** — without it the legacy Adminator UI will not be served.
+- [ ] **RB2** — Revert the Dockerfile change (restore single COPY line to `/app/static-react`)
+- [ ] **RB3** — Remove the `/assets/` static mount from `app/main.py`
+- [ ] **RB4** — Remove the SPA catch-all route from `app/main.py`
+- [ ] **RB5** — Update `.gitignore` to remove `static/assets/` entry
+- [ ] **RB6** — `docker compose up -d --build`
+- [ ] **RB7** — Verify: `GET /` returns Adminator HTML (legacy styling, legacy page title)
+- [ ] **RB8** — Verify: `docker compose logs -f` — no errors
+- [ ] **RB9** — Document what failed and open a remediation task
+
+**Estimated rollback time:** ~3 minutes (git revert + one Docker rebuild).
+
+**Git safety:** The legacy `static/index.html` is preserved at commit `377acae`. Both rollback paths above explicitly restore it. The React build output (`frontend/dist/`) is never committed (`.gitignore` confirmed).
 
 ---
 

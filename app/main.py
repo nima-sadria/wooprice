@@ -363,7 +363,9 @@ async def _start_auto_fetch():
 
 static_dir = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="react-assets")
+_assets_dir = static_dir / "assets"
+if _assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="react-assets")
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -4140,4 +4142,6 @@ async def rollback_job(
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def spa_fallback(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
     return (static_dir / "index.html").read_text(encoding="utf-8")
