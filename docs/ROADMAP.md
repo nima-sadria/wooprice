@@ -12,7 +12,7 @@ main
 
 Latest Stable Commit:
 
-4ef73a8
+5a2eeff
 
 ## Completed
 
@@ -39,27 +39,34 @@ Production Cutover Preparation
 
 Status:
 
-Cutover Planning — audit remediation in progress
+Planning complete — ready for Codex audit
 
-## Upcoming Phases
+Goals achieved:
 
-### Phase 5
+* React production serving analyzed
+* FastAPI frontend serving analyzed
+* Cutover checklist written (docs/PHASE_5_CUTOVER_PLAN.md)
+* Rollback checklist written (docs/PHASE_5_CUTOVER_PLAN.md)
+* Risk list written (docs/PHASE_5_CUTOVER_PLAN.md)
+* Deployment strategy documented
+* Agent files moved to correct path (docs/agents/)
+* Build verified: PASS
+* Tests verified: 47 passed
+* static/index.html MD5 verified: 55fdb8ccc3e26a9a2ad9b23b0f067791
 
-Production Cutover Preparation
-
-Goals:
-
-* Analyze React production serving
-* Analyze FastAPI frontend serving
-* Create cutover checklist
-* Create rollback checklist
-* Create deployment strategy
-
-Not allowed:
+Not performed (Phase 5 constraint):
 
 * Deployment
 * Production cutover
 * Replacing static/index.html
+* Any application code changes
+
+Pending:
+
+* Codex audit
+* Project owner approval
+
+## Upcoming Phases
 
 ### Phase 6
 
@@ -93,3 +100,4 @@ Prerequisites:
 * 6fdd894
 * 6bb8342
 * 4ef73a8
+* 5a2eeff (Phase 5 documentation stabilization)

@@ -4,9 +4,11 @@
 **No code changes are implemented in Phase 5.**
 **All proposed code changes below are labelled "Proposed Phase 6 change — not implemented."**
 
-**Status:** Planning complete — awaiting Codex audit and project owner approval
+**Status:** Planning complete — ready for Codex audit
 **Date:** 2026-06-20
-**Prerequisite met:** WS-D audit passed, stabilization commit `6bb8342`
+**Closure date:** 2026-06-20
+**Prerequisite met:** WS-D audit passed (WS-D stabilization commit `6bb8342`); Phase 5 documentation stabilization commit `5a2eeff`
+**Verified `static/index.html` MD5:** `55fdb8ccc3e26a9a2ad9b23b0f067791`
 
 ---
 
@@ -176,7 +178,7 @@ async def spa_fallback(full_path: str):
 
 - [ ] **P1** — This Phase 5 plan reviewed and approved by project owner
 - [ ] **P2** — Codex audit of proposed Phase 6 code changes passed (no BLOCKER or HIGH)
-- [ ] **P3** — Verify `static/index.html` MD5 = `3d616d264ffc4da24239104bb5350700` (confirms legacy file unchanged)
+- [ ] **P3** — Verify `static/index.html` MD5 = `55fdb8ccc3e26a9a2ad9b23b0f067791` (confirms legacy file unchanged; verified 2026-06-20)
 - [ ] **P4** — Git status is clean on `main`; no uncommitted changes
 - [ ] **P5** — `npm run build` produces clean output (0 TS errors) immediately before deploy
 - [ ] **P6** — `pytest` reports 47 passed immediately before deploy

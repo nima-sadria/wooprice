@@ -99,11 +99,16 @@ WooPrice addresses this by introducing a local product cache layer and a spreads
 | WS-C | Dry Run / Apply / Writeback / Cancel / Inline edits / Rollback |
 | WS-D Audit | Integration audit; H-D1 and MD-2 defects found and resolved |
 
+### In Progress
+
+| Phase | Description |
+|---|---|
+| Phase 5 | Production Cutover Preparation — planning complete, awaiting Codex audit |
+
 ### Pending
 
 | Phase | Description |
 |---|---|
-| Phase 5 | Production Cutover Preparation |
 | Phase 6 | Legacy Frontend Replacement |
 
 Full status and open findings: [docs/MIGRATION_STATUS.md](docs/MIGRATION_STATUS.md)
@@ -216,7 +221,11 @@ wooprice/
 ├── docs/
 │   ├── WORKFLOW.md             # Development and audit workflow
 │   ├── ARCHITECTURE.md         # Technical architecture reference
-│   └── MIGRATION_STATUS.md     # Current migration state and open findings
+│   ├── MIGRATION_STATUS.md     # Current migration state and open findings
+│   ├── ROADMAP.md              # Phase roadmap and stable checkpoints
+│   ├── AI_OPERATING_MANUAL.md  # AI agent roles and human approval gates
+│   ├── PHASE_5_CUTOVER_PLAN.md # Production cutover plan, checklists, risk list
+│   └── agents/                 # Per-agent role files (CLAUDE_DEVELOPER, CODEX_AUDITOR, etc.)
 └── README.md
 ```
 

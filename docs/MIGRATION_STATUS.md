@@ -1,9 +1,9 @@
 # WooPrice React Migration Status
 
 **As of:** 2026-06-20
-**Stabilization commit:** `6bb8342`
-**Branch:** `main` (2 commits ahead of `origin/main`, not yet pushed to remote)
-**Phase 5 status:** Planning complete — audit remediation pending
+**Stabilization commit:** `5a2eeff`
+**Branch:** `main` (up to date with `origin/main`)
+**Phase 5 status:** Planning complete — ready for Codex audit
 
 ---
 
@@ -33,17 +33,18 @@ Phase 5 scope: build verification, serving architecture analysis, and documentat
 | `pytest` | PASS — 47 passed | 2026-06-20 |
 | Serving architecture analysis | Complete | 2026-06-20 |
 | Cutover plan | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
-| Rollback plan | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
-| Risk list | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
+| Rollback checklist | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
+| Risk list (7 risks) | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
 | Agent path fix (`docs/agents/`) | Complete — `docs/docs/agents/` removed | 2026-06-20 |
-| Codex re-audit of Phase 5 remediation | Pending | — |
+| MD5 verification (`static/index.html`) | `55fdb8ccc3e26a9a2ad9b23b0f067791` confirmed | 2026-06-20 |
+| Codex audit | Pending | — |
 | Project owner approval | Pending | — |
 
 ## Pending Phases
 
 | Phase | Label | Description | Prerequisite |
 |---|---|---|---|
-| Phase 5 | Production Cutover Preparation | Planning complete — pending Codex re-audit and owner approval | WS-D complete ✓ |
+| Phase 5 | Production Cutover Preparation | Planning complete — pending Codex audit and owner approval | WS-D complete ✓ |
 | Phase 6 | Legacy Frontend Replacement | Implement proposed code changes; deploy React SPA to production | Phase 5 approved |
 
 ---
@@ -78,7 +79,41 @@ Phase 5 scope: build verification, serving architecture analysis, and documentat
 
 ---
 
+### Phase 5 Documentation Audit (pending — ready for Codex)
+
+**Scope:** Documentation and governance only. No application code changed.
+
+| Severity | Finding | Status |
+|---|---|---|
+| MEDIUM | MD5 in `MIGRATION_STATUS.md` was stale (`893788...`) | **RESOLVED** — updated to `55fdb8ccc3e26a9a2ad9b23b0f067791` |
+| MEDIUM | MD5 in `PHASE_5_CUTOVER_PLAN.md` used wrong audit value (`3d616d...`) | **RESOLVED** — updated to `55fdb8ccc3e26a9a2ad9b23b0f067791` |
+| MEDIUM | Phase boundary contradiction — plan described cutover steps as Phase 5 actions | **RESOLVED** — all code changes clearly labelled "Proposed Phase 6 change — not implemented" |
+| LOW | Agent files at wrong path `docs/docs/agents/` | **RESOLVED** — moved to `docs/agents/`; old directory deleted |
+| LOW | `ROADMAP.md` listed Phase 5 goals as future in Upcoming Phases after goals were complete | **RESOLVED** — Phase 5 goals shown as achieved; only Phase 6 remains upcoming |
+| LOW | `MIGRATION_STATUS.md` showed "audit remediation pending" after remediation complete | **RESOLVED** — status updated to "ready for Codex audit" |
+| LOW | `README.md` listed Phase 5 as simply "Pending" while planning was in progress | **RESOLVED** — updated to "Planning complete — awaiting Codex audit" |
+
+**Codex audit result:** Pending
+**Safe to proceed:** Pending
+
+---
+
 ## Latest Stabilization Commit
+
+```
+commit 5a2eeff
+message: Phase 5: stabilize cutover preparation documentation
+
+Covers: Phase 5 documentation — cutover plan, rollback plan, risk list,
+        agent path fix (docs/agents/), Phase boundary corrections.
+Backend changed: No
+New endpoints:   No
+Database:        No
+static/index.html: Unchanged
+Application code: Unchanged
+```
+
+### Previous Stabilization Commit (WS-D)
 
 ```
 commit 6bb8342
@@ -120,7 +155,7 @@ npm run build  →  PASS  (0 TypeScript errors)
                →  dist/assets/index-ZVdSgp51.css 25.41 kB
                →  dist/assets/index-Ba_i4MKP.js 452.21 kB
 pytest         →  47 passed, 3 warnings
-static/index.html MD5:  893788cb2d02684cc42efe40913766dc  (unchanged)
+static/index.html MD5:  55fdb8ccc3e26a9a2ad9b23b0f067791  (verified 2026-06-20)
 ```
 
 ---

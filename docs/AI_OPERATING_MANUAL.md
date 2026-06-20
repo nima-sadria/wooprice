@@ -52,7 +52,7 @@ docs/WORKFLOW.md
 docs/ARCHITECTURE.md
 docs/MIGRATION_STATUS.md
 
-And the role-specific file from docs/agents.
+And the role-specific agent file from the docs/agents/ directory.
 
 ## Core Rule
 
@@ -76,3 +76,14 @@ Phase 5 — Production Cutover Preparation
 Every AI session must also read:
 
 docs/ROADMAP.md
+
+## Human Approval Gates
+
+The following transitions require explicit human approval:
+
+* Start Phase 6
+* Production Cutover
+* Deployment
+* Major Architecture Changes
+
+AI systems may prepare reports and audits but must stop and wait for approval before proceeding.
