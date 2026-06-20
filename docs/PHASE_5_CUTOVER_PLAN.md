@@ -227,35 +227,51 @@ async def spa_fallback(full_path: str):
 
 > Execute if any smoke test fails or errors appear in logs after C9.
 
-**Preferred rollback — revert the entire Phase 6 commit atomically:**
+> **Important:** Do not use `git revert 1969a1c` after remediation commits. Phase 6
+> spans multiple commits (`1969a1c`, `a7d6abf`, and any later remediation commits);
+> reverting only the initial cutover commit will conflict with subsequent changes.
+> Use the manual steps below instead. If a clean squashed Phase 6 deployment commit
+> is created in the future, that single commit may be reverted atomically.
 
-```bash
-git revert 1969a1c
-# commit message will be pre-filled; save and close editor
-docker compose up -d --build
-```
+**Manual rollback — authoritative procedure:**
 
-This single command restores `.gitignore`, `Dockerfile`, `app/main.py`, and `static/index.html` to their pre-Phase-6 state in one operation.
-
-**Manual rollback — if git revert is not available:**
-
-- [ ] **RB1** — Restore `static/index.html` from git history:
+- [ ] **RB1** — Restore `static/index.html` from the last pre-Phase-6 commit:
   ```bash
   git checkout 377acae -- static/index.html
   ```
-  This step is **mandatory** — without it the legacy Adminator UI will not be served.
-- [ ] **RB2** — Revert the Dockerfile change (restore single COPY line to `/app/static-react`)
-- [ ] **RB3** — Remove the `/assets/` static mount from `app/main.py`
-- [ ] **RB4** — Remove the SPA catch-all route from `app/main.py`
-- [ ] **RB5** — Update `.gitignore` to remove `static/assets/` entry
+  This step is **mandatory and must be first** — without it the legacy Adminator UI
+  will not be served. `GET /` would return React HTML (or a blank page) even after
+  reverting the other files.
+- [ ] **RB2** — Revert the Dockerfile change: restore the single COPY line:
+  ```dockerfile
+  COPY --from=frontend-build /frontend/dist /app/static-react
+  ```
+  Remove the two replacement lines that copy to `static/assets` and `static/index.html`.
+- [ ] **RB3** — Remove the `/assets/` static mount from `app/main.py`:
+  ```python
+  # Remove this block:
+  _assets_dir = static_dir / "assets"
+  if _assets_dir.exists():
+      app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="react-assets")
+  ```
+- [ ] **RB4** — Remove the SPA catch-all route from `app/main.py` (the entire
+  `# ── SPA catch-all ──` section at the end of the file).
+- [ ] **RB5** — Optionally delete `static/assets/` if it was generated locally:
+  ```bash
+  rm -rf static/assets/
+  ```
+  In Docker this directory is populated by the build stage; removing it locally
+  prevents stale bundles being visible to a non-Docker Uvicorn process.
 - [ ] **RB6** — `docker compose up -d --build`
 - [ ] **RB7** — Verify: `GET /` returns Adminator HTML (legacy styling, legacy page title)
 - [ ] **RB8** — Verify: `docker compose logs -f` — no errors
 - [ ] **RB9** — Document what failed and open a remediation task
 
-**Estimated rollback time:** ~3 minutes (git revert + one Docker rebuild).
+**Estimated rollback time:** ~5 minutes (manual file edits + one Docker rebuild).
 
-**Git safety:** The legacy `static/index.html` is preserved at commit `377acae`. Both rollback paths above explicitly restore it. The React build output (`frontend/dist/`) is never committed (`.gitignore` confirmed).
+**Git safety:** The legacy `static/index.html` is preserved at commit `377acae`.
+Step RB1 above explicitly restores it. The React build output (`frontend/dist/`) is
+never committed (`.gitignore` confirmed).
 
 ---
 

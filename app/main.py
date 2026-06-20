@@ -4142,6 +4142,6 @@ async def rollback_job(
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def spa_fallback(full_path: str):
-    if full_path.startswith("api/"):
+    if full_path == "api" or full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not Found")
     return (static_dir / "index.html").read_text(encoding="utf-8")
