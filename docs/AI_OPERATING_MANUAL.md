@@ -72,3 +72,7 @@ react-wsd-stable
 Current phase:
 
 Phase 5 — Production Cutover Preparation
+
+Every AI session must also read:
+
+docs/ROADMAP.md
