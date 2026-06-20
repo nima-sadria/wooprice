@@ -1,9 +1,10 @@
 # WooPrice React Migration Status
 
 **As of:** 2026-06-20
-**Stabilization commit:** `5a2eeff`
+**Stabilization commit:** `5a2eeff` (Phase 5 initial documentation)
+**Codex remediation commit:** `377acae` (Phase 5 Codex findings resolved)
 **Branch:** `main` (up to date with `origin/main`)
-**Phase 5 status:** Planning complete — ready for Codex audit
+**Phase 5 status:** Codex remediation complete — pending final Codex re-audit
 
 ---
 
@@ -79,9 +80,11 @@ Phase 5 scope: build verification, serving architecture analysis, and documentat
 
 ---
 
-### Phase 5 Documentation Audit (pending — ready for Codex)
+### Phase 5 Documentation Audit
 
 **Scope:** Documentation and governance only. No application code changed.
+
+#### Round 1 findings (all resolved in commit `5a2eeff`)
 
 | Severity | Finding | Status |
 |---|---|---|
@@ -90,15 +93,39 @@ Phase 5 scope: build verification, serving architecture analysis, and documentat
 | MEDIUM | Phase boundary contradiction — plan described cutover steps as Phase 5 actions | **RESOLVED** — all code changes clearly labelled "Proposed Phase 6 change — not implemented" |
 | LOW | Agent files at wrong path `docs/docs/agents/` | **RESOLVED** — moved to `docs/agents/`; old directory deleted |
 | LOW | `ROADMAP.md` listed Phase 5 goals as future in Upcoming Phases after goals were complete | **RESOLVED** — Phase 5 goals shown as achieved; only Phase 6 remains upcoming |
-| LOW | `MIGRATION_STATUS.md` showed "audit remediation pending" after remediation complete | **RESOLVED** — status updated to "ready for Codex audit" |
+| LOW | `MIGRATION_STATUS.md` showed "audit remediation pending" after remediation complete | **RESOLVED** — status updated |
 | LOW | `README.md` listed Phase 5 as simply "Pending" while planning was in progress | **RESOLVED** — updated to "Planning complete — awaiting Codex audit" |
 
-**Codex audit result:** Pending
+#### Round 2 findings (resolved in commit `377acae`)
+
+| Severity | Finding | Status |
+|---|---|---|
+| HIGH | H1: Working tree had uncommitted changes vs HEAD `5a2eeff` | **RESOLVED** — commit `377acae` created with all 5 modified files |
+| MEDIUM | M1: `6bb8342` reference in PHASE_5_CUTOVER_PLAN.md line 10 not labelled as WS-D commit | **RESOLVED** — labelled "(WS-D stabilization commit)" |
+| MEDIUM | M2: Git status not clean (same root as H1) | **RESOLVED** — same commit `377acae` |
+| LOW | L1: `5a2eeff` missing from ROADMAP.md Stable Checkpoints | **RESOLVED** — added |
+| LOW | L2: README.md structure tree missing `docs/PHASE_5_CUTOVER_PLAN.md` and `docs/agents/` | **RESOLVED** — both added |
+| LOW | L3: AI_OPERATING_MANUAL.md "from docs/agents" reference ambiguous | **RESOLVED** — changed to "from the docs/agents/ directory" |
+
+**Codex re-audit:** Pending
 **Safe to proceed:** Pending
 
 ---
 
-## Latest Stabilization Commit
+## Latest Stabilization Commits
+
+```
+commit 377acae
+message: Phase 5: Codex audit remediation — close Phase 5
+
+Fixes: H1/M2 (uncommitted state), M1 (WS-D label), L1 (stable checkpoints),
+       L2 (README tree), L3 (agents path wording)
+Backend changed: No
+New endpoints:   No
+Database:        No
+static/index.html: Unchanged
+Application code: Unchanged
+```
 
 ```
 commit 5a2eeff

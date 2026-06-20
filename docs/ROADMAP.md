@@ -39,7 +39,7 @@ Production Cutover Preparation
 
 Status:
 
-Planning complete — ready for Codex audit
+Codex remediation complete — pending final Codex re-audit
 
 Goals achieved:
 
@@ -101,3 +101,4 @@ Prerequisites:
 * 6bb8342
 * 4ef73a8
 * 5a2eeff (Phase 5 documentation stabilization)
+* 377acae (Phase 5 Codex remediation — all findings resolved)
