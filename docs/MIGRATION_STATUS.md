@@ -3,6 +3,7 @@
 **As of:** 2026-06-20
 **Stabilization commit:** `6bb8342`
 **Branch:** `main` (2 commits ahead of `origin/main`, not yet pushed to remote)
+**Phase 5 status:** Planning complete — audit remediation pending
 
 ---
 
@@ -22,12 +23,28 @@
 
 ---
 
+## Phase 5 — Planning (No Code Changes)
+
+Phase 5 scope: build verification, serving architecture analysis, and documentation of proposed Phase 6 changes. No application code has been modified. No deployment has occurred.
+
+| Gate | Result | Date |
+|---|---|---|
+| `npm run build` | PASS — 0 TS errors | 2026-06-20 |
+| `pytest` | PASS — 47 passed | 2026-06-20 |
+| Serving architecture analysis | Complete | 2026-06-20 |
+| Cutover plan | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
+| Rollback plan | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
+| Risk list | Written — `docs/PHASE_5_CUTOVER_PLAN.md` | 2026-06-20 |
+| Agent path fix (`docs/agents/`) | Complete — `docs/docs/agents/` removed | 2026-06-20 |
+| Codex re-audit of Phase 5 remediation | Pending | — |
+| Project owner approval | Pending | — |
+
 ## Pending Phases
 
 | Phase | Label | Description | Prerequisite |
 |---|---|---|---|
-| Phase 5 | Production Cutover Preparation | Staging verification, build output review, cutover plan | WS-D complete ✓ |
-| Phase 6 | Legacy Frontend Replacement | Replace `static/index.html` with React build; update backend serving config | Phase 5 complete |
+| Phase 5 | Production Cutover Preparation | Planning complete — pending Codex re-audit and owner approval | WS-D complete ✓ |
+| Phase 6 | Legacy Frontend Replacement | Implement proposed code changes; deploy React SPA to production | Phase 5 approved |
 
 ---
 
@@ -99,6 +116,9 @@ These items are tracked here and will be addressed in a future cleanup pass. Non
 
 ```
 npm run build  →  PASS  (0 TypeScript errors)
+               →  dist/index.html 0.70 kB
+               →  dist/assets/index-ZVdSgp51.css 25.41 kB
+               →  dist/assets/index-Ba_i4MKP.js 452.21 kB
 pytest         →  47 passed, 3 warnings
 static/index.html MD5:  893788cb2d02684cc42efe40913766dc  (unchanged)
 ```
@@ -112,4 +132,4 @@ static/index.html MD5:  893788cb2d02684cc42efe40913766dc  (unchanged)
 | Legacy | `static/index.html` | **Active in production** — served by FastAPI |
 | React SPA | `frontend/src/` → `frontend/dist/` | **Development only** — not yet deployed; `dist/` is not committed |
 
-The React build output (`frontend/dist/`) is excluded from git. It must be built and deployed as part of Phase 5. The legacy `static/index.html` serves production until Phase 6 is approved.
+The React build output (`frontend/dist/`) is excluded from git. It will be built and deployed as part of Phase 6 after Phase 5 is approved. The legacy `static/index.html` serves production until Phase 6 is complete.

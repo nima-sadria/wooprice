@@ -29,6 +29,7 @@ Latest Stable Commit:
 * WS-D
 * Documentation System
 * AI Operating Manual
+* Agent path fix (docs/agents/)
 
 ## Current Phase
 
@@ -38,7 +39,7 @@ Production Cutover Preparation
 
 Status:
 
-Ready
+Cutover Planning — audit remediation in progress
 
 ## Upcoming Phases
 
