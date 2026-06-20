@@ -1,20 +1,27 @@
+import sys
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from .config import get_settings
 
-_db_url = get_settings().database_url
+# The exact URL produced by _default_database_url() on Windows.
+_WIN_LOCAL_URL = "sqlite:///./data/wooprice-local.db"
 
-# For relative-path SQLite URLs (3-slash form, not 4-slash absolute), ensure the
-# parent directory exists before SQLAlchemy tries to open the file.  This lets a
-# clean Windows clone start without DATABASE_URL or a manual `mkdir data`.
-# 4-slash URLs (sqlite:////app/…) are absolute paths; Docker creates those dirs
-# via `RUN mkdir -p /app/data`, so we skip them here.
-if _db_url.startswith("sqlite:///") and not _db_url.startswith("sqlite:////"):
-    _db_rel = _db_url.removeprefix("sqlite:///")
-    if _db_rel not in (":memory:", ""):
-        Path(_db_rel).parent.mkdir(parents=True, exist_ok=True)
+
+def _ensure_local_db_dir(db_url: str) -> None:
+    """Create data/ only for the Windows local-dev fallback URL.
+
+    All other URLs — Docker absolute paths, Linux defaults, :memory: — must
+    not trigger automatic directory creation; those environments either manage
+    their own directories or should fail fast if misconfigured.
+    """
+    if sys.platform == "win32" and db_url == _WIN_LOCAL_URL:
+        Path("./data").mkdir(parents=True, exist_ok=True)
+
+
+_db_url = get_settings().database_url
+_ensure_local_db_dir(_db_url)
 
 engine = create_engine(
     _db_url,

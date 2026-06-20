@@ -5,13 +5,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _default_database_url() -> str:
-    # On Windows (clean clone, no DATABASE_URL set) use a data/ subdirectory so
-    # the project root stays uncluttered and the path is gitignored via data/.
-    # On Linux (including Docker) the env var is always set explicitly, so this
-    # default is only reached in local dev — keep the existing flat-file path.
     if sys.platform == "win32":
         return "sqlite:///./data/wooprice-local.db"
-    return "sqlite:///./wooprice.db"
+    raise RuntimeError(
+        "DATABASE_URL is required on non-Windows environments. "
+        "Set DATABASE_URL=sqlite:////app/data/wooprice.db for Docker/production."
+    )
 
 
 class Settings(BaseSettings):
