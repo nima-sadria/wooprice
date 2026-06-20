@@ -36,7 +36,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.config import _default_database_url  # noqa: E402
+from app.config import _default_database_url, Settings  # noqa: E402
 from app.database import _ensure_local_db_dir, _WIN_LOCAL_URL  # noqa: E402
 
 
@@ -66,28 +66,16 @@ def test_macos_raises_without_database_url():
             assert "DATABASE_URL is required" in str(exc)
 
 
-def test_database_url_env_overrides_factory():
-    # The factory is never called when DATABASE_URL is present in the
-    # environment.  We verify this indirectly: if the factory were called on
-    # a non-Windows platform it would raise RuntimeError, but since the env
-    # var is set the factory is bypassed and Settings() would succeed.
-    #
-    # Full Settings instantiation is impractical here (requires all required
-    # fields), so we confirm the contract by asserting the factory raises only
-    # when called directly with a non-Windows platform — not when DATABASE_URL
-    # is set, because pydantic-settings resolves the field from the env var
-    # first and never invokes the factory.
-    with mock.patch.object(sys, "platform", "linux"):
-        try:
-            _default_database_url()
-            assert False, "Expected RuntimeError"
-        except RuntimeError:
-            pass  # factory raises on non-Windows as expected
+def test_database_url_env_overrides_default_factory(monkeypatch):
+    explicit_url = "sqlite:////tmp/explicit-test.db"
+    monkeypatch.setenv("DATABASE_URL", explicit_url)
+    # Linux + no factory fallback: if pydantic-settings called the factory
+    # instead of reading the env var, Settings() would raise RuntimeError.
+    monkeypatch.setattr(sys, "platform", "linux")
 
-    # If DATABASE_URL were absent from the env, this would raise on Linux.
-    # Its presence in os.environ (set at top of this file) means Settings()
-    # will use the env value — tested by the pydantic-settings framework.
-    assert os.environ.get("DATABASE_URL") == "sqlite:///:memory:"
+    settings = Settings()
+
+    assert settings.database_url == explicit_url
 
 
 # ── _ensure_local_db_dir ──────────────────────────────────────────────────────
