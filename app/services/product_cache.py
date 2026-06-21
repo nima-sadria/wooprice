@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..models import ChangeTracking, ProductCache
@@ -191,6 +192,29 @@ def get_all(db: Session) -> list[dict]:
     return [{"wc_id": r.wc_id, **_to_dict(r)} for r in rows]
 
 
+def filter_by_exact_category(query, category_id: int):
+    """Filter ProductCache rows by exact category ID membership.
+
+    Product categories are stored as a JSON array. SQLite JSON1 expands each
+    category object and compares its `id` value numerically, avoiding substring
+    matches such as category 4 incorrectly matching category 44.
+    """
+    clause = text("""
+        EXISTS (
+            SELECT 1
+            FROM json_each(
+                CASE
+                    WHEN json_valid(products_cache.categories)
+                    THEN products_cache.categories
+                    ELSE '[]'
+                END
+            ) AS category
+            WHERE CAST(json_extract(category.value, '$.id') AS INTEGER) = :exact_category_id
+        )
+    """).bindparams(exact_category_id=int(category_id))
+    return query.filter(clause)
+
+
 def get_page(
     db: Session,
     page: int = 1,
@@ -205,8 +229,8 @@ def get_page(
 ) -> tuple[list[dict], int]:
     """Return (items, total) for the requested page with optional combined filters.
 
-    Filters are AND-combined. category_id uses a JSON LIKE scan (sufficient for
-    catalogs under ~50k products; refactor to a junction table beyond that)."""
+    Filters are AND-combined. category_id requires exact membership in the
+    cached JSON category array."""
     q = db.query(ProductCache)
     if search:
         like = f"%{search}%"
@@ -218,8 +242,7 @@ def get_page(
     if brand_name:
         q = q.filter(ProductCache.brand_name.ilike(f"%{brand_name}%"))
     if category_id is not None:
-        # categories stored as JSON: [{"id": 1, "name": "..."}]
-        q = q.filter(ProductCache.categories.like(f'%"id": {category_id}%'))
+        q = filter_by_exact_category(q, category_id)
     if wc_id_exact is not None:
         q = q.filter(ProductCache.wc_id == wc_id_exact)
     if sku:

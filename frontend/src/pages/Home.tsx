@@ -139,6 +139,14 @@ function CalendarCard() {
 // ─── Currency card ────────────────────────────────────────────────────────────
 
 function CurrencyCard({ data, loading, error }: { data: CurrencyData | null; loading: boolean; error: string | null }) {
+  const rates = data ? ([
+    ['USD', '$', data.usd_to_irr],
+    ['EUR', '€', data.eur_to_irr],
+    ['AED', 'د.إ', data.aed_to_irr],
+    ['TRY', '₺', data.try_to_irr],
+  ] as [string, string, number | null][]) : []
+  const hasAnyRate = rates.some(([, , value]) => value != null)
+
   return (
     <div className="bg-bg-card border border-border rounded-card shadow-card p-[22px] flex flex-col justify-between min-h-[140px]">
       <div className="flex items-center gap-2">
@@ -153,17 +161,15 @@ function CurrencyCard({ data, loading, error }: { data: CurrencyData | null; loa
         <div className="text-[13px] text-wp-muted">Loading…</div>
       ) : error ? (
         <div className="text-[12px] text-wp-red">{error}</div>
-      ) : data ? (
+      ) : data && hasAnyRate ? (
         <div className="mt-2">
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-            {([
-              ['USD', data.usd_to_irr],
-              ['EUR', data.eur_to_irr],
-              ['AED', data.aed_to_irr],
-              ['TRY', data.try_to_irr],
-            ] as [string, number | null][]).map(([label, val]) => (
+            {rates.map(([label, symbol, val]) => (
               <div key={label} className="flex items-center justify-between gap-2">
-                <span className="text-[12px] text-wp-muted">{label}</span>
+                <span className="flex items-center gap-1.5 text-[12px] text-wp-muted">
+                  <span className="inline-flex min-w-5 h-5 px-1 items-center justify-center rounded bg-bg-base text-text-base font-semibold" dir="auto">{symbol}</span>
+                  {label}
+                </span>
                 <span className="text-[14px] font-bold text-text-base" lang="en">
                   {val != null ? fmtRate(val) : <span className="text-[12px] font-normal text-wp-muted">—</span>}
                 </span>

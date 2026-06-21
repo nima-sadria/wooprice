@@ -511,13 +511,27 @@ interface PreFetchFiltersProps {
   search: string; catIds: number[]; categories: WcCategory[]
   catLoading: boolean; catError: string | null; disabled: boolean
   onSearchChange: (v: string) => void; onCatToggle: (id: number) => void; onClearFilters: () => void
+  onFetchPreview: () => void
 }
-function PreFetchFilters({ search, catIds, categories, catLoading, catError, disabled, onSearchChange, onCatToggle, onClearFilters }: PreFetchFiltersProps) {
+function PreFetchFilters({ search, catIds, categories, catLoading, catError, disabled, onSearchChange, onCatToggle, onClearFilters, onFetchPreview }: PreFetchFiltersProps) {
+  const [categorySearch, setCategorySearch] = useState('')
   const topLevel = categories.filter(c => c.parent === 0)
   const byParent: Record<number, WcCategory[]> = {}
   categories.forEach(c => { if (c.parent !== 0) (byParent[c.parent] ??= []).push(c) })
   const parentIds = new Set(categories.map(c => c.id))
   const orphaned = categories.filter(c => c.parent !== 0 && !parentIds.has(c.parent))
+  const categoryQuery = categorySearch.trim().toLocaleLowerCase()
+  const categoryMatches = (category: WcCategory) =>
+    category.name.toLocaleLowerCase().includes(categoryQuery)
+  const visibleTopLevel = categoryQuery
+    ? topLevel.filter(cat => categoryMatches(cat) || (byParent[cat.id] ?? []).some(categoryMatches))
+    : topLevel
+  const visibleChildren = (parent: WcCategory) => {
+    const children = byParent[parent.id] ?? []
+    return categoryQuery && !categoryMatches(parent) ? children.filter(categoryMatches) : children
+  }
+  const visibleOrphaned = categoryQuery ? orphaned.filter(categoryMatches) : orphaned
+  const noCategoryMatches = visibleTopLevel.length === 0 && visibleOrphaned.length === 0
   const hasFilters = search.trim() !== '' || catIds.length > 0
 
   return (
@@ -532,19 +546,28 @@ function PreFetchFilters({ search, catIds, categories, catLoading, catError, dis
           <span className="font-semibold text-[14px] text-text-base">Pre-Fetch Filters</span>
         </div>
         {hasFilters && (
-          <button onClick={onClearFilters} disabled={disabled}
+          <button onClick={() => { onClearFilters(); setCategorySearch('') }} disabled={disabled}
             className="text-[12px] text-wp-muted hover:text-[#dc2626] transition-colors disabled:opacity-50">
             Clear All
           </button>
         )}
       </div>
-      <div className="mb-3">
+      <form className="flex flex-col sm:flex-row gap-2 mb-3" onSubmit={e => { e.preventDefault(); onFetchPreview() }}>
         <input type="text" value={search} onChange={e => onSearchChange(e.target.value)}
           disabled={disabled} placeholder="Search by name or SKU…"
           className="w-full px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent disabled:opacity-50" />
-      </div>
+        <button type="submit" disabled={disabled}
+          className="px-4 py-2 text-[12px] bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 whitespace-nowrap">
+          Fetch matching products
+        </button>
+      </form>
       <div>
-        <div className="text-[12px] font-medium text-wp-muted mb-1.5">Categories</div>
+        <div className="text-[12px] font-medium text-wp-muted mb-1.5">
+          Categories <span className="font-normal">(match any selected)</span>
+        </div>
+        <input type="search" value={categorySearch} onChange={e => setCategorySearch(e.target.value)}
+          disabled={disabled || catLoading} placeholder="Search categories…" dir="auto"
+          className="w-full mb-2 px-3 py-1.5 text-[12px] text-start border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent disabled:opacity-50" />
         {catLoading ? (
           <div className="text-[12px] text-wp-muted py-2">Loading categories…</div>
         ) : catError ? (
@@ -552,16 +575,19 @@ function PreFetchFilters({ search, catIds, categories, catLoading, catError, dis
         ) : categories.length === 0 ? (
           <div className="text-[12px] text-wp-muted py-2">No categories available</div>
         ) : (
-          <div className="border border-border rounded-lg max-h-[160px] overflow-y-auto">
-            {topLevel.map(cat => (
+          <div className="border border-border rounded-lg max-h-[190px] overflow-y-auto" dir="rtl">
+            {noCategoryMatches && (
+              <div className="text-[12px] text-wp-muted py-4 px-3 text-center">No matching categories</div>
+            )}
+            {visibleTopLevel.map(cat => (
               <div key={cat.id}>
-                <label className={`flex items-center gap-2 px-3 py-1.5 hover:bg-bg-base select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                <label className={`flex items-center gap-2 px-3 py-1.5 text-right hover:bg-bg-base select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={catIds.includes(cat.id)} onChange={() => !disabled && onCatToggle(cat.id)}
                     disabled={disabled} className="rounded accent-accent" />
                   <span className="text-[13px] text-text-base">{cat.name}</span>
                 </label>
-                {(byParent[cat.id] ?? []).map(child => (
-                  <label key={child.id} className={`flex items-center gap-2 ps-7 pe-3 py-1.5 hover:bg-bg-base select-none border-t border-border/40 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                {visibleChildren(cat).map(child => (
+                  <label key={child.id} className={`flex items-center gap-2 ps-7 pe-3 py-1.5 text-right hover:bg-bg-base select-none border-t border-border/40 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                     <input type="checkbox" checked={catIds.includes(child.id)} onChange={() => !disabled && onCatToggle(child.id)}
                       disabled={disabled} className="rounded accent-accent" />
                     <span className="text-[12px] text-text-base">{child.name}</span>
@@ -569,8 +595,8 @@ function PreFetchFilters({ search, catIds, categories, catLoading, catError, dis
                 ))}
               </div>
             ))}
-            {orphaned.map(cat => (
-              <label key={cat.id} className={`flex items-center gap-2 px-3 py-1.5 hover:bg-bg-base select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+            {visibleOrphaned.map(cat => (
+              <label key={cat.id} className={`flex items-center gap-2 px-3 py-1.5 text-right hover:bg-bg-base select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                 <input type="checkbox" checked={catIds.includes(cat.id)} onChange={() => !disabled && onCatToggle(cat.id)}
                   disabled={disabled} className="rounded accent-accent" />
                 <span className="text-[13px] text-text-base">{cat.name}</span>
@@ -1326,6 +1352,7 @@ interface CachedProduct {
   wc_id: number; name: string; sku: string; price: string; regular_price: string
   stock_status: string; brand_name: string | null; categories: Array<{ id: number; name: string }>
   last_synced_at: string | null; parent_id: number; product_type: string
+  image_url: string | null; image_source: string
 }
 
 interface PBFilters {
@@ -1333,6 +1360,43 @@ interface PBFilters {
 }
 
 const PB_EMPTY: PBFilters = { name: '', sku: '', brand_name: '', wc_id: '', category_id: '' }
+
+function normalizePBFilters(filters: PBFilters): PBFilters {
+  return {
+    name: filters.name.trim(),
+    sku: filters.sku.trim(),
+    brand_name: filters.brand_name.trim(),
+    wc_id: filters.wc_id.trim(),
+    category_id: filters.category_id.trim(),
+  }
+}
+
+function ProductThumbnail({ product }: { product: CachedProduct }) {
+  const thumbUrl = `/api/products/${product.wc_id}/thumb?size=96`
+  const [src, setSrc] = useState(product.image_url || thumbUrl)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setSrc(product.image_url || thumbUrl)
+    setFailed(false)
+  }, [product.wc_id, product.image_url, thumbUrl])
+
+  return (
+    <div className="relative w-10 h-10 rounded bg-bg-base border border-border overflow-hidden flex items-center justify-center text-wp-muted" aria-label={product.name ? `${product.name} image` : 'Product image'}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4 17 5-5 4 4 2-2 5 5" />
+      </svg>
+      {!failed && (
+        <img src={src} alt="" loading="lazy" width={40} height={40}
+          className="absolute inset-0 w-10 h-10 object-cover"
+          onError={() => {
+            if (src !== thumbUrl) setSrc(thumbUrl)
+            else setFailed(true)
+          }} />
+      )}
+    </div>
+  )
+}
 
 type EmergencyOp = 'pct_increase' | 'pct_decrease' | 'fixed_increase' | 'fixed_decrease'
 
@@ -1374,7 +1438,11 @@ const EMERGENCY_OP_LABEL: Record<EmergencyOp, string> = {
 
 // ── ProductBrowser ─────────────────────────────────────────────────────────────
 
-function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: RequestInit) => Promise<Response> }) {
+function ProductBrowser({ authFetch, categories, categoriesLoading }: {
+  authFetch: (url: string, opts?: RequestInit) => Promise<Response>
+  categories: WcCategory[]
+  categoriesLoading: boolean
+}) {
   const [filters, setFilters] = useState<PBFilters>(PB_EMPTY)
   const [applied, setApplied] = useState<PBFilters>(PB_EMPTY)
   const [products, setProducts] = useState<CachedProduct[]>([])
@@ -1429,8 +1497,10 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
   useEffect(() => { void doFetch(1, PB_EMPTY) }, [doFetch])
 
   const handleSearch = () => {
-    setApplied(filters)
-    void doFetch(1, filters)
+    const next = normalizePBFilters(filters)
+    setFilters(next)
+    setApplied(next)
+    void doFetch(1, next)
   }
 
   const handleClear = () => {
@@ -1519,6 +1589,7 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
           <span className="font-semibold text-[14px] text-text-base">Product Filters</span>
           {total > 0 && <span className="text-[12px] text-wp-muted ml-auto">{total} products</span>}
         </div>
+        <form onSubmit={e => { e.preventDefault(); handleSearch() }}>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-3">
           <input type="text" placeholder="WC name…" value={filters.name}
             onChange={e => setFilters(s => ({ ...s, name: e.target.value }))}
@@ -1532,20 +1603,25 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
           <input type="number" placeholder="Product ID…" value={filters.wc_id}
             onChange={e => setFilters(s => ({ ...s, wc_id: e.target.value }))}
             className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
-          <input type="number" placeholder="Category ID…" value={filters.category_id}
-            onChange={e => setFilters(s => ({ ...s, category_id: e.target.value }))}
-            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
+          <select value={filters.category_id} onChange={e => setFilters(s => ({ ...s, category_id: e.target.value }))}
+            disabled={categoriesLoading}
+            aria-label="Category (exact membership)" title="Filter by exact category membership"
+            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base focus:outline-none focus:border-accent disabled:opacity-50" dir="auto">
+            <option value="">{categoriesLoading ? 'Loading categories…' : 'All categories'}</option>
+            {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleSearch} disabled={loading}
+          <button type="submit" disabled={loading}
             className="px-4 py-1.5 text-[13px] bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors">
             {loading ? 'Loading…' : 'Search'}
           </button>
-          <button onClick={handleClear} disabled={loading}
+          <button type="button" onClick={handleClear} disabled={loading}
             className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base transition-colors">
             Clear
           </button>
         </div>
+        </form>
       </div>
 
       {/* Emergency Attention Banner — shown when any batch needs operator action */}
@@ -1792,7 +1868,7 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
                             </div>
                           </div>
                         ) : (
-                          <span className="text-[13px] text-wp-muted">No products match your search</span>
+                          <span className="text-[13px] text-wp-muted">No matching products</span>
                         )}
                       </td>
                     </tr>
@@ -1800,11 +1876,7 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
                 })()}
                 {products.map(p => (
                   <tr key={p.wc_id} className="border-b border-border hover:bg-bg-base transition-colors">
-                    <td className="px-3 py-2.5">
-                      <img src={`/api/products/${p.wc_id}/thumb?size=96`} alt="" loading="lazy" width={36} height={36}
-                        className="w-9 h-9 object-cover rounded bg-bg-base"
-                        onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden' }} />
-                    </td>
+                    <td className="px-3 py-2.5"><ProductThumbnail product={p} /></td>
                     <td className="px-3 py-2.5 max-w-[220px]">
                       <div className="font-medium text-text-base truncate" title={p.name}>{p.name || `#${p.wc_id}`}</div>
                       {p.sku && <div className="text-[11px] font-mono text-wp-muted">{p.sku}</div>}
@@ -1984,9 +2056,9 @@ export default function Workspace() {
   // ── Preview fetch ──────────────────────────────────────────────────────────
 
   const startPreviewFetch = useCallback(() => {
-    if (state.previewPhase === 'streaming') return
+    if (state.cacheRunning || state.previewPhase === 'streaming' || state.applyPhase === 'streaming') return
     dispatch({ type: 'PREVIEW_START', url: buildPreviewSseUrl(state.filterSearch, state.filterCatIds) })
-  }, [state.previewPhase, state.filterSearch, state.filterCatIds])
+  }, [state.cacheRunning, state.previewPhase, state.applyPhase, state.filterSearch, state.filterCatIds])
 
   // ── WS-C: Dry Run ──────────────────────────────────────────────────────────
 
@@ -2190,7 +2262,7 @@ export default function Workspace() {
 
       {/* ── Product Browser tab ─────────────────────────────────────────────── */}
       {activeTab === 'product_browser' && (
-        <ProductBrowser authFetch={authFetch} />
+        <ProductBrowser authFetch={authFetch} categories={state.categories} categoriesLoading={state.catLoading} />
       )}
 
       {/* ── Sheet Sync tab ──────────────────────────────────────────────────── */}
@@ -2209,10 +2281,11 @@ export default function Workspace() {
         <PreFetchFilters
           search={state.filterSearch} catIds={state.filterCatIds}
           categories={state.categories} catLoading={state.catLoading} catError={state.catError}
-          disabled={state.previewPhase === 'streaming'}
+          disabled={state.cacheRunning || state.previewPhase === 'streaming' || state.applyPhase === 'streaming'}
           onSearchChange={v => dispatch({ type: 'FILTER_SEARCH', value: v })}
           onCatToggle={id => dispatch({ type: 'FILTER_CAT_TOGGLE', id })}
           onClearFilters={() => dispatch({ type: 'FILTER_CLEAR' })}
+          onFetchPreview={startPreviewFetch}
         />
       )}
 

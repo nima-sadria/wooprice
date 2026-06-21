@@ -49,6 +49,7 @@ from .services.product_cache import (
     clear_all as cache_clear_all,
     get_all as cache_get_all,
     get_cached_by_ids,
+    filter_by_exact_category,
     get_last_sync_time,
     get_page as cache_get_page,
     get_stats as cache_get_stats,
@@ -1817,7 +1818,7 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
         def ev(d: dict) -> str:
             return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
 
-        yield ev({"step": "start", "status": "running", "msg": "Starting deep variation sync — fetching ALL products + ALL variations. This may take 40–60 minutes for 2000+ variable parents…"})
+        yield ev({"step": "start", "status": "running", "msg": "Deep Sync started. This can take a while for large catalogs. You can keep this page open and monitor progress."})
         try:
             yield ev({"step": "fetch", "status": "running", "msg": "Fetching all products and all variation pages from WooCommerce…"})
             fetch_task = asyncio.create_task(fetch_all_products_full())
@@ -2402,6 +2403,45 @@ async def get_categories(user: dict = Depends(require_permission("can_access_sit
 _currency_cache: dict = {"data": None, "ts": 0.0}
 
 
+def _currency_sell_value(raw: dict, key: str) -> int | None:
+    """Return one provider sell value as a display-safe integer."""
+    entry = raw.get(key) if isinstance(raw, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    value = entry.get("sell")
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        value = value.strip().replace(",", "").replace("٬", "")
+        if not value:
+            return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return int(number)
+
+
+def _parse_currency_payload(raw: dict) -> dict:
+    """Normalize the alanchand currencies payload for the Dashboard contract."""
+    data = {
+        "usd_to_irr": _currency_sell_value(raw, "usd"),
+        "eur_to_irr": _currency_sell_value(raw, "eur"),
+        "aed_to_irr": _currency_sell_value(raw, "aed"),
+        "try_to_irr": _currency_sell_value(raw, "try"),
+        "last_updated": ((raw.get("usd") or {}).get("updated_at", "")
+                         if isinstance(raw, dict) and isinstance(raw.get("usd"), dict) else ""),
+        "source": "alanchand.com",
+    }
+    if not any(data[key] is not None for key in (
+        "usd_to_irr", "eur_to_irr", "aed_to_irr", "try_to_irr"
+    )):
+        raise ValueError("Currency provider returned no usable sell rates")
+    return data
+
+
 @app.get("/api/currency")
 async def get_currency():
     """Proxy IRR sell rates for USD/EUR/AED/TRY. Cached 5 min. No auth required."""
@@ -2412,29 +2452,15 @@ async def get_currency():
         if _currency_cache["data"] is not None:
             return {**_currency_cache["data"], "cached": True, "stale": True}
         raise HTTPException(503, "Currency service unavailable")
-    url = f"https://api.alanchand.com/?type=currencies&token={token}"
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get(url)
+            r = await client.get(
+                "https://api.alanchand.com/",
+                params={"type": "currencies", "token": token},
+            )
             r.raise_for_status()
             raw = r.json()
-
-        def _sell(key: str) -> int | None:
-            entry = raw.get(key) if isinstance(raw, dict) else None
-            if not entry:
-                return None
-            v = entry.get("sell")
-            return int(v) if v is not None else None
-
-        usd_entry = (raw.get("usd") or {}) if isinstance(raw, dict) else {}
-        data = {
-            "usd_to_irr": _sell("usd"),
-            "eur_to_irr": _sell("eur"),
-            "aed_to_irr": _sell("aed"),
-            "try_to_irr": _sell("try"),
-            "last_updated": usd_entry.get("updated_at", ""),
-            "source": "alanchand.com",
-        }
+        data = _parse_currency_payload(raw)
         _currency_cache["data"] = data
         _currency_cache["ts"] = time.time()
         return {**data, "cached": False}
@@ -3861,6 +3887,22 @@ async def spreadsheet_meta_endpoint(user: dict = Depends(require_permission("can
 
 # ── 7. Preview stream (SSE) ───────────────────────────────────────────────────
 
+def _matches_any_selected_category(categories: list, selected_ids: set[int]) -> bool:
+    """OR semantics for Pre-Fetch: match any exact selected category ID."""
+    if not selected_ids:
+        return True
+    for category in categories:
+        if not isinstance(category, dict):
+            continue
+        try:
+            category_id = int(category.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if category_id in selected_ids:
+            return True
+    return False
+
+
 @app.get("/api/preview/stream")
 async def preview_stream(
     request: Request,
@@ -3933,8 +3975,10 @@ async def preview_stream(
                         if _pre_search not in name and _pre_search not in sku:
                             continue
                     if _pre_cat_ids:
+                        # Explicit OR semantics: a product is included when it
+                        # belongs to ANY selected category.
                         cats = cached.get("categories") or []
-                        if not any(c.get("id") in _pre_cat_ids for c in cats):
+                        if not _matches_any_selected_category(cats, _pre_cat_ids):
                             continue
                     filtered_items.append(item)
                 _filter_no_cache = len(skipped_no_cache)
@@ -4718,7 +4762,7 @@ async def emergency_preview(
     if body.brand_name:
         q = q.filter(ProductCache.brand_name.ilike(f"%{body.brand_name}%"))
     if body.category_id is not None:
-        q = q.filter(ProductCache.categories.like(f'%"id": {body.category_id}%'))
+        q = filter_by_exact_category(q, body.category_id)
     if body.sku:
         q = q.filter(ProductCache.sku.ilike(f"%{body.sku}%"))
     if body.product_ids:
