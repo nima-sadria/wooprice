@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { AccessState, useAuth } from '../auth'
 import { useSSEStream, type SSEErrorReason } from '../hooks/useSSEStream'
+import { fmtPrice } from '../utils/price'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -896,7 +897,7 @@ function PreviewTable({
                   <td className="px-3 py-2.5">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${badge.cls}`}>{badge.label}</span>
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-wp-muted">{row.old_price || '—'}</td>
+                  <td className="px-3 py-2.5 font-mono text-wp-muted">{fmtPrice(row.old_price)}</td>
 
                   {/* New Price — inline edit */}
                   <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
@@ -921,7 +922,7 @@ function PreviewTable({
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5">
-                        <span className={`font-mono ${newPriceColor}`}>{row.new_price || '—'}</span>
+                        <span className={`font-mono ${newPriceColor}`}>{fmtPrice(row.new_price)}</span>
                         {isSaved && <span className="text-[11px] text-[#16a34a]">✓</span>}
                         {canEditPrice && !editsDisabled && (
                           <button onClick={e => startEdit(pid, 'price', row, e)}
@@ -1307,12 +1308,508 @@ function SyncActionBar({
   )
 }
 
+// ── Product Browser Types ─────────────────────────────────────────────────────
+
+interface CachedProduct {
+  wc_id: number; name: string; sku: string; price: string; regular_price: string
+  stock_status: string; brand_name: string | null; categories: Array<{ id: number; name: string }>
+  last_synced_at: string | null; parent_id: number; product_type: string
+}
+
+interface PBFilters {
+  name: string; sku: string; brand_name: string; wc_id: string; category_id: string
+}
+
+const PB_EMPTY: PBFilters = { name: '', sku: '', brand_name: '', wc_id: '', category_id: '' }
+
+type EmergencyOp = 'pct_increase' | 'pct_decrease' | 'fixed_increase' | 'fixed_decrease'
+
+interface EmergencyPreviewItem {
+  id: number; product_id: number; sku: string; product_name: string
+  old_price: string | null; new_price: string | null; status: string
+}
+
+interface EmergencyState {
+  phase: 'idle' | 'building' | 'preview' | 'confirming' | 'applying' | 'done' | 'error'
+  op: EmergencyOp
+  value: string
+  batchId: number | null
+  items: EmergencyPreviewItem[]
+  error: string | null
+  applied: number
+  failed: number
+  reconcile: number
+  stale: number
+  confirmed: boolean
+}
+
+const EM_INIT: EmergencyState = {
+  phase: 'idle', op: 'pct_increase', value: '', batchId: null,
+  items: [], error: null, applied: 0, failed: 0, reconcile: 0, stale: 0, confirmed: false,
+}
+
+interface AttentionBatch {
+  id: number; status: string; created_at: string; created_by: string
+  operation: string; value: number; needs_reconcile_count?: number
+}
+
+const EMERGENCY_OP_LABEL: Record<EmergencyOp, string> = {
+  pct_increase:  '% Increase',
+  pct_decrease:  '% Decrease',
+  fixed_increase: 'Fixed Increase',
+  fixed_decrease: 'Fixed Decrease',
+}
+
+// ── ProductBrowser ─────────────────────────────────────────────────────────────
+
+function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: RequestInit) => Promise<Response> }) {
+  const [filters, setFilters] = useState<PBFilters>(PB_EMPTY)
+  const [applied, setApplied] = useState<PBFilters>(PB_EMPTY)
+  const [products, setProducts] = useState<CachedProduct[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [emergency, setEmergency] = useState<EmergencyState>(EM_INIT)
+  const [attentionBatches, setAttentionBatches] = useState<AttentionBatch[] | null>(null)
+  const fetchSeq = useRef(0)
+  const LIMIT = 50
+
+  const fetchAttention = useCallback(async () => {
+    try {
+      const r = await authFetch('/api/emergency/pending')
+      if (!r.ok) return
+      const data = await r.json() as { batches: AttentionBatch[] }
+      setAttentionBatches(
+        data.batches.filter(b => ['applying', 'needs_reconcile', 'partially_failed'].includes(b.status))
+      )
+    } catch { /* ignore — attention banner is best-effort */ }
+  }, [authFetch])
+
+  useEffect(() => { void fetchAttention() }, [fetchAttention])
+
+  const doFetch = useCallback(async (pg: number, f: PBFilters) => {
+    setLoading(true)
+    setError(null)
+    const seq = ++fetchSeq.current
+    const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT) })
+    if (f.name)        params.set('name', f.name)
+    if (f.sku)         params.set('sku', f.sku)
+    if (f.brand_name)  params.set('brand_name', f.brand_name)
+    if (f.wc_id)       params.set('wc_id', f.wc_id)
+    if (f.category_id) params.set('category_id', f.category_id)
+    try {
+      const r = await authFetch(`/api/products?${params}`)
+      if (seq !== fetchSeq.current) return
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json() as { items: CachedProduct[]; total: number; page: number }
+      setProducts(data.items)
+      setTotal(data.total)
+      setPage(pg)
+    } catch (e) {
+      if (seq !== fetchSeq.current) return
+      setError(e instanceof Error ? e.message : 'Failed to load products')
+    } finally {
+      if (seq === fetchSeq.current) setLoading(false)
+    }
+  }, [authFetch])
+
+  useEffect(() => { void doFetch(1, PB_EMPTY) }, [doFetch])
+
+  const handleSearch = () => {
+    setApplied(filters)
+    void doFetch(1, filters)
+  }
+
+  const handleClear = () => {
+    setFilters(PB_EMPTY)
+    setApplied(PB_EMPTY)
+    void doFetch(1, PB_EMPTY)
+  }
+
+  // Emergency price handlers
+  const handleEmergencyPreview = useCallback(async () => {
+    if (!emergency.value || parseFloat(emergency.value) <= 0) {
+      setEmergency(s => ({ ...s, error: 'Value must be greater than 0' }))
+      return
+    }
+    setEmergency(s => ({ ...s, phase: 'building', error: null }))
+    try {
+      const body: Record<string, unknown> = {
+        operation: emergency.op,
+        value: parseFloat(emergency.value),
+      }
+      if (applied.brand_name) body.brand_name = applied.brand_name
+      if (applied.category_id) body.category_id = parseInt(applied.category_id, 10)
+      if (applied.sku) body.sku = applied.sku
+      if (applied.wc_id) body.product_ids = [parseInt(applied.wc_id, 10)]
+      const r = await authFetch('/api/emergency/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({})) as Record<string, unknown>
+        throw new Error(String(err.detail ?? `HTTP ${r.status}`))
+      }
+      const data = await r.json() as { batch_id: number; items: EmergencyPreviewItem[] }
+      setEmergency(s => ({ ...s, phase: 'preview', batchId: data.batch_id, items: data.items, error: null }))
+    } catch (e) {
+      setEmergency(s => ({ ...s, phase: 'idle', error: e instanceof Error ? e.message : 'Preview failed' }))
+    }
+  }, [authFetch, emergency.op, emergency.value, applied])
+
+  const handleEmergencyCancel = useCallback(async () => {
+    const bid = emergency.batchId
+    if (bid) {
+      try { await authFetch(`/api/emergency/${bid}`, { method: 'DELETE' }) } catch { /* ignore */ }
+    }
+    setEmergency(EM_INIT)
+  }, [authFetch, emergency.batchId])
+
+  const handleEmergencyApply = useCallback(async () => {
+    const bid = emergency.batchId
+    if (!bid || !emergency.confirmed) return
+    setEmergency(s => ({ ...s, phase: 'applying', error: null }))
+    try {
+      const r = await authFetch(`/api/emergency/${bid}/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({})) as Record<string, unknown>
+        throw new Error(String(err.detail ?? `HTTP ${r.status}`))
+      }
+      const data = await r.json() as { applied: number; failed: number; reconcile?: number; stale?: number }
+      setEmergency(s => ({
+        ...s, phase: 'done',
+        applied: data.applied, failed: data.failed,
+        reconcile: data.reconcile ?? 0, stale: data.stale ?? 0,
+      }))
+      void fetchAttention()  // re-check for needs_reconcile batches after apply
+    } catch (e) {
+      setEmergency(s => ({ ...s, phase: 'error', error: e instanceof Error ? e.message : 'Apply failed' }))
+    }
+  }, [authFetch, emergency.batchId, emergency.confirmed, fetchAttention])
+
+  const totalPages = Math.max(1, Math.ceil(total / LIMIT))
+  const pendingItems = emergency.items.filter(i => i.status === 'pending')
+  const skippedItems = emergency.items.filter(i => i.status === 'skipped')
+
+  return (
+    <div className="space-y-4">
+      {/* Filter panel */}
+      <div className="bg-bg-card border border-border rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-7 h-7 rounded-md bg-accent/10 flex items-center justify-center flex-shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#4880FF" strokeWidth="2" className="w-[14px] h-[14px]">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+          </div>
+          <span className="font-semibold text-[14px] text-text-base">Product Filters</span>
+          {total > 0 && <span className="text-[12px] text-wp-muted ml-auto">{total} products</span>}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-3">
+          <input type="text" placeholder="WC name…" value={filters.name}
+            onChange={e => setFilters(s => ({ ...s, name: e.target.value }))}
+            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
+          <input type="text" placeholder="SKU…" value={filters.sku}
+            onChange={e => setFilters(s => ({ ...s, sku: e.target.value }))}
+            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
+          <input type="text" placeholder="Brand…" value={filters.brand_name}
+            onChange={e => setFilters(s => ({ ...s, brand_name: e.target.value }))}
+            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
+          <input type="number" placeholder="Product ID…" value={filters.wc_id}
+            onChange={e => setFilters(s => ({ ...s, wc_id: e.target.value }))}
+            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
+          <input type="number" placeholder="Category ID…" value={filters.category_id}
+            onChange={e => setFilters(s => ({ ...s, category_id: e.target.value }))}
+            className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base placeholder:text-wp-muted focus:outline-none focus:border-accent" />
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={handleSearch} disabled={loading}
+            className="px-4 py-1.5 text-[13px] bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors">
+            {loading ? 'Loading…' : 'Search'}
+          </button>
+          <button onClick={handleClear} disabled={loading}
+            className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base transition-colors">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Emergency Attention Banner — shown when any batch needs operator action */}
+      {attentionBatches && attentionBatches.length > 0 && (
+        <div className="border border-[#fca5a5] rounded-lg p-4 bg-[#fef2f2]">
+          <div className="flex items-start gap-3">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" className="w-5 h-5 flex-shrink-0 mt-0.5">
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-[13px] text-[#b91c1c] mb-2">
+                {attentionBatches.length} emergency batch{attentionBatches.length !== 1 ? 'es' : ''} require operator attention
+              </div>
+              <div className="space-y-1.5">
+                {attentionBatches.map(b => (
+                  <div key={b.id} className="flex flex-wrap items-center gap-2 text-[12px]">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${
+                      b.status === 'needs_reconcile'  ? 'bg-red-100 text-red-800' :
+                      b.status === 'applying'         ? 'bg-orange-100 text-orange-800' :
+                      'bg-amber-100 text-amber-800'
+                    }`}>{b.status.replace(/_/g, ' ')}</span>
+                    <span className="text-[#7f1d1d]">
+                      Batch #{b.id} — {b.operation.replace(/_/g, ' ')} {b.value} — by {b.created_by}
+                    </span>
+                    {(b.needs_reconcile_count ?? 0) > 0 && (
+                      <span className="text-[11px] text-[#dc2626] font-medium">
+                        {b.needs_reconcile_count} item(s) need reconciliation
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 text-[11px] text-[#b91c1c] space-y-0.5">
+                <div><strong>needs_reconcile</strong>: WooCommerce was updated but local DB finalization failed — manual verification required.</div>
+                <div><strong>applying</strong>: Batch was interrupted mid-apply — inspect items individually.</div>
+                <div><strong>partially_failed</strong>: Some items applied, some failed — review the batch.</div>
+              </div>
+              <button onClick={() => void fetchAttention()}
+                className="mt-2 text-[11px] text-[#dc2626] border border-[#f87171] rounded px-2 py-0.5 hover:bg-red-50 transition-colors">
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Emergency Price Panel */}
+      <div className="bg-bg-card border border-[#f59e0b] rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-7 h-7 rounded-md bg-[#fef3c7] flex items-center justify-center flex-shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2" className="w-[14px] h-[14px]">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <span className="font-semibold text-[14px] text-[#b45309]">Emergency Price Update</span>
+          <span className="text-[11px] text-wp-muted ml-1">— applies to filtered products above</span>
+        </div>
+
+        {emergency.phase === 'idle' && (
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-wp-muted mb-1">Operation</label>
+              <select value={emergency.op}
+                onChange={e => setEmergency(s => ({ ...s, op: e.target.value as EmergencyOp }))}
+                className="px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base focus:outline-none focus:border-accent">
+                {(Object.keys(EMERGENCY_OP_LABEL) as EmergencyOp[]).map(op => (
+                  <option key={op} value={op}>{EMERGENCY_OP_LABEL[op]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-wp-muted mb-1">
+                {emergency.op.startsWith('pct') ? 'Percent (%)' : 'Fixed Amount'}
+              </label>
+              <input type="number" min="0" step="any" value={emergency.value}
+                onChange={e => setEmergency(s => ({ ...s, value: e.target.value }))}
+                placeholder="e.g. 10"
+                className="w-32 px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base focus:outline-none focus:border-accent placeholder:text-wp-muted" />
+            </div>
+            <button onClick={() => void handleEmergencyPreview()} disabled={!emergency.value}
+              className="px-4 py-2 text-[13px] border border-[#b45309] text-[#b45309] rounded-lg hover:bg-[#fef3c7] disabled:opacity-50 transition-colors">
+              Preview Changes
+            </button>
+            {emergency.error && <span className="text-[12px] text-[#dc2626]">{emergency.error}</span>}
+          </div>
+        )}
+
+        {emergency.phase === 'building' && (
+          <div className="flex items-center gap-2 text-[13px] text-wp-muted">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+            Computing emergency prices…
+          </div>
+        )}
+
+        {emergency.phase === 'preview' && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3 text-[13px]">
+              <span><span className="text-wp-muted">Operation: </span><span className="font-medium text-text-base">{EMERGENCY_OP_LABEL[emergency.op]} {emergency.value}{emergency.op.startsWith('pct') ? '%' : ''}</span></span>
+              <span><span className="text-wp-muted">Products to update: </span><span className="font-semibold text-[#b45309]">{pendingItems.length}</span></span>
+              {skippedItems.length > 0 && <span><span className="text-wp-muted">Skipped (no price): </span><span className="text-wp-muted">{skippedItems.length}</span></span>}
+            </div>
+            <div className="border border-border rounded-lg overflow-hidden max-h-[240px] overflow-y-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="bg-bg-base border-b border-border">
+                    <th className="px-3 py-2 text-start font-semibold text-wp-muted uppercase tracking-wide text-[10px]">Product</th>
+                    <th className="px-3 py-2 text-start font-semibold text-wp-muted uppercase tracking-wide text-[10px]">Old Price</th>
+                    <th className="px-3 py-2 text-start font-semibold text-wp-muted uppercase tracking-wide text-[10px]">New Price</th>
+                    <th className="px-3 py-2 text-start font-semibold text-wp-muted uppercase tracking-wide text-[10px]">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {emergency.items.map(item => (
+                    <tr key={item.id} className="border-b border-border/50">
+                      <td className="px-3 py-1.5">
+                        <div className="font-medium text-text-base truncate max-w-[180px]" title={item.product_name}>{item.product_name || `#${item.product_id}`}</div>
+                        {item.sku && <div className="text-[11px] font-mono text-wp-muted">{item.sku}</div>}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-wp-muted">{fmtPrice(item.old_price)}</td>
+                      <td className="px-3 py-1.5 font-mono font-semibold text-[#b45309]">{item.new_price ? fmtPrice(item.new_price) : '—'}</td>
+                      <td className="px-3 py-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${item.status === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-500'}`}>
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border border-[#fca5a5] rounded-lg p-3 bg-[#fef2f2]">
+              <p className="text-[12px] text-[#b91c1c] font-medium mb-2">
+                This will write {pendingItems.length} new prices directly to WooCommerce without going through the spreadsheet. These prices will be flagged on the Dashboard until the sheet is updated.
+              </p>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={emergency.confirmed}
+                  onChange={e => setEmergency(s => ({ ...s, confirmed: e.target.checked }))}
+                  className="rounded accent-accent" />
+                <span className="text-[12px] text-[#b91c1c]">I understand this writes to WooCommerce immediately</span>
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => void handleEmergencyApply()} disabled={!emergency.confirmed}
+                className="px-4 py-1.5 text-[13px] bg-[#dc2626] text-white rounded-lg hover:bg-[#b91c1c] disabled:opacity-50 transition-colors">
+                Apply Emergency Update →
+              </button>
+              <button onClick={() => void handleEmergencyCancel()}
+                className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {emergency.phase === 'applying' && (
+          <div className="flex items-center gap-2 text-[13px] text-[#dc2626]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+            Applying emergency prices… Do not close this page.
+          </div>
+        )}
+
+        {emergency.phase === 'done' && (
+          <div className="space-y-2">
+            <div className={`flex flex-wrap gap-4 p-3 rounded-lg text-[13px] ${
+              emergency.reconcile > 0 ? 'bg-[#fef2f2] border border-[#fca5a5]' :
+              emergency.failed > 0    ? 'bg-[#fef2f2] border border-[#fca5a5]' :
+              'bg-[#f0fdf4] border border-[#bbf7d0]'
+            }`}>
+              <span><span className="text-wp-muted">Applied: </span><span className="font-semibold text-[#16a34a]">{emergency.applied}</span></span>
+              {emergency.failed > 0 && <span><span className="text-wp-muted">Failed: </span><span className="font-semibold text-[#dc2626]">{emergency.failed}</span></span>}
+              {emergency.stale > 0 && <span><span className="text-wp-muted">Stale: </span><span className="font-semibold text-[#b45309]">{emergency.stale}</span></span>}
+              {emergency.reconcile > 0 && <span><span className="text-wp-muted">Needs reconcile: </span><span className="font-semibold text-[#dc2626]">{emergency.reconcile}</span></span>}
+            </div>
+            {emergency.reconcile > 0 && (
+              <div className="border border-[#fca5a5] rounded-lg p-3 bg-[#fef2f2] text-[12px] text-[#b91c1c]">
+                <strong>{emergency.reconcile} item(s) need manual reconciliation.</strong>{' '}
+                WooCommerce was updated but local DB finalization failed. The attention banner above will show these batches until resolved.
+              </div>
+            )}
+            <p className="text-[12px] text-wp-muted">Emergency prices applied. Update the source sheet to re-synchronize.</p>
+            <button onClick={() => setEmergency(EM_INIT)}
+              className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base transition-colors">
+              Done
+            </button>
+          </div>
+        )}
+
+        {emergency.phase === 'error' && (
+          <div className="space-y-2">
+            <div className="text-[13px] text-[#dc2626]">{emergency.error}</div>
+            <div className="flex gap-2">
+              <button onClick={() => setEmergency(s => ({ ...s, phase: 'preview', error: null }))}
+                className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base">Retry</button>
+              <button onClick={() => void handleEmergencyCancel()}
+                className="px-3 py-1.5 text-[12px] border border-[#f87171] text-[#dc2626] rounded-lg hover:bg-red-50">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Product list */}
+      {error && <div className="bg-[#fef2f2] border border-[#fca5a5] rounded-lg px-4 py-3 text-[13px] text-[#dc2626]">{error}</div>}
+
+      {!error && (
+        <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border">
+              <button onClick={() => void doFetch(page - 1, applied)} disabled={page <= 1 || loading}
+                className="px-2.5 py-1 text-[12px] border border-border rounded text-wp-muted hover:text-text-base disabled:opacity-40">‹ Prev</button>
+              <span className="text-[12px] text-wp-muted">{page} / {totalPages}</span>
+              <button onClick={() => void doFetch(page + 1, applied)} disabled={page >= totalPages || loading}
+                className="px-2.5 py-1 text-[12px] border border-border rounded text-wp-muted hover:text-text-base disabled:opacity-40">Next ›</button>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px] border-collapse">
+              <thead>
+                <tr className="bg-bg-base">
+                  <th className="px-3 py-2.5 border-b border-border text-start text-[11px] font-semibold text-wp-muted uppercase tracking-wide w-10">Img</th>
+                  <th className="px-3 py-2.5 border-b border-border text-start text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Product</th>
+                  <th className="px-3 py-2.5 border-b border-border text-start text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Brand</th>
+                  <th className="px-3 py-2.5 border-b border-border text-start text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Price</th>
+                  <th className="px-3 py-2.5 border-b border-border text-start text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Stock</th>
+                  <th className="px-3 py-2.5 border-b border-border text-start text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Synced</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && products.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[13px] text-wp-muted">Loading…</td></tr>
+                )}
+                {!loading && products.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[13px] text-wp-muted">No products found</td></tr>
+                )}
+                {products.map(p => (
+                  <tr key={p.wc_id} className="border-b border-border hover:bg-bg-base transition-colors">
+                    <td className="px-3 py-2.5">
+                      <img src={`/api/products/${p.wc_id}/thumb?size=96`} alt="" loading="lazy" width={36} height={36}
+                        className="w-9 h-9 object-cover rounded bg-bg-base"
+                        onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden' }} />
+                    </td>
+                    <td className="px-3 py-2.5 max-w-[220px]">
+                      <div className="font-medium text-text-base truncate" title={p.name}>{p.name || `#${p.wc_id}`}</div>
+                      {p.sku && <div className="text-[11px] font-mono text-wp-muted">{p.sku}</div>}
+                      <div className="text-[11px] text-wp-muted">ID: {p.wc_id}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px] text-wp-muted">{p.brand_name || '—'}</td>
+                    <td className="px-3 py-2.5 font-mono text-[13px]">{fmtPrice(p.price || p.regular_price)}</td>
+                    <td className="px-3 py-2.5 text-[12px]">
+                      <span className={p.stock_status === 'instock' ? 'text-[#16a34a]' : p.stock_status === 'outofstock' ? 'text-[#dc2626]' : 'text-wp-muted'}>
+                        {p.stock_status === 'instock' ? 'In Stock' : p.stock_status === 'outofstock' ? 'Out of Stock' : p.stock_status || '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-[11px] text-wp-muted whitespace-nowrap">
+                      {p.last_synced_at ? new Date(p.last_synced_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Never'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Workspace ─────────────────────────────────────────────────────────────────
+
+type WorkspaceTab = 'sheet_sync' | 'product_browser'
 
 export default function Workspace() {
   const { authFetch, user, status } = useAuth()
   const [state, dispatch] = useReducer(reducer, INITIAL)
   const pollInitialEtagRef = useRef<string | null>(null)
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('sheet_sync')
 
   // ── Cache SSE ──────────────────────────────────────────────────────────────
 
@@ -1608,7 +2105,18 @@ export default function Workspace() {
           <p className="text-[13px] text-wp-muted mt-0.5">Fetch, review, and apply price updates</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canFetch && (
+          {/* Tab switcher */}
+          <div className="flex border border-border rounded-lg overflow-hidden text-[12px] font-medium">
+            <button onClick={() => setActiveTab('sheet_sync')}
+              className={`px-3 py-1.5 transition-colors ${activeTab === 'sheet_sync' ? 'bg-accent text-white' : 'text-wp-muted hover:text-text-base'}`}>
+              Sheet Sync
+            </button>
+            <button onClick={() => setActiveTab('product_browser')}
+              className={`px-3 py-1.5 border-l border-border transition-colors ${activeTab === 'product_browser' ? 'bg-accent text-white' : 'text-wp-muted hover:text-text-base'}`}>
+              Product Browser
+            </button>
+          </div>
+          {activeTab === 'sheet_sync' && canFetch && (
             <>
               <button onClick={() => startCacheRefresh('light')} disabled={state.cacheRunning}
                 title="Fetch only products modified since the last full sync"
@@ -1627,14 +2135,14 @@ export default function Workspace() {
               </button>
             </>
           )}
-          {isAdmin && (
+          {activeTab === 'sheet_sync' && isAdmin && (
             <button onClick={() => startCacheRefresh('deep')} disabled={state.cacheRunning}
               title="Sync ALL variations for ALL variable parents"
               className="px-3 py-1.5 text-[13px] border border-[#f59e0b] text-[#b45309] rounded-lg hover:bg-[#fef3c7] transition-colors disabled:opacity-50">
               ● Deep Sync
             </button>
           )}
-          {canFetch && (
+          {activeTab === 'sheet_sync' && canFetch && (
             <button onClick={startPreviewFetch}
               disabled={state.cacheRunning || state.previewPhase === 'streaming' || state.applyPhase === 'streaming'}
               title="Run preview: download spreadsheet, compare with WooCommerce cache, calculate changes"
@@ -1649,6 +2157,14 @@ export default function Workspace() {
           )}
         </div>
       </div>
+
+      {/* ── Product Browser tab ─────────────────────────────────────────────── */}
+      {activeTab === 'product_browser' && (
+        <ProductBrowser authFetch={authFetch} />
+      )}
+
+      {/* ── Sheet Sync tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'sheet_sync' && (<>
 
       {/* Spreadsheet status */}
       <SpreadsheetStatus
@@ -1757,6 +2273,8 @@ export default function Workspace() {
       {state.cacheLog.length > 0 && (
         <CacheRefreshPanel op={state.cacheOp} running={state.cacheRunning} log={state.cacheLog} />
       )}
+
+      </>)}
 
     </div>
   )

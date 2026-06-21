@@ -197,8 +197,16 @@ def get_page(
     limit: int = 50,
     search: str | None = None,
     product_type: str | None = None,
+    brand_name: str | None = None,
+    category_id: int | None = None,
+    wc_id_exact: int | None = None,
+    sku: str | None = None,
+    name: str | None = None,
 ) -> tuple[list[dict], int]:
-    """Return (items, total) for the requested page with optional filters."""
+    """Return (items, total) for the requested page with optional combined filters.
+
+    Filters are AND-combined. category_id uses a JSON LIKE scan (sufficient for
+    catalogs under ~50k products; refactor to a junction table beyond that)."""
     q = db.query(ProductCache)
     if search:
         like = f"%{search}%"
@@ -207,6 +215,17 @@ def get_page(
         )
     if product_type:
         q = q.filter(ProductCache.product_type == product_type)
+    if brand_name:
+        q = q.filter(ProductCache.brand_name.ilike(f"%{brand_name}%"))
+    if category_id is not None:
+        # categories stored as JSON: [{"id": 1, "name": "..."}]
+        q = q.filter(ProductCache.categories.like(f'%"id": {category_id}%'))
+    if wc_id_exact is not None:
+        q = q.filter(ProductCache.wc_id == wc_id_exact)
+    if sku:
+        q = q.filter(ProductCache.sku.ilike(f"%{sku}%"))
+    if name:
+        q = q.filter(ProductCache.name.ilike(f"%{name}%"))
     total = q.count()
     offset = (page - 1) * limit
     rows = q.order_by(ProductCache.wc_id).offset(offset).limit(limit).all()

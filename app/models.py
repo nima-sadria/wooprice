@@ -192,10 +192,52 @@ class ChangeHistory(Base):
     changed_at = Column(DateTime, default=datetime.utcnow, index=True)
     username = Column(String, nullable=True)
     job_id = Column(Integer, nullable=True, index=True)
-    source = Column(String, nullable=True)              # apply | direct_edit | rollback
+    source = Column(String, nullable=True)              # apply | direct_edit | rollback | emergency | undo
     rollback_of_id = Column(Integer, ForeignKey("change_history.id"), nullable=True)
+    batch_id = Column(Integer, nullable=True, index=True)  # links emergency batch apply rows
     brand_id = Column(Integer, nullable=True)           # brand active at change time (for velocity metrics)
     price_delta_pct = Column(Float, nullable=True)      # pre-computed (new-old)/old*100
+
+
+class EmergencyBatch(Base):
+    """An emergency price update batch created by a user outside the normal sheet sync flow."""
+    __tablename__ = "emergency_batches"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=False)
+    operation = Column(String, nullable=False)   # pct_increase | pct_decrease | fixed_increase | fixed_decrease
+    value = Column(Float, nullable=False)        # percent (0–100] or fixed amount (>0)
+    status = Column(String, nullable=False, default="pending")
+    # batch statuses: pending | applying | applied | partially_failed | failed | needs_reconcile | cancelled
+    applied_at = Column(DateTime, nullable=True)
+    filter_snapshot = Column(Text, nullable=True)  # JSON: filters used to select products
+
+    items = relationship("EmergencyItem", back_populates="batch", cascade="all, delete-orphan")
+
+
+class EmergencyItem(Base):
+    """One product within an EmergencyBatch: holds the computed new price before/after apply."""
+    __tablename__ = "emergency_items"
+    __table_args__ = (
+        Index("ix_emergency_items_batch_id", "batch_id"),
+        Index("ix_emergency_items_product_id", "product_id"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    batch_id = Column(Integer, ForeignKey("emergency_batches.id"), nullable=False)
+    product_id = Column(Integer, nullable=False)
+    sku = Column(String, nullable=True)
+    product_name = Column(String, nullable=True)
+    old_price = Column(String, nullable=True)  # price from cache at preview time (baseline for stale check)
+    new_price = Column(String, nullable=True)  # computed and rounded new price
+    status = Column(String, nullable=False, default="pending")
+    # item statuses: pending | applying | wc_succeeded | applied | failed | skipped | stale | needs_reconcile
+    wc_success_at = Column(DateTime, nullable=True)  # set immediately after WC write succeeds, before DB finalization
+    applied_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    batch = relationship("EmergencyBatch", back_populates="items")
 
 
 class ChangeTracking(Base):

@@ -6,6 +6,7 @@ import AppShell from './components/AppShell'
 import Home from './pages/Home'
 import Workspace from './pages/Workspace'
 import Analytics from './pages/Analytics'
+import Audit from './pages/Audit'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import Admin from './pages/Admin'
@@ -57,6 +58,7 @@ export default function App() {
                 path="/analytics"
                 element={<RequirePermission permission="can_access_site"><Analytics /></RequirePermission>}
               />
+              <Route path="/audit" element={<RequirePermission permission="can_view_logs"><Audit /></RequirePermission>} />
               <Route path="/logs" element={<RequirePermission permission="can_view_logs"><Logs /></RequirePermission>} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/admin" element={<RequirePermission adminOnly><Admin /></RequirePermission>} />

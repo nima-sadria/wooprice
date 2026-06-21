@@ -3,6 +3,7 @@ import hashlib
 import io as _io
 import json
 import logging
+import math
 import time
 
 import httpx
@@ -28,13 +29,14 @@ from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import and_, func, inspect as sa_inspect, or_, text
+from sqlalchemy import and_, func, inspect as sa_inspect, or_, text, update as sa_update
 from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import (
     AlarmThreshold, AppUser, AuditLog, ChangeHistory, ChangeTracking, DailyMetrics,
+    EmergencyBatch, EmergencyItem,
     ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob,
 )
 from .validation import ValidationLevel, validate_items, worst_level
@@ -196,6 +198,49 @@ def _run_column_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_product_id ON change_history(product_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_job_id ON change_history(job_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_changed_at ON change_history(changed_at)"))
+
+        # Phase 7B — batch_id column for emergency tracking
+        if "change_history" in existing_tables:
+            existing_ch_cols = {c["name"] for c in inspector.get_columns("change_history")}
+            if "batch_id" not in existing_ch_cols:
+                conn.execute(text("ALTER TABLE change_history ADD COLUMN batch_id INTEGER"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_change_history_batch_id ON change_history(batch_id)"))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS emergency_batches (
+                id INTEGER PRIMARY KEY,
+                created_at TIMESTAMP,
+                created_by TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                value REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                applied_at TIMESTAMP,
+                filter_snapshot TEXT
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS emergency_items (
+                id INTEGER PRIMARY KEY,
+                batch_id INTEGER NOT NULL REFERENCES emergency_batches(id),
+                product_id INTEGER NOT NULL,
+                sku TEXT,
+                product_name TEXT,
+                old_price TEXT,
+                new_price TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                wc_success_at TIMESTAMP,
+                applied_at TIMESTAMP,
+                error TEXT
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emergency_items_batch_id ON emergency_items(batch_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_emergency_items_product_id ON emergency_items(product_id)"))
+
+        # Phase 7B-R2: wc_success_at column for post-WC durability tracking
+        if "emergency_items" in existing_tables:
+            existing_ei_cols = {c["name"] for c in inspector.get_columns("emergency_items")}
+            if "wc_success_at" not in existing_ei_cols:
+                conn.execute(text("ALTER TABLE emergency_items ADD COLUMN wc_success_at TIMESTAMP"))
 
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS change_tracking (
@@ -699,6 +744,7 @@ def _record_change_history(
     job_id: int | None = None,
     source: str = "apply",
     rollback_of_id: int | None = None,
+    batch_id: int | None = None,
 ) -> ChangeHistory:
     """Insert a change_history row capturing prior state before a WC update.
     Caller is responsible for committing the session. Returns the (un-flushed) row."""
@@ -729,6 +775,7 @@ def _record_change_history(
         job_id=job_id,
         source=source,
         rollback_of_id=rollback_of_id,
+        batch_id=batch_id,
         brand_id=_brand_id,
         price_delta_pct=_delta_pct,
     )
@@ -1442,12 +1489,21 @@ async def list_cached_products(
     limit: int = Query(50, ge=1, le=500),
     search: str | None = Query(None),
     product_type: str | None = Query(None),
+    brand_name: str | None = Query(None),
+    category_id: int | None = Query(None),
+    wc_id: int | None = Query(None),
+    sku: str | None = Query(None),
+    name: str | None = Query(None),
     user: dict = Depends(require_permission("can_fetch")),
     db: Session = Depends(get_db),
 ):
-    """Return paginated products from the local DB cache with optional filters."""
+    """Return paginated products from the local DB cache with combined filters."""
     import math
-    items, total = cache_get_page(db, page=page, limit=limit, search=search, product_type=product_type)
+    items, total = cache_get_page(
+        db, page=page, limit=limit, search=search, product_type=product_type,
+        brand_name=brand_name, category_id=category_id, wc_id_exact=wc_id,
+        sku=sku, name=name,
+    )
     return {
         "page": page,
         "limit": limit,
@@ -2343,6 +2399,20 @@ async def get_dashboard(user: dict = Depends(require_permission("can_access_site
         .scalar() or 0
     )
 
+    # Emergency alert: products with applied emergency prices still matching cache
+    # (i.e. not yet overridden by a sheet-sync apply).
+    emergency_unsynced = (
+        db.query(func.count(func.distinct(EmergencyItem.product_id)))
+        .join(EmergencyBatch, EmergencyItem.batch_id == EmergencyBatch.id)
+        .join(ProductCache, EmergencyItem.product_id == ProductCache.wc_id)
+        .filter(
+            EmergencyItem.status == "applied",
+            EmergencyBatch.status == "applied",
+            ProductCache.final_price == EmergencyItem.new_price,
+        )
+        .scalar() or 0
+    )
+
     return {
         "total_syncs": total_syncs,
         "latest_job": _job_out(latest_job) if latest_job else None,
@@ -2362,6 +2432,7 @@ async def get_dashboard(user: dict = Depends(require_permission("can_access_site
             "in_stock": cache_in_stock,
             "out_of_stock": cache_out_of_stock,
         },
+        "emergency_unsynced": emergency_unsynced,
     }
 
 
@@ -4253,11 +4324,11 @@ async def writeback(job_id: int, user: dict = Depends(require_permission("can_ap
 
 # ── 9. Rollback (Phase C — admin only) ────────────────────────────────────────
 
-async def _rollback_one(db: Session, entry: ChangeHistory, username: str) -> dict:
+async def _rollback_one(db: Session, entry: ChangeHistory, username: str, undo_source: str = "rollback") -> dict:
     """Restore the prior state captured in a single change_history entry via WooCommerce.
 
     Returns a per-product result dict. Records a new change_history row with
-    source='rollback' and rollback_of_id pointing to the reverted entry, and patches
+    source=undo_source and rollback_of_id pointing to the reverted entry, and patches
     the local cache. Raises on WooCommerce failure (caller decides how to surface)."""
     pid = entry.product_id
     parent_id = entry.parent_id or 0
@@ -4296,7 +4367,7 @@ async def _rollback_one(db: Session, entry: ChangeHistory, username: str) -> dic
     if patch_fields:
         patch_cached_product(db, pid, patch_fields)
 
-    # Record the rollback itself as a new change_history row.
+    # Record the rollback/undo itself as a new change_history row.
     _record_change_history(
         db,
         product_id=pid,
@@ -4309,7 +4380,7 @@ async def _rollback_one(db: Session, entry: ChangeHistory, username: str) -> dic
         new_stock_quantity=payload.get("stock_quantity"),
         username=username,
         job_id=entry.job_id,
-        source="rollback",
+        source=undo_source,
         rollback_of_id=entry.id,
     )
 
@@ -4427,6 +4498,523 @@ async def rollback_job(
            {"scope": "job", "succeeded": succeeded, "failed": failed})
     return {"job_id": job_id, "status": "rolled_back",
             "succeeded": succeeded, "failed": failed, "results": results}
+
+
+# ── Phase 7B: Emergency Price Engine ─────────────────────────────────────────
+
+def _emergency_round(price: float) -> int:
+    """MROUND equivalent: round to nearest 10,000 if price ≤ 20,000,000 else 50,000.
+    Uses round-half-away-from-zero (Excel MROUND / JS Math.round behavior), not banker's rounding."""
+    unit = 50_000 if price > 20_000_000 else 10_000
+    return int(math.floor(price / unit + 0.5)) * unit
+
+
+def _prices_equal(a: str | None, b: str | None) -> bool:
+    """Compare price strings numerically so '100000' and '100000.00' are treated as equal."""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    try:
+        return float(a) == float(b)
+    except (ValueError, TypeError):
+        return a == b
+
+
+class EmergencyPreviewRequest(BaseModel):
+    operation: str               # pct_increase | pct_decrease | fixed_increase | fixed_decrease
+    value: float                 # percent (0–100, exclusive–inclusive) or fixed amount (>0)
+    brand_name: str | None = None
+    category_id: int | None = None
+    sku: str | None = None
+    product_ids: list[int] | None = None  # AND-combined with other filters when both supplied
+
+
+class EmergencyApplyRequest(BaseModel):
+    confirm: bool = False        # must be True — explicit guard against accidental apply
+
+
+class UndoRequest(BaseModel):
+    change_id: int | None = None
+    change_ids: list[int] | None = None
+    batch_id: int | None = None
+    confirm: bool = False
+
+
+def _emergency_batch_out(batch: EmergencyBatch) -> dict:
+    return {
+        "id": batch.id,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "created_by": batch.created_by,
+        "operation": batch.operation,
+        "value": batch.value,
+        "status": batch.status,
+        "applied_at": batch.applied_at.isoformat() if batch.applied_at else None,
+        "item_count": len(batch.items),
+        "applied_count": sum(1 for i in batch.items if i.status == "applied"),
+        "failed_count": sum(1 for i in batch.items if i.status == "failed"),
+        "skipped_count": sum(1 for i in batch.items if i.status == "skipped"),
+        "needs_reconcile_count": sum(1 for i in batch.items if i.status == "needs_reconcile"),
+    }
+
+
+def _emergency_item_out(item: EmergencyItem) -> dict:
+    return {
+        "id": item.id,
+        "product_id": item.product_id,
+        "sku": item.sku or "",
+        "product_name": item.product_name or "",
+        "old_price": item.old_price,
+        "new_price": item.new_price,
+        "status": item.status,
+        "error": item.error,
+        "wc_success_at": item.wc_success_at.isoformat() if item.wc_success_at else None,
+    }
+
+
+@app.post("/api/emergency/preview")
+async def emergency_preview(
+    body: EmergencyPreviewRequest,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Create an emergency price update batch — preview only, no WC writes.
+    Returns batch_id + computed new prices. Caller must POST to /apply to confirm."""
+    valid_ops = {"pct_increase", "pct_decrease", "fixed_increase", "fixed_decrease"}
+    if body.operation not in valid_ops:
+        raise HTTPException(400, f"operation must be one of: {', '.join(sorted(valid_ops))}")
+    if not math.isfinite(body.value):
+        raise HTTPException(400, "value must be a finite number (not NaN or Infinity)")
+    if body.operation in ("pct_increase", "pct_decrease"):
+        if body.value <= 0 or body.value > 100:
+            raise HTTPException(400, "value must be > 0 and ≤ 100 for percentage operations")
+    else:
+        if body.value <= 0:
+            raise HTTPException(400, "value must be greater than 0 for fixed operations")
+
+    # Build product query — top-level products only (parent_id=0)
+    q = db.query(ProductCache).filter(ProductCache.parent_id == 0)
+    if body.brand_name:
+        q = q.filter(ProductCache.brand_name.ilike(f"%{body.brand_name}%"))
+    if body.category_id is not None:
+        q = q.filter(ProductCache.categories.like(f'%"id": {body.category_id}%'))
+    if body.sku:
+        q = q.filter(ProductCache.sku.ilike(f"%{body.sku}%"))
+    if body.product_ids:
+        q = q.filter(ProductCache.wc_id.in_(body.product_ids))
+    products = q.order_by(ProductCache.wc_id).all()
+
+    if not products:
+        raise HTTPException(404, "No products matched the given filters")
+
+    batch = EmergencyBatch(
+        created_by=user["sub"],
+        operation=body.operation,
+        value=body.value,
+        status="pending",
+        filter_snapshot=json.dumps({
+            "brand_name": body.brand_name,
+            "category_id": body.category_id,
+            "sku": body.sku,
+            "product_ids": body.product_ids,
+        }),
+    )
+    db.add(batch)
+    db.flush()
+
+    items_out = []
+    for p in products:
+        old_str = p.final_price or p.regular_price or ""
+        old_val = _safe_price_float(old_str)
+        if old_val is None or old_val <= 0:
+            item = EmergencyItem(
+                batch_id=batch.id, product_id=p.wc_id,
+                sku=p.sku, product_name=p.name,
+                old_price=old_str or None, new_price=None, status="skipped",
+            )
+            db.add(item)
+            items_out.append(_emergency_item_out(item))
+            continue
+
+        if body.operation == "pct_increase":
+            new_val = old_val * (1 + body.value / 100)
+        elif body.operation == "pct_decrease":
+            new_val = old_val * (1 - body.value / 100)
+        elif body.operation == "fixed_increase":
+            new_val = old_val + body.value
+        else:  # fixed_decrease
+            new_val = old_val - body.value
+
+        if new_val <= 0:
+            new_price_str = None
+            item_status = "skipped"
+        else:
+            new_price_str = str(_emergency_round(new_val))
+            item_status = "pending"
+
+        item = EmergencyItem(
+            batch_id=batch.id, product_id=p.wc_id,
+            sku=p.sku, product_name=p.name,
+            old_price=old_str or None, new_price=new_price_str, status=item_status,
+        )
+        db.add(item)
+        db.flush()
+        items_out.append(_emergency_item_out(item))
+
+    db.commit()
+    return {"batch_id": batch.id, "items": items_out, "total": len(items_out)}
+
+
+@app.get("/api/emergency/pending")
+async def emergency_list_pending(
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """List batches requiring operator attention:
+      pending       — awaiting apply
+      applying      — interrupted mid-apply; needs investigation
+      needs_reconcile — WC wrote but DB finalization failed; needs manual reconciliation
+      partially_failed — some items applied, some failed; review recommended"""
+    batches = (
+        db.query(EmergencyBatch)
+        .filter(EmergencyBatch.status.in_(["pending", "applying", "needs_reconcile", "partially_failed"]))
+        .order_by(EmergencyBatch.created_at.desc())
+        .all()
+    )
+    return {"batches": [_emergency_batch_out(b) for b in batches]}
+
+
+@app.get("/api/emergency/{batch_id}")
+async def emergency_get_batch(
+    batch_id: int,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Get a single emergency batch with its items."""
+    batch = db.get(EmergencyBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, "Emergency batch not found")
+    out = _emergency_batch_out(batch)
+    out["items"] = [_emergency_item_out(i) for i in batch.items]
+    return out
+
+
+@app.post("/api/emergency/{batch_id}/apply")
+async def emergency_apply(
+    batch_id: int,
+    body: EmergencyApplyRequest,
+    request: Request,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Apply a pending emergency batch to WooCommerce. Requires confirm=True. Admin-only.
+    Durability contract:
+      checkpoint A (item=applying)   — committed BEFORE the WC write
+      checkpoint B (item=wc_succeeded) — committed immediately AFTER WC write, before cache/history
+      checkpoint C (item=applied)    — committed after cache + ChangeHistory finalized
+      If checkpoint B exists but C fails: item becomes needs_reconcile (WC wrote; DB needs manual fix)
+      If WC write fails: item becomes failed (no external side-effect)
+    Freshness: items whose cached price changed since preview are marked stale and never written."""
+    if not body.confirm:
+        raise HTTPException(400, "confirm must be true — this prevents accidental mass price changes")
+
+    # Check batch exists before attempting claim
+    batch = db.get(EmergencyBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, "Emergency batch not found")
+
+    # HIGH 1: Atomic claim — single conditional UPDATE WHERE status='pending'.
+    # rowcount == 1 guarantees exclusive ownership; rowcount == 0 means another request already claimed it.
+    claim = db.execute(
+        sa_update(EmergencyBatch)
+        .where(EmergencyBatch.id == batch_id, EmergencyBatch.status == "pending")
+        .values(status="applying")
+    )
+    db.commit()
+    if claim.rowcount != 1:
+        db.refresh(batch)
+        raise HTTPException(409, f"Batch already claimed: status is '{batch.status}' — only 'pending' batches can be applied")
+
+    db.refresh(batch)
+    ip = _client_ip(request)
+    username = user["sub"]
+    pending_items = [i for i in batch.items if i.status == "pending" and i.new_price]
+
+    if not pending_items:
+        batch.status = "failed"
+        db.commit()
+        raise HTTPException(400, "No pending items with a computed price to apply")
+
+    _audit(username, "emergency_apply_started", ip, detail={"batch_id": batch_id, "count": len(pending_items)})
+
+    applied = failed = skipped = stale_count = reconcile_count = 0
+    for item in pending_items:
+        cache_row = db.query(ProductCache).filter(ProductCache.wc_id == item.product_id).first()
+
+        # HIGH 2: Staleness guard — compare numerically so '100000' == '100000.00'.
+        current_price = (cache_row.final_price or cache_row.regular_price) if cache_row else None
+        if current_price is None:
+            item.status = "stale"
+            item.error = "Product no longer in cache"
+            db.commit()
+            stale_count += 1
+            continue
+        if not _prices_equal(current_price, item.old_price):
+            item.status = "stale"
+            item.error = f"Price changed since preview: was {item.old_price}, now {current_price}"
+            db.commit()
+            stale_count += 1
+            continue
+
+        parent_id = (cache_row.parent_id or 0) if cache_row else 0
+
+        # Checkpoint A: commit 'applying' before WC write — process is auditable if it crashes here.
+        item.status = "applying"
+        db.commit()
+
+        wc_write_succeeded = False  # in-memory flag — tracks whether WC call returned OK
+        try:
+            await update_single_product(item.product_id, {"regular_price": item.new_price}, parent_id)
+            wc_write_succeeded = True  # set immediately after WC returns; survives any later DB failure
+
+            # Checkpoint B: commit durable marker before any DB finalization.
+            # wc_write_succeeded=True means a checkpoint B failure routes to needs_reconcile, never failed.
+            item.status = "wc_succeeded"
+            item.wc_success_at = datetime.utcnow()
+            db.commit()
+
+            try:
+                # Finalization: update local cache + create ChangeHistory audit record.
+                patch_cached_product(db, item.product_id, {
+                    "regular_price": item.new_price,
+                    "final_price": item.new_price,
+                })
+                _record_change_history(
+                    db,
+                    product_id=item.product_id,
+                    parent_id=parent_id,
+                    old_price=item.old_price,
+                    new_price=item.new_price,
+                    username=username,
+                    source="emergency",
+                    batch_id=batch_id,
+                )
+                _invalidate_dry_runs_for_product(db, item.product_id)
+                # Checkpoint C: fully finalized.
+                item.status = "applied"
+                item.applied_at = datetime.utcnow()
+                db.commit()
+                applied += 1
+            except Exception as exc2:
+                # Checkpoint B was committed; finalization failed.
+                # Mark needs_reconcile so operator knows WC is already updated.
+                db.rollback()
+                item.status = "needs_reconcile"
+                item.error = f"WC write succeeded but DB finalization failed: {exc2}"
+                db.commit()
+                reconcile_count += 1
+                logger.error("emergency_apply: reconcile needed: product_id=%d error=%s", item.product_id, exc2)
+
+        except Exception as exc:
+            db.rollback()
+            if wc_write_succeeded:
+                # WC returned success but checkpoint B commit itself failed.
+                # Must NOT mark as failed — WC was already written; needs operator reconciliation.
+                item.status = "needs_reconcile"
+                item.wc_success_at = datetime.utcnow()  # best-effort: WC succeeded at approximately this time
+                item.error = f"WC write succeeded but checkpoint commit failed: {exc}"
+                db.commit()
+                reconcile_count += 1
+                logger.error("emergency_apply: checkpoint B failed after WC success: product_id=%d error=%s", item.product_id, exc)
+            else:
+                # WC write itself failed — no external side-effect; safe to mark failed.
+                item.status = "failed"
+                item.error = str(exc)
+                db.commit()
+                failed += 1
+                logger.error("emergency_apply: product_id=%d error=%s", item.product_id, exc)
+
+    # Batch final status reflects actual item outcomes.
+    if reconcile_count > 0:
+        batch.status = "needs_reconcile"
+    elif applied > 0 and failed == 0 and stale_count == 0:
+        batch.status = "applied"
+    elif applied > 0:
+        batch.status = "partially_failed"
+    else:
+        batch.status = "failed"
+    batch.applied_at = datetime.utcnow()
+    db.commit()
+
+    _audit(username, "emergency_apply_done", ip, detail={
+        "batch_id": batch_id, "applied": applied, "failed": failed,
+        "stale": stale_count, "reconcile": reconcile_count,
+    })
+    return {
+        "batch_id": batch_id, "applied": applied, "failed": failed,
+        "skipped": skipped, "stale": stale_count, "reconcile": reconcile_count,
+    }
+
+
+@app.delete("/api/emergency/{batch_id}")
+async def emergency_cancel(
+    batch_id: int,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Cancel (discard) a pending emergency batch. Applied batches cannot be cancelled."""
+    batch = db.get(EmergencyBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, "Emergency batch not found")
+    if batch.status != "pending":
+        raise HTTPException(400, "Only pending batches can be cancelled")
+    batch.status = "cancelled"
+    db.commit()
+    return {"batch_id": batch_id, "status": "cancelled"}
+
+
+# ── Phase 7B: Audit History + Undo ────────────────────────────────────────────
+
+@app.get("/api/audit/history")
+async def audit_history(
+    from_date: str = Query(default=None),
+    to_date: str = Query(default=None),
+    brand_name: str = Query(default=None),
+    sku: str = Query(default=None),
+    product_name: str = Query(default=None),
+    source: str = Query(default=None),  # apply|direct_edit|emergency|rollback|undo
+    limit: int = Query(default=100, ge=1, le=500),
+    offset_id: int = Query(default=0, ge=0),
+    user: dict = Depends(require_permission("can_view_logs")),
+    db: Session = Depends(get_db),
+):
+    """All ChangeHistory rows across all sources with product info. Newest first."""
+    q = db.query(ChangeHistory)
+    if from_date:
+        try:
+            q = q.filter(ChangeHistory.changed_at >= datetime.strptime(from_date, "%Y-%m-%d"))
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            q = q.filter(ChangeHistory.changed_at < datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1))
+        except ValueError:
+            pass
+    if source:
+        q = q.filter(ChangeHistory.source == source)
+    if brand_name or sku or product_name:
+        pq = db.query(ProductCache.wc_id)
+        if brand_name:
+            pq = pq.filter(ProductCache.brand_name.ilike(f"%{brand_name}%"))
+        if sku:
+            pq = pq.filter(ProductCache.sku.ilike(f"%{sku}%"))
+        if product_name:
+            pq = pq.filter(ProductCache.name.ilike(f"%{product_name}%"))
+        pids = [r.wc_id for r in pq.all()]
+        if not pids:
+            return {"changes": [], "total": 0}
+        q = q.filter(ChangeHistory.product_id.in_(pids))
+
+    total = q.count()
+    rows = (
+        q.order_by(ChangeHistory.changed_at.desc(), ChangeHistory.id.desc())
+        .offset(offset_id)
+        .limit(limit)
+        .all()
+    )
+    product_ids = list({r.product_id for r in rows})
+    cache_map = (
+        {p.wc_id: p for p in db.query(ProductCache).filter(ProductCache.wc_id.in_(product_ids)).all()}
+        if product_ids else {}
+    )
+    result = []
+    for r in rows:
+        pc = cache_map.get(r.product_id)
+        result.append({
+            "id": r.id,
+            "product_id": r.product_id,
+            "name": pc.name if pc else "",
+            "sku": pc.sku if pc else "",
+            "brand_name": (pc.brand_name if pc else "") or "",
+            "old_price": r.old_price,
+            "new_price": r.new_price,
+            "old_stock_status": r.old_stock_status,
+            "new_stock_status": r.new_stock_status,
+            "changed_at": r.changed_at.isoformat() if r.changed_at else None,
+            "username": r.username,
+            "source": r.source,
+            "job_id": r.job_id,
+            "batch_id": r.batch_id,
+            "rollback_of_id": r.rollback_of_id,
+        })
+    return {"changes": result, "total": total}
+
+
+@app.post("/api/audit/undo")
+async def audit_undo(
+    body: UndoRequest,
+    request: Request,
+    user: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Undo one or more ChangeHistory entries by restoring their prior state via WooCommerce.
+    Admin only. Requires confirm=True. Creates new ChangeHistory rows with source='undo'."""
+    if not body.confirm:
+        raise HTTPException(400, "confirm must be true")
+
+    ids_to_undo: list[int] = []
+    if body.change_id is not None:
+        ids_to_undo = [body.change_id]
+    elif body.change_ids:
+        ids_to_undo = list(body.change_ids)
+    elif body.batch_id is not None:
+        rows = (
+            db.query(ChangeHistory.id)
+            .filter(ChangeHistory.batch_id == body.batch_id, ChangeHistory.source == "emergency")
+            .all()
+        )
+        ids_to_undo = [r.id for r in rows]
+
+    if not ids_to_undo:
+        raise HTTPException(400, "No change_id(s) or batch_id provided")
+    if len(ids_to_undo) > 200:
+        raise HTTPException(400, f"Cannot undo more than 200 changes at once (got {len(ids_to_undo)})")
+
+    entries = db.query(ChangeHistory).filter(ChangeHistory.id.in_(ids_to_undo)).all()
+    if not entries:
+        raise HTTPException(404, "No matching change history entries found")
+
+    ip = _client_ip(request)
+    username = user["sub"]
+    _audit(username, "undo_started", ip, detail={"ids": ids_to_undo[:20], "count": len(ids_to_undo)})
+
+    undone = failed = 0
+    results: list[dict] = []
+    for entry in entries:
+        try:
+            res = await _rollback_one(db, entry, username, undo_source="undo")
+            if res.get("success"):
+                db.commit()
+                undone += 1
+            else:
+                db.rollback()
+                failed += 1
+            results.append({"id": entry.id, "product_id": entry.product_id, **res})
+        except Exception as exc:
+            db.rollback()
+            failed += 1
+            results.append({"id": entry.id, "product_id": entry.product_id, "success": False, "error_message": str(exc)})
+            logger.warning("audit_undo: change_id=%d pid=%d error=%s", entry.id, entry.product_id, exc)
+
+    if undone > 0:
+        try:
+            _upsert_daily_metrics(db, _today_str(), rollback_jobs=undone)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    _audit(username, "undo_completed", ip, detail={"undone": undone, "failed": failed})
+    return {"undone": undone, "failed": failed, "results": results}
 
 
 # ── SPA catch-all ─────────────────────────────────────────────────────────────

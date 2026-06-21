@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.pool import StaticPool
 
 from .config import get_settings
 
@@ -23,9 +24,11 @@ def _ensure_local_db_dir(db_url: str) -> None:
 _db_url = get_settings().database_url
 _ensure_local_db_dir(_db_url)
 
+_is_memory = ":memory:" in _db_url
 engine = create_engine(
     _db_url,
     connect_args={"check_same_thread": False},
+    **({"poolclass": StaticPool} if _is_memory else {}),
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
