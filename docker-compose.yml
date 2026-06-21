@@ -4,6 +4,9 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    dns:
+      - 192.168.100.1
+      - 192.168.100.20
     volumes:
       - ./data:/app/data
     env_file:
