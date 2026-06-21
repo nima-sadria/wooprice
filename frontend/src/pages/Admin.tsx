@@ -366,6 +366,7 @@ export default function Admin() {
                 <button
                   onClick={() => void toggleMaintenance(false)}
                   disabled={maintStatus === 'saving'}
+                  title="Re-enables access for all users. Active sessions see the maintenance overlay lifted immediately on their next API call."
                   className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-[12px] font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                 >
                   Disable Maintenance
@@ -374,6 +375,7 @@ export default function Admin() {
                 <button
                   onClick={() => void toggleMaintenance(true)}
                   disabled={maintStatus === 'saving'}
+                  title="Blocks all normal users from sync features immediately. Super admins (SUPER_ADMIN_USERS) always have full access. Blocked users see the message below."
                   className="px-3 py-1.5 rounded-lg bg-wp-red text-white text-[12px] font-medium hover:bg-wp-red/90 disabled:opacity-50 transition-colors"
                 >
                   Enable Maintenance

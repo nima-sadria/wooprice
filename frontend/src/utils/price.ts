@@ -1,10 +1,10 @@
-/** Strip trailing .00 from price strings for clean display.
- *  "150000.00" → "150000"  |  "150000" → "150000"  |  null/empty → "—" */
+/** Format price as integer with thousands separators and no decimals.
+ *  "150000.00" → "150,000"  |  "100000" → "100,000"  |  null/empty → "—" */
 export function fmtPrice(p: string | null | undefined): string {
   if (!p || p.trim() === '') return '—'
   const n = parseFloat(p)
   if (isNaN(n)) return p
-  return Number.isInteger(n) ? String(Math.trunc(n)) : p
+  return Math.trunc(n).toLocaleString('en')
 }
 
 /** Round per emergency price formula:

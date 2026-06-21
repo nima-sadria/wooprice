@@ -333,6 +333,7 @@ export default function AuditPage() {
                             <span className="text-[11px] text-wp-muted">—</span>
                           ) : (
                             <button onClick={() => handleUndo(row.id)}
+                              title="Restores the previous price/stock for this product in WooCommerce. Requires admin. Creates an audit record. Requires confirmation."
                               className="px-2 py-1 text-[11px] border border-[#f87171] text-[#dc2626] rounded hover:bg-red-50 transition-colors">
                               Undo
                             </button>

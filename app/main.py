@@ -397,8 +397,12 @@ async def maintenance_mode_middleware(request: Request, call_next):
         return await call_next(request)
 
     # Maintenance is ON — super admins bypass.
+    # Also check the `token` query param: SSE endpoints (EventSource API) cannot
+    # set custom headers, so they pass the JWT as ?token=<jwt> instead.
     auth_header = request.headers.get("Authorization", "")
     token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        token = request.query_params.get("token", "").strip()
     if token:
         try:
             user_data = decode_token(token)

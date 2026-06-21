@@ -575,3 +575,81 @@ class TestLiveMaintenanceActivation:
             assert r.status_code != 503, "Super admin must not receive a maintenance 503"
         finally:
             _set_maintenance(False)
+
+
+# ── Part A (7.2): Query param token bypass ────────────────────────────────────
+
+class TestQueryParamBypass:
+    """Project 7.2 Part A: maintenance bypass must work via ?token= query param.
+    SSE endpoints (EventSource API) cannot set custom headers, so they pass the
+    JWT as a query parameter — the middleware must honour this for super admins."""
+
+    def test_super_admin_with_token_query_param_bypasses_maintenance(self, client: TestClient):
+        """Super admin JWT passed as ?token= must bypass the maintenance block."""
+        _set_maintenance(True, "Blocked for normal users")
+        try:
+            token = create_token("testadmin", permission_version=0, role="admin")
+            # No Authorization header — token via query param only
+            r = client.get("/api/alarm-settings", params={"token": token})
+            assert r.status_code != 503, (
+                f"Super admin with ?token= query param must bypass maintenance; got {r.status_code}"
+            )
+            # If JSON response (not a list), confirm it's not a maintenance block
+            body = r.json()
+            if isinstance(body, dict):
+                assert body.get("maintenance") is not True
+        finally:
+            _set_maintenance(False)
+
+    def test_normal_user_with_token_query_param_is_blocked_during_maintenance(self, client: TestClient):
+        """Normal user JWT in ?token= query param is still blocked during maintenance."""
+        _seed_normal_user()
+        _set_maintenance(True, "Maintenance active")
+        try:
+            token = create_token("normaluser71", permission_version=1, role="user")
+            r = client.get("/api/alarm-settings", params={"token": token})
+            assert r.status_code == 503, (
+                f"Normal user with ?token= must be blocked; got {r.status_code}"
+            )
+            assert r.json().get("maintenance") is True
+        finally:
+            _set_maintenance(False)
+
+    def test_thumb_route_blocked_for_normal_user_during_maintenance(self, client: TestClient):
+        """/api/products/{id}/thumb is blocked for normal users during maintenance."""
+        _seed_normal_user()
+        _set_maintenance(True, "Maintenance active")
+        try:
+            r = client.get("/api/products/99999/thumb", headers=_user_headers())
+            assert r.status_code == 503, (
+                f"Thumb route must be blocked for normal user during maintenance; got {r.status_code}"
+            )
+            assert r.json().get("maintenance") is True
+        finally:
+            _set_maintenance(False)
+
+    def test_thumb_route_super_admin_bypass_during_maintenance(self, client: TestClient):
+        """/api/products/{id}/thumb passes the middleware for super admins during maintenance."""
+        _set_maintenance(True, "Maintenance active")
+        try:
+            r = client.get("/api/products/99999/thumb", headers=_super_headers())
+            # Super admin bypasses maintenance middleware; endpoint handles the rest (may 404)
+            assert r.status_code != 503, (
+                f"Super admin must bypass maintenance on thumb route; got {r.status_code}"
+            )
+        finally:
+            _set_maintenance(False)
+
+    def test_db_admin_with_query_param_token_is_blocked_during_maintenance(self, client: TestClient):
+        """DB admin (is_admin=True but not in SUPER_ADMIN_USERS) is blocked even via ?token=."""
+        _seed_db_admin()
+        _set_maintenance(True, "Maintenance active")
+        try:
+            token = create_token("dbadmin71", permission_version=1, role="admin")
+            r = client.get("/api/alarm-settings", params={"token": token})
+            assert r.status_code == 503, (
+                f"DB admin with ?token= must be blocked during maintenance; got {r.status_code}"
+            )
+            assert r.json().get("maintenance") is True
+        finally:
+            _set_maintenance(False)

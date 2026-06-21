@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import zlib
 from datetime import datetime, timezone
 
 import httpx
@@ -86,19 +87,29 @@ def get_cache_info() -> dict:
 
 
 def _extract_brand(p: dict) -> tuple[int | None, str | None]:
-    """Return (brand_id, brand_name) from WC's native `brands` taxonomy field.
+    """Return (brand_id, brand_name) from WC's native `brands` taxonomy field,
+    falling back to the pa_brand-filter product attribute when no taxonomy
+    entry is present.
 
-    Confirmed via live audit: WooCommerce's "Brands" feature (taxonomy
-    `product_brand`) exposes a top-level `brands: [{id, name, slug}]` array on
-    every product, structured like `categories`. A product can technically
-    carry more than one brand term, but in practice this catalog assigns at
-    most one — we take the first. No brand assigned -> (None, None). This is
-    NEVER guessed from the product name or any other field.
+    Primary: WC Brands taxonomy (top-level `brands: [{id, name, slug}]`).
+    Fallback: pa_brand-filter attribute option (e.g. in catalogs that use the
+    WooCommerce attribute taxonomy instead of the Brands plugin). The brand_id
+    for pa_brand-filter entries is a stable crc32 of the brand name (attribute
+    options don't expose term IDs in the products endpoint).
+    brand_id=None means no brand at all — never guessed from name or other fields.
     """
     brands = p.get("brands") or []
     if brands:
         b = brands[0]
         return b.get("id"), b.get("name")
+    for attr in (p.get("attributes") or []):
+        slug = attr.get("slug") or attr.get("name") or ""
+        if slug == "pa_brand-filter":
+            options = attr.get("options") or []
+            if options:
+                name = str(options[0])
+                # Stable positive integer derived from brand name (no term ID available)
+                return zlib.crc32(name.encode()) & 0x7FFFFFFF, name
     return None, None
 
 

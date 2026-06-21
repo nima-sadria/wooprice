@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { fmtPrice } from '../utils/price'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -164,17 +165,6 @@ function fmt(n: number | undefined) {
   return (n ?? 0).toLocaleString('en')
 }
 
-function formatPrice(val: string | undefined | null): string {
-  if (!val) return '-'
-  const n = Number(val)
-  if (!Number.isFinite(n)) return val
-  try {
-    return n.toLocaleString('fa-IR')
-  } catch {
-    return n.toLocaleString()
-  }
-}
-
 function getSeverity(count: number, total: number): Severity {
   if (total === 0 || count === 0) return 'ok'
   const ratio = count / total
@@ -205,7 +195,7 @@ function productName(row: ProductRow) {
 }
 
 function price(row: ProductRow) {
-  return formatPrice(row.final_price || row.new_price)
+  return fmtPrice(row.final_price || row.new_price)
 }
 
 function topRows(rows: CoverageRow[], limit = 6) {
@@ -709,7 +699,7 @@ function MovementPanel({ title, rows, onOpen }: { title: string; rows: Movement[
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium text-text-base truncate">{row.name || `Product ${row.product_id}`}</div>
               <div className="text-[11px] text-wp-muted font-mono">
-                {formatPrice(row.old_price)} → {formatPrice(row.new_price)}
+                {fmtPrice(row.old_price)} → {fmtPrice(row.new_price)}
               </div>
             </div>
             <div className={[
@@ -808,8 +798,8 @@ function MovementTable({ rows }: { rows: Movement[] }) {
           <tr key={row.product_id} className="border-t border-border">
             <td className="px-4 py-3 text-wp-muted">{row.product_id}</td>
             <td className="px-4 py-3 text-text-base min-w-[220px]">{row.name || '-'}</td>
-            <td className="px-4 py-3 text-wp-muted font-mono">{formatPrice(row.old_price)}</td>
-            <td className="px-4 py-3 text-wp-muted font-mono">{formatPrice(row.new_price)}</td>
+            <td className="px-4 py-3 text-wp-muted font-mono">{fmtPrice(row.old_price)}</td>
+            <td className="px-4 py-3 text-wp-muted font-mono">{fmtPrice(row.new_price)}</td>
             <td className={['px-4 py-3 font-bold', row.delta_pct > 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'].join(' ')}>
               {row.delta_pct > 0 ? '+' : ''}{pct(row.delta_pct)}
             </td>
@@ -989,12 +979,12 @@ function ChangeHistoryTab({ authFetch, isAdmin }: { authFetch: AuthFetchFn; isAd
                         {r.sku && <div className="text-[11px] text-wp-muted">{r.sku}</div>}
                       </td>
                       <td className="px-4 py-2.5 text-wp-muted">{r.brand_name || '—'}</td>
-                      <td className="px-4 py-2.5 font-mono text-wp-muted">{r.old_price || '—'}</td>
+                      <td className="px-4 py-2.5 font-mono text-wp-muted">{fmtPrice(r.old_price)}</td>
                       <td className={[
                         'px-4 py-2.5 font-mono font-medium',
                         r.old_price !== r.new_price && r.old_price && r.new_price ? 'text-accent' : 'text-wp-muted',
                       ].join(' ')}>
-                        {r.new_price || '—'}
+                        {fmtPrice(r.new_price)}
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap">
                         {r.old_stock_status !== r.new_stock_status ? (

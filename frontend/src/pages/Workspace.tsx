@@ -1262,6 +1262,7 @@ function SyncActionBar({
           {/* Dry Run */}
           {!jobCancelled && !applyDone && (
             <button onClick={onDryRun} disabled={dryRunPhase === 'running' || !jobId || applyRunning}
+              title="Validates price changes locally — checks thresholds and critical rules. Does NOT write to WooCommerce. Required before Apply."
               className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base hover:border-accent transition-colors disabled:opacity-50">
               {dryRunPhase === 'running' ? 'Running…' : 'Dry Run'}
             </button>
@@ -1271,7 +1272,7 @@ function SyncActionBar({
           {!jobCancelled && !applyDone && (
             <button onClick={onApply}
               disabled={!canRunApply}
-              title={applyDisabledReason ?? ''}
+              title={applyDisabledReason ?? 'Writes approved price changes to WooCommerce. Requires a passed Dry Run. Use Rollback in Logs to undo.'}
               className="px-4 py-1.5 text-[12px] bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50">
               {applyRunning ? (
                 <span className="flex items-center gap-1.5">
@@ -1285,6 +1286,7 @@ function SyncActionBar({
           {/* Writeback */}
           {applyDone && (
             <button onClick={onWriteback} disabled={writebackPhase === 'pending' || writebackPhase === 'done'}
+              title="Pushes the applied prices back into the Nextcloud spreadsheet so the sheet stays in sync with WooCommerce."
               className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base hover:border-accent transition-colors disabled:opacity-50">
               {writebackPhase === 'pending' ? 'Writing…' :
                writebackPhase === 'done'    ? 'Written back ✓' :
@@ -1615,6 +1617,7 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
                 className="w-32 px-3 py-2 text-[13px] border border-border rounded-lg bg-bg-base text-text-base focus:outline-none focus:border-accent placeholder:text-wp-muted" />
             </div>
             <button onClick={() => void handleEmergencyPreview()} disabled={!emergency.value}
+              title="Computes new prices for the filtered product set. Does NOT write to WooCommerce yet — you must confirm in the next step."
               className="px-4 py-2 text-[13px] border border-[#b45309] text-[#b45309] rounded-lg hover:bg-[#fef3c7] disabled:opacity-50 transition-colors">
               Preview Changes
             </button>
@@ -1678,6 +1681,7 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => void handleEmergencyApply()} disabled={!emergency.confirmed}
+                title="Writes the previewed prices directly to WooCommerce immediately. Irreversible without a rollback."
                 className="px-4 py-1.5 text-[13px] bg-[#dc2626] text-white rounded-lg hover:bg-[#b91c1c] disabled:opacity-50 transition-colors">
                 Apply Emergency Update →
               </button>

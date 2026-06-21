@@ -193,7 +193,7 @@ export default function Logs() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 space-y-4">
       {/* Page header */}
       <div className="flex items-start justify-between mb-5">
         <div>
@@ -439,6 +439,7 @@ export default function Logs() {
                                   <button
                                     onClick={e => { e.stopPropagation(); void doWriteback(j.id) }}
                                     disabled={writebackLoading === j.id}
+                                    title="Pushes the applied prices back into the Nextcloud spreadsheet so the sheet stays in sync with WooCommerce."
                                     className="px-3 py-1.5 text-[12px] border border-border rounded-lg text-wp-muted hover:text-text-base hover:border-accent transition-colors disabled:opacity-50"
                                   >
                                     {writebackLoading === j.id ? 'Writing…' : 'Write Back to Sheet'}

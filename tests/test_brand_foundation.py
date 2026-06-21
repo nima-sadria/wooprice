@@ -53,6 +53,56 @@ def test_extract_brand_no_brand_assigned():
     print("test_extract_brand_no_brand_assigned: PASS")
 
 
+def test_extract_brand_pa_brand_filter_by_slug():
+    """pa_brand-filter attribute (matched by slug) provides fallback brand name."""
+    p = {"attributes": [{"slug": "pa_brand-filter", "options": ["Samsung"]}]}
+    brand_id, brand_name = _extract_brand(p)
+    assert brand_name == "Samsung", "Brand name must be extracted from pa_brand-filter"
+    assert brand_id is not None, "brand_id must be a non-None integer for pa_brand-filter"
+    assert isinstance(brand_id, int)
+    print("test_extract_brand_pa_brand_filter_by_slug: PASS")
+
+
+def test_extract_brand_pa_brand_filter_by_name_field():
+    """pa_brand-filter attribute matched by name field also works."""
+    p = {"attributes": [{"name": "pa_brand-filter", "options": ["LG"]}]}
+    brand_id, brand_name = _extract_brand(p)
+    assert brand_name == "LG"
+    assert brand_id is not None
+    print("test_extract_brand_pa_brand_filter_by_name_field: PASS")
+
+
+def test_extract_brand_wc_brands_takes_priority_over_pa_filter():
+    """When both WC brands taxonomy AND pa_brand-filter present, WC brands wins."""
+    p = {
+        "brands": [{"id": 942, "name": "Apple"}],
+        "attributes": [{"slug": "pa_brand-filter", "options": ["Wrong Brand"]}],
+    }
+    brand_id, brand_name = _extract_brand(p)
+    assert brand_id == 942
+    assert brand_name == "Apple"
+    print("test_extract_brand_wc_brands_takes_priority_over_pa_filter: PASS")
+
+
+def test_extract_brand_unrelated_attributes_return_none():
+    """Attributes that are not pa_brand-filter do not affect brand extraction."""
+    p = {"attributes": [{"slug": "pa_color", "options": ["Red"]}, {"slug": "pa_size", "options": ["L"]}]}
+    brand_id, brand_name = _extract_brand(p)
+    assert brand_id is None
+    assert brand_name is None
+    print("test_extract_brand_unrelated_attributes_return_none: PASS")
+
+
+def test_extract_brand_pa_brand_filter_stable_id():
+    """The same brand name always produces the same brand_id (crc32 stability)."""
+    p1 = {"attributes": [{"slug": "pa_brand-filter", "options": ["Samsung"]}]}
+    p2 = {"attributes": [{"slug": "pa_brand-filter", "options": ["Samsung"]}]}
+    id1, _ = _extract_brand(p1)
+    id2, _ = _extract_brand(p2)
+    assert id1 == id2, "Same brand name must always produce the same brand_id"
+    print("test_extract_brand_pa_brand_filter_stable_id: PASS")
+
+
 # ── _parse_product (light/legacy fetch path) ────────────────────────────────
 
 def test_parse_product_includes_brand():
@@ -314,6 +364,11 @@ def test_unknown_brand_bucket_increases_after_explicit_clear():
 if __name__ == "__main__":
     test_extract_brand_with_brand()
     test_extract_brand_no_brand_assigned()
+    test_extract_brand_pa_brand_filter_by_slug()
+    test_extract_brand_pa_brand_filter_by_name_field()
+    test_extract_brand_wc_brands_takes_priority_over_pa_filter()
+    test_extract_brand_unrelated_attributes_return_none()
+    test_extract_brand_pa_brand_filter_stable_id()
     test_parse_product_includes_brand()
     test_parse_product_no_brand_is_none_not_guessed()
     test_parse_full_product_parent_uses_own_brand()
