@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # Currency proxy — alanchand.com API token. Set via ALANCHAND_API_TOKEN env var.
     alanchand_api_token: str = ""
 
+    # Set DISABLE_DOCS=true in production to hide /docs and /openapi.json.
+    disable_docs: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

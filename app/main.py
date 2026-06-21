@@ -4,6 +4,7 @@ import io as _io
 import json
 import logging
 import math
+import threading
 import time
 
 import httpx
@@ -358,7 +359,46 @@ def _check_jwt_secret() -> None:
 
 _check_jwt_secret()
 
-app = FastAPI(title="WooPrice Sync", docs_url="/docs")
+# ── Login rate limiting ───────────────────────────────────────────────────────
+# In-memory buckets; reset on restart. Tracks failed attempts only.
+# Successful login clears both buckets for that IP + identifier.
+_LOGIN_RATE_LOCK = threading.Lock()
+_LOGIN_IP_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_USER_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_IP_LIMIT = 10     # max failures per IP per window
+_LOGIN_USER_LIMIT = 5    # max failures per identifier per window
+_LOGIN_RATE_WINDOW = 900  # 15 minutes
+
+
+def _rate_limit_check(store: dict, key: str, limit: int, window: float) -> tuple[bool, int]:
+    """Return (exceeded, retry_after_seconds). Prunes expired entries in place."""
+    now = time.time()
+    with _LOGIN_RATE_LOCK:
+        valid = [t for t in store.get(key, []) if t > now - window]
+        store[key] = valid
+        if len(valid) >= limit:
+            return True, max(int(min(valid) + window - now) + 1, 1)
+        return False, 0
+
+
+def _rate_limit_record(ip: str, identifier: str) -> None:
+    now = time.time()
+    with _LOGIN_RATE_LOCK:
+        _LOGIN_IP_ATTEMPTS.setdefault(ip, []).append(now)
+        _LOGIN_USER_ATTEMPTS.setdefault(identifier, []).append(now)
+
+
+def _rate_limit_clear(ip: str, identifier: str) -> None:
+    with _LOGIN_RATE_LOCK:
+        _LOGIN_IP_ATTEMPTS.pop(ip, None)
+        _LOGIN_USER_ATTEMPTS.pop(identifier, None)
+
+
+# ── FastAPI app ───────────────────────────────────────────────────────────────
+_s = get_settings()
+_docs_url = None if _s.disable_docs else "/docs"
+_openapi_url = None if _s.disable_docs else "/openapi.json"
+app = FastAPI(title="WooPrice Sync", docs_url=_docs_url, openapi_url=_openapi_url)
 
 
 # ── Maintenance mode middleware ────────────────────────────────────────────────
@@ -421,6 +461,27 @@ async def _unhandled(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
         raise exc
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+# ── Access logging middleware ─────────────────────────────────────────────────
+# Added after maintenance_mode_middleware so it is outermost and sees the final
+# status code (including 503 from maintenance mode).
+# Deliberately omits: Authorization header, token query param, request body.
+
+@app.middleware("http")
+async def _access_log(request: Request, call_next):
+    t0 = time.monotonic()
+    response = await call_next(request)
+    ms = round((time.monotonic() - t0) * 1000)
+    logger.info(
+        "access: method=%s path=%s status=%d duration_ms=%d ip=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        ms,
+        _client_ip(request),
+    )
+    return response
 
 
 # ── Auto-fetch background task ────────────────────────────────────────────────
@@ -1207,6 +1268,16 @@ def _resolve_alarm_threshold(
     When the item belongs to a category with its own row, that row wins; otherwise the
     global row (or the bare `alarm_threshold` float, for backward-compatible callers
     that don't pass category_thresholds at all) applies.
+
+    Blocking semantics (Priority 4 audit decision — warning-only is the safe default):
+      block_enabled=False (default): critical_threshold_percent has NO effect on Apply.
+        Price changes that exceed warning threshold produce a "warnings" dry-run status
+        but never produce "blocked". Admins must explicitly opt in to blocking via
+        PUT /api/alarm-settings with block_enabled=true.
+      block_enabled=True: changes exceeding critical_threshold_percent produce a
+        "blocked" dry-run status, which prevents Apply until re-evaluated.
+    This is intentional — a misconfigured critical threshold can never accidentally
+    freeze Apply without an admin explicitly setting block_enabled=True.
     """
     default = {"warning": alarm_threshold, "critical": None, "block_enabled": False}
     if not category_thresholds:
@@ -1976,9 +2047,30 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
     login_identifier = body.username.strip()
     ip = _client_ip(request)
 
+    # Per-IP rate limit (checked before any DB or Nextcloud work)
+    ip_exceeded, ip_retry = _rate_limit_check(_LOGIN_IP_ATTEMPTS, ip, _LOGIN_IP_LIMIT, _LOGIN_RATE_WINDOW)
+    if ip_exceeded:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts — try again later",
+            headers={"Retry-After": str(ip_retry)},
+        )
+
+    # Per-identifier rate limit
+    user_exceeded, user_retry = _rate_limit_check(
+        _LOGIN_USER_ATTEMPTS, login_identifier, _LOGIN_USER_LIMIT, _LOGIN_RATE_WINDOW
+    )
+    if user_exceeded:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts — try again later",
+            headers={"Retry-After": str(user_retry)},
+        )
+
     # Resolve email → canonical username (non-email identifiers pass through unchanged)
     canonical_username = _resolve_login_identifier(login_identifier, db)
     if canonical_username is None:
+        _rate_limit_record(ip, login_identifier)
         _audit("unknown", "login_denied_unknown_email", ip, detail={"login_identifier": login_identifier})
         raise HTTPException(403, "Access not granted — contact your administrator")
 
@@ -1989,11 +2081,13 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
     except Exception as exc:
         raise HTTPException(503, f"Nextcloud unreachable: {exc}")
     if not valid:
+        _rate_limit_record(ip, login_identifier)
         _audit(canonical_username, "login_failed", ip, detail=id_detail)
         raise HTTPException(401, "Invalid Nextcloud credentials")
 
     # Super admins bypass the app_users table entirely
     if is_super_admin(canonical_username):
+        _rate_limit_clear(ip, login_identifier)
         token = create_token(canonical_username, permission_version=0, role="admin")
         _audit(canonical_username, "login", ip, detail=id_detail)
         return {"token": token, "username": canonical_username, "role": "admin"}
@@ -2001,9 +2095,11 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
     # Regular users: must exist in app_users and be active
     app_user = db.query(AppUser).filter(AppUser.username == canonical_username).first()
     if app_user is None or not app_user.is_active:
+        _rate_limit_record(ip, login_identifier)
         _audit(canonical_username, "login_denied_not_in_access_list", ip, detail=id_detail)
         raise HTTPException(403, "Access not granted — contact your administrator")
 
+    _rate_limit_clear(ip, login_identifier)
     role = "admin" if app_user.is_admin else "user"
     token = create_token(canonical_username, permission_version=app_user.permission_version, role=role)
     _audit(canonical_username, "login_allowed_user_access", ip, detail=id_detail)
