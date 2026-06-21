@@ -2,11 +2,18 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 type PermissionMap = Record<string, boolean>
 
+export interface MaintenanceState {
+  enabled: boolean
+  message: string
+}
+
 export interface AuthUser {
   username: string
   role: string
   is_admin: boolean
+  is_super_admin: boolean
   permissions: PermissionMap
+  maintenance?: MaintenanceState
 }
 
 type AuthStatus = 'loading' | 'authenticated' | 'login_required' | 'permission_denied'
@@ -80,6 +87,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const r = await fetch(input, { ...init, headers: authHeaders(init) })
     if (r.status === 401) clearAuth()
     if (r.status === 403) setStatus('permission_denied')
+    if (r.status === 503) {
+      // Detect a maintenance-mode block and immediately activate the overlay,
+      // even for sessions that were already authenticated before maintenance was enabled.
+      try {
+        const body = await r.clone().json() as Record<string, unknown>
+        if (body?.maintenance === true) {
+          setUser(prev =>
+            prev ? { ...prev, maintenance: { enabled: true, message: typeof body.detail === 'string' ? body.detail : '' } } : prev
+          )
+        }
+      } catch { /* not a JSON maintenance response — ignore */ }
+    }
     return r
   }, [clearAuth])
 

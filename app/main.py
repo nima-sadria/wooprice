@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
 from .models import (
-    AlarmThreshold, AppUser, AuditLog, ChangeHistory, ChangeTracking, DailyMetrics,
+    AlarmThreshold, AppSetting, AppUser, AuditLog, ChangeHistory, ChangeTracking, DailyMetrics,
     EmergencyBatch, EmergencyItem,
     ItemStatus, JobStatus, ProductCache, SyncItem, SyncJob,
 )
@@ -360,6 +360,57 @@ _check_jwt_secret()
 app = FastAPI(title="WooPrice Sync", docs_url="/docs")
 
 
+# ── Maintenance mode middleware ────────────────────────────────────────────────
+
+def _get_maintenance_state(db: Session) -> dict:
+    """Return current maintenance mode state from DB. Safe default: disabled."""
+    row = db.get(AppSetting, "maintenance_mode")
+    if not row or not row.value:
+        return {"enabled": False, "message": ""}
+    try:
+        data = json.loads(row.value)
+        return {"enabled": bool(data.get("enabled")), "message": data.get("message", "")}
+    except Exception:
+        return {"enabled": False, "message": ""}
+
+
+@app.middleware("http")
+async def maintenance_mode_middleware(request: Request, call_next):
+    """Block non-super-admin API access when maintenance mode is enabled.
+    Auth endpoints and health always pass through so the frontend can
+    detect maintenance and show the correct screen."""
+    path = request.url.path
+    # Non-API paths (static files, SPA HTML) always pass through.
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    # Health and auth endpoints are always available.
+    if path == "/api/health" or path.startswith("/api/auth/"):
+        return await call_next(request)
+
+    db = SessionLocal()
+    try:
+        state = _get_maintenance_state(db)
+    finally:
+        db.close()
+
+    if not state["enabled"]:
+        return await call_next(request)
+
+    # Maintenance is ON — super admins bypass.
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header.removeprefix("Bearer ").strip()
+    if token:
+        try:
+            user_data = decode_token(token)
+            if is_super_admin(user_data.get("sub", "")):
+                return await call_next(request)
+        except Exception:
+            pass
+
+    msg = state["message"] or "WooPrice is temporarily in maintenance mode. Please try again later."
+    return JSONResponse(status_code=503, content={"detail": msg, "maintenance": True})
+
+
 @app.exception_handler(Exception)
 async def _unhandled(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
@@ -468,6 +519,11 @@ class AppUserUpdate(BaseModel):
     can_edit_stock: bool | None = None
     can_view_logs: bool | None = None
     can_view_settings: bool | None = None
+
+
+class MaintenanceModeUpdate(BaseModel):
+    enabled: bool
+    message: str = ""
 
 
 # ── Thumbnail helpers ─────────────────────────────────────────────────────────
@@ -623,6 +679,15 @@ async def require_admin(
     if not app_user or not app_user.is_admin:
         _audit(username, "permission_denied", detail={"reason": "not_admin"})
         raise HTTPException(403, "Admin access required")
+    return user
+
+
+async def require_super_admin(
+    user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Restrict endpoint to SUPER_ADMIN_USERS only (not regular DB admins)."""
+    if not is_super_admin(user.get("sub", "")):
+        raise HTTPException(403, "Super admin access required")
     return user
 
 
@@ -1946,12 +2011,16 @@ async def me(
     db: Session = Depends(get_db),
 ):
     username = user["sub"]
-    if is_super_admin(username):
+    maintenance = _get_maintenance_state(db)
+    _is_super_admin = is_super_admin(username)
+    if _is_super_admin:
         return {
             "username": username,
             "role": user["role"],
             "is_admin": True,
+            "is_super_admin": True,
             "permissions": {p: True for p in _ALL_PERM_FIELDS},
+            "maintenance": maintenance,
         }
     app_user = db.query(AppUser).filter(AppUser.username == username).first()
     if app_user is None:
@@ -1963,7 +2032,9 @@ async def me(
         "username": username,
         "role": user["role"],
         "is_admin": app_user.is_admin,
+        "is_super_admin": False,
         "permissions": perms,
+        "maintenance": maintenance,
     }
 
 
@@ -2168,6 +2239,39 @@ async def revoke_user_tokens(
     _audit(caller, "token_revoke", ip=_client_ip(request),
            detail={"target": username, "new_pv": row.permission_version})
     return {"username": username, "permission_version": row.permission_version}
+
+
+# ── Maintenance mode (super admin only) ───────────────────────────────────────
+
+@app.get("/api/admin/maintenance")
+async def get_maintenance_mode(
+    user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Return current maintenance mode state."""
+    return _get_maintenance_state(db)
+
+
+@app.post("/api/admin/maintenance")
+async def set_maintenance_mode(
+    request: Request,
+    body: MaintenanceModeUpdate,
+    user: dict = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Enable or disable maintenance mode. Only super admins can call this."""
+    caller = user.get("sub", "")
+    row = db.get(AppSetting, "maintenance_mode")
+    if row is None:
+        row = AppSetting(key="maintenance_mode")
+        db.add(row)
+    row.value = json.dumps({"enabled": body.enabled, "message": body.message})
+    row.updated_at = datetime.utcnow()
+    row.updated_by = caller
+    db.commit()
+    action = "maintenance_enabled" if body.enabled else "maintenance_disabled"
+    _audit(caller, action, ip=_client_ip(request), detail={"message": body.message})
+    return {"enabled": body.enabled, "message": body.message}
 
 
 # ── Settings (admin) ──────────────────────────────────────────────────────────

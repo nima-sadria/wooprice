@@ -240,6 +240,16 @@ class EmergencyItem(Base):
     batch = relationship("EmergencyBatch", back_populates="items")
 
 
+class AppSetting(Base):
+    """Key-value store for application-level settings (e.g. maintenance mode)."""
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=True)   # JSON-encoded value
+    updated_at = Column(DateTime, nullable=True)
+    updated_by = Column(String, nullable=True)
+
+
 class ChangeTracking(Base):
     """Phase C — field-level audit of every detected value drift, from either the sheet
     (preview) or a WooCommerce fetch. Distinct from ChangeHistory (which is rollback-oriented)."""
