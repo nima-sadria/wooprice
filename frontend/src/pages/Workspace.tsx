@@ -52,7 +52,7 @@ interface DryRunWarning { type: string; product_id?: number; name?: string; valu
 interface DryRunResult {
   job_id: number
   dry_run_scope: number[]
-  dry_run_status: 'passed' | 'passed_with_warnings' | 'blocked'
+  dry_run_status: 'passed' | 'warnings' | 'blocked'
   products_to_update: number
   critical_errors: DryRunError[]
   warnings: DryRunWarning[]
@@ -1058,9 +1058,9 @@ function DryRunPanel({ phase, error, result, invalidated }: DryRunPanelProps) {
   const statusBadge =
     phase === 'running' ? <span className="flex items-center gap-1.5 text-[12px] text-[#2563eb]"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5 animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>Running…</span> :
     phase === 'failed'  ? <span className="text-[12px] text-[#dc2626] font-medium">Failed</span> :
-    result?.dry_run_status === 'passed'               ? <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-green-100 text-green-800">Passed</span> :
-    result?.dry_run_status === 'passed_with_warnings' ? <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-amber-100 text-amber-800">Passed with warnings</span> :
-    result?.dry_run_status === 'blocked'              ? <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-red-100 text-red-700">Blocked</span> :
+    result?.dry_run_status === 'passed'   ? <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-green-100 text-green-800">Passed</span> :
+    result?.dry_run_status === 'warnings' ? <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-amber-100 text-amber-800">Warnings</span> :
+    result?.dry_run_status === 'blocked'  ? <span className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-red-100 text-red-700">Blocked</span> :
     null
 
   return (
@@ -1104,11 +1104,21 @@ function DryRunPanel({ phase, error, result, invalidated }: DryRunPanelProps) {
 
           {result.warnings.length > 0 && (
             <div className="border border-[#fde68a] rounded-lg p-3 bg-[#fffbeb]">
-              <div className="font-medium text-[12px] text-[#b45309] mb-1.5">Warnings</div>
-              <div className="space-y-0.5 max-h-[80px] overflow-y-auto">
+              <div className="font-medium text-[12px] text-[#b45309] mb-2">Warnings alone do not block Apply</div>
+              <div className="space-y-1 max-h-[160px] overflow-y-auto">
                 {result.warnings.map((w, i) => (
                   <div key={i} className="text-[12px] text-[#92400e]">
-                    {w.name ? `${w.name}: ` : ''}{w.type.replace(/_/g, ' ')}{w.change ? ` (${w.change})` : ''}
+                    <span className="font-medium">{w.name ? `${w.name}: ` : ''}</span>
+                    <span>{w.type.replace(/_/g, ' ')}{w.change ? ` (${w.change})` : ''}</span>
+                    {w.type === 'out_of_stock_marker' && (
+                      <span className="text-[11px] text-[#b45309]/70 ml-1">— price is blank or zero; product will be marked out of stock in WooCommerce</span>
+                    )}
+                    {w.type === 'large_price_change' && (
+                      <span className="text-[11px] text-[#b45309]/70 ml-1">— percentage change exceeds the configured warning threshold; review before applying</span>
+                    )}
+                    {w.type === 'validation_extremely_high' && (
+                      <span className="text-[11px] text-[#b45309]/70 ml-1">— price exceeds the 999,999 limit; please verify this is correct</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1769,9 +1779,25 @@ function ProductBrowser({ authFetch }: { authFetch: (url: string, opts?: Request
                 {loading && products.length === 0 && (
                   <tr><td colSpan={6} className="px-4 py-8 text-center text-[13px] text-wp-muted">Loading…</td></tr>
                 )}
-                {!loading && products.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[13px] text-wp-muted">No products found</td></tr>
-                )}
+                {!loading && products.length === 0 && (() => {
+                  const noFilters = applied.name === '' && applied.sku === '' && applied.brand_name === '' && applied.wc_id === '' && applied.category_id === ''
+                  return (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center">
+                        {noFilters ? (
+                          <div className="space-y-1.5">
+                            <div className="text-[14px] font-semibold text-text-base">Product cache is empty</div>
+                            <div className="text-[12px] text-wp-muted max-w-[360px] mx-auto">
+                              No products have been fetched yet. Run a <strong>Light</strong>, <strong>Full</strong>, or <strong>Deep Sync</strong> in the Sheet Sync tab to populate the cache.
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[13px] text-wp-muted">No products match your search</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })()}
                 {products.map(p => (
                   <tr key={p.wc_id} className="border-b border-border hover:bg-bg-base transition-colors">
                     <td className="px-3 py-2.5">
@@ -2216,23 +2242,6 @@ export default function Workspace() {
         </div>
       )}
 
-      {/* Preview table */}
-      {state.previewPhase === 'ready' && state.previewRows.length > 0 && (
-        <PreviewTable
-          rows={state.previewRows} page={state.previewPage} selection={state.previewSelection}
-          canEditPrice={canEditPrice} canEditStock={canEditStock} canRollback={isAdmin}
-          editsDisabled={editsDisabled}
-          onPageChange={p => dispatch({ type: 'PREVIEW_PAGE', page: p })}
-          onToggleSelect={id => dispatch({ type: 'PREVIEW_TOGGLE', id })}
-          onSelectPage={ids => dispatch({ type: 'PREVIEW_SELECT_PAGE', ids })}
-          onDeselectPage={ids => dispatch({ type: 'PREVIEW_DESELECT_PAGE', ids })}
-          onClearSelection={() => dispatch({ type: 'PREVIEW_CLEAR_SELECTION' })}
-          onSavePrice={handleSavePrice}
-          onSaveStock={handleSaveStock}
-          onRollback={handleRollback}
-        />
-      )}
-
       {/* Sync action bar — visible when preview is ready and user can apply */}
       {state.previewPhase === 'ready' && canApply && state.applyPhase !== 'streaming' && (
         <SyncActionBar
@@ -2249,6 +2258,12 @@ export default function Workspace() {
         />
       )}
 
+      {/* Dry run panel */}
+      {state.dryRunPhase !== 'idle' && (
+        <DryRunPanel phase={state.dryRunPhase} error={state.dryRunError}
+          result={state.dryRunResult} invalidated={state.dryRunInvalidated} />
+      )}
+
       {/* Apply in-progress action bar (simplified — just show Applying…) */}
       {state.applyPhase === 'streaming' && canApply && (
         <div className="bg-bg-card border border-border rounded-lg p-3 flex items-center gap-3">
@@ -2257,10 +2272,21 @@ export default function Workspace() {
         </div>
       )}
 
-      {/* Dry run panel */}
-      {state.dryRunPhase !== 'idle' && (
-        <DryRunPanel phase={state.dryRunPhase} error={state.dryRunError}
-          result={state.dryRunResult} invalidated={state.dryRunInvalidated} />
+      {/* Preview table */}
+      {state.previewPhase === 'ready' && state.previewRows.length > 0 && (
+        <PreviewTable
+          rows={state.previewRows} page={state.previewPage} selection={state.previewSelection}
+          canEditPrice={canEditPrice} canEditStock={canEditStock} canRollback={isAdmin}
+          editsDisabled={editsDisabled}
+          onPageChange={p => dispatch({ type: 'PREVIEW_PAGE', page: p })}
+          onToggleSelect={id => dispatch({ type: 'PREVIEW_TOGGLE', id })}
+          onSelectPage={ids => dispatch({ type: 'PREVIEW_SELECT_PAGE', ids })}
+          onDeselectPage={ids => dispatch({ type: 'PREVIEW_DESELECT_PAGE', ids })}
+          onClearSelection={() => dispatch({ type: 'PREVIEW_CLEAR_SELECTION' })}
+          onSavePrice={handleSavePrice}
+          onSaveStock={handleSaveStock}
+          onRollback={handleRollback}
+        />
       )}
 
       {/* Apply progress */}

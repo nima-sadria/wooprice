@@ -60,9 +60,10 @@ interface DailyChanges {
 }
 
 interface CurrencyData {
-  base: string
   usd_to_irr: number | null
   eur_to_irr: number | null
+  aed_to_irr: number | null
+  try_to_irr: number | null
   last_updated: string
   cached?: boolean
   stale?: boolean
@@ -112,6 +113,7 @@ function CalendarCard() {
   const weekday = now.toLocaleDateString('en', { weekday: 'long' })
   const dateStr = now.toLocaleDateString('en', { month: 'long', day: 'numeric', year: 'numeric' })
   const timeStr = now.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
+  const persianDate = now.toLocaleDateString('fa-IR', { year: 'numeric', month: 'long', day: 'numeric' })
 
   return (
     <div className="bg-bg-card border border-border rounded-card shadow-card p-[22px] flex flex-col justify-between min-h-[140px]">
@@ -128,6 +130,7 @@ function CalendarCard() {
         <div className="text-[13px] text-wp-muted">{weekday}</div>
         <div className="text-[22px] font-bold text-text-base mt-0.5 leading-tight">{dateStr}</div>
         <div className="text-[13px] text-wp-muted mt-1">{timeStr}</div>
+        <div className="text-[12px] text-wp-muted mt-1.5 border-t border-border/50 pt-1.5" dir="rtl" lang="fa">{persianDate}</div>
       </div>
     </div>
   )
@@ -151,22 +154,29 @@ function CurrencyCard({ data, loading, error }: { data: CurrencyData | null; loa
       ) : error ? (
         <div className="text-[12px] text-wp-red">{error}</div>
       ) : data ? (
-        <div className="flex flex-col gap-2 mt-2">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[13px] text-wp-muted">1 USD</span>
-            <span className="text-[16px] font-bold text-text-base" lang="en">{fmtRate(data.usd_to_irr)} <span className="text-[11px] font-normal text-wp-muted">IRR</span></span>
+        <div className="mt-2">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {([
+              ['USD', data.usd_to_irr],
+              ['EUR', data.eur_to_irr],
+              ['AED', data.aed_to_irr],
+              ['TRY', data.try_to_irr],
+            ] as [string, number | null][]).map(([label, val]) => (
+              <div key={label} className="flex items-center justify-between gap-2">
+                <span className="text-[12px] text-wp-muted">{label}</span>
+                <span className="text-[14px] font-bold text-text-base" lang="en">
+                  {val != null ? fmtRate(val) : <span className="text-[12px] font-normal text-wp-muted">—</span>}
+                </span>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[13px] text-wp-muted">1 EUR</span>
-            <span className="text-[16px] font-bold text-text-base" lang="en">{fmtRate(data.eur_to_irr)} <span className="text-[11px] font-normal text-wp-muted">IRR</span></span>
-          </div>
-          {data.stale && <div className="text-[10px] text-wp-muted">Stale data — service unavailable</div>}
+          {data.stale && <div className="text-[10px] text-wp-muted mt-1.5">Stale data — service unavailable</div>}
           {data.last_updated && !data.stale && (
-            <div className="text-[10px] text-wp-muted truncate">Updated: {data.last_updated.slice(0, 16)}</div>
+            <div className="text-[10px] text-wp-muted mt-1.5 truncate">Updated: {data.last_updated.slice(0, 16)}</div>
           )}
         </div>
       ) : (
-        <div className="text-[13px] text-wp-muted">No data</div>
+        <div className="text-[13px] text-wp-muted">Rate unavailable</div>
       )}
     </div>
   )

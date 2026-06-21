@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Auto-fetch interval in hours (default 4h). Set to 0 to disable auto-fetch.
     wc_auto_fetch_hours: int = 4
 
+    # Currency proxy — alanchand.com API token. Set via ALANCHAND_API_TOKEN env var.
+    alanchand_api_token: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

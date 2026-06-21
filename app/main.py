@@ -2404,31 +2404,44 @@ _currency_cache: dict = {"data": None, "ts": 0.0}
 
 @app.get("/api/currency")
 async def get_currency():
-    """Proxy USD→IRR and EUR→IRR exchange rates. Cached 5 min. No auth required."""
+    """Proxy IRR sell rates for USD/EUR/AED/TRY. Cached 5 min. No auth required."""
     if _currency_cache["data"] is not None and time.time() - _currency_cache["ts"] < 300:
         return {**_currency_cache["data"], "cached": True}
+    token = get_settings().alanchand_api_token
+    if not token:
+        if _currency_cache["data"] is not None:
+            return {**_currency_cache["data"], "cached": True, "stale": True}
+        raise HTTPException(503, "Currency service unavailable")
+    url = f"https://api.alanchand.com/?type=currencies&token={token}"
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
-            r = await client.get("https://open.er-api.com/v6/latest/USD")
+            r = await client.get(url)
             r.raise_for_status()
             raw = r.json()
-        rates = raw.get("rates", {})
-        irr = rates.get("IRR")
-        eur = rates.get("EUR")
+
+        def _sell(key: str) -> int | None:
+            entry = raw.get(key) if isinstance(raw, dict) else None
+            if not entry:
+                return None
+            v = entry.get("sell")
+            return int(v) if v is not None else None
+
+        usd_entry = (raw.get("usd") or {}) if isinstance(raw, dict) else {}
         data = {
-            "base": "USD",
-            "usd_to_irr": irr,
-            "eur_to_irr": round(irr / eur, 0) if irr and eur else None,
-            "last_updated": raw.get("time_last_update_utc", ""),
-            "source": "open.er-api.com",
+            "usd_to_irr": _sell("usd"),
+            "eur_to_irr": _sell("eur"),
+            "aed_to_irr": _sell("aed"),
+            "try_to_irr": _sell("try"),
+            "last_updated": usd_entry.get("updated_at", ""),
+            "source": "alanchand.com",
         }
         _currency_cache["data"] = data
         _currency_cache["ts"] = time.time()
         return {**data, "cached": False}
-    except Exception as exc:
+    except Exception:
         if _currency_cache["data"] is not None:
             return {**_currency_cache["data"], "cached": True, "stale": True}
-        raise HTTPException(503, f"Currency service unavailable: {exc}")
+        raise HTTPException(503, "Currency service unavailable")
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
