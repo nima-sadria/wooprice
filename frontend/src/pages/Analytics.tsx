@@ -363,7 +363,7 @@ export default function Analytics() {
                   tab === t ? 'bg-bg-card text-accent shadow-card' : 'text-wp-muted hover:text-text-base',
                 ].join(' ')}
               >
-                {t === 'overview' ? 'Overview' : 'Change History'}
+                {t === 'overview' ? 'Overview' : 'Apply History'}
               </button>
             ))}
           </div>
@@ -820,7 +820,7 @@ function MovementTable({ rows }: { rows: Movement[] }) {
   )
 }
 
-// ─── Change History Tab ───────────────────────────────────────────────────────
+// ─── Apply History Tab ────────────────────────────────────────────────────────
 
 type AuthFetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -903,7 +903,8 @@ function ChangeHistoryTab({ authFetch, isAdmin }: { authFetch: AuthFetchFn; isAd
     <div className="flex flex-col gap-4">
       {/* Filter panel */}
       <div className="bg-bg-card border border-border rounded-card shadow-card p-5">
-        <p className="text-[13px] font-semibold text-text-base mb-4">Filter Change History</p>
+        <p className="text-[13px] font-semibold text-text-base mb-4">Filter Apply History</p>
+        <p className="text-[11px] text-wp-muted -mt-2 mb-3">Shows confirmed Apply operations only — direct edits and rollbacks are separate flows.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <FilterField label="From Date" type="date" value={fromDate} onChange={setFromDate} />
           <FilterField label="To Date" type="date" value={toDate} onChange={setToDate} />

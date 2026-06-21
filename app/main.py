@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import func, inspect as sa_inspect, or_, text
+from sqlalchemy import and_, func, inspect as sa_inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -2269,6 +2269,35 @@ async def get_currency():
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+def _compute_sheet_coverage(db: Session, latest_job) -> dict:
+    """Coverage: denominator = top-level ProductCache (parent_id=0).
+    Numerator = distinct product_ids from the latest job's SyncItems that ALSO
+    appear as top-level rows in ProductCache. Guarantees coverage_pct <= 100."""
+    top_level_ids_q = db.query(ProductCache.wc_id).filter(ProductCache.parent_id == 0)
+    total_cache = (
+        db.query(func.count()).select_from(ProductCache)
+        .filter(ProductCache.parent_id == 0).scalar() or 0
+    )
+    covered = 0
+    if latest_job is not None:
+        covered = (
+            db.query(func.count(func.distinct(SyncItem.product_id)))
+            .filter(
+                SyncItem.job_id == latest_job.id,
+                SyncItem.product_id.in_(top_level_ids_q),
+            )
+            .scalar() or 0
+        )
+    not_covered = max(0, total_cache - covered)
+    pct = round(covered / total_cache * 100, 1) if total_cache > 0 else 0.0
+    return {
+        "total_cache": total_cache,
+        "sheet_products": covered,
+        "not_covered": not_covered,
+        "coverage_pct": pct,
+    }
+
+
 @app.get("/api/dashboard")
 async def get_dashboard(user: dict = Depends(require_permission("can_access_site")), db: Session = Depends(get_db)):
     total_syncs = db.query(SyncJob).filter(SyncJob.status == JobStatus.completed).count()
@@ -2300,14 +2329,7 @@ async def get_dashboard(user: dict = Depends(require_permission("can_access_site
 
     recent_logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(8).all()
 
-    # Sheet coverage: compare latest job SyncItems against top-level ProductCache
-    total_cache = (
-        db.query(func.count()).select_from(ProductCache)
-        .filter(ProductCache.parent_id == 0).scalar() or 0
-    )
-    sheet_products = product_stats["total"]
-    not_covered = max(0, total_cache - sheet_products)
-    coverage_pct = round(sheet_products / total_cache * 100, 1) if total_cache > 0 else 0.0
+    sheet_coverage = _compute_sheet_coverage(db, latest_job)
 
     # Stock from ProductCache (current WC state, not just the latest-job snapshot)
     cache_in_stock = (
@@ -2335,12 +2357,7 @@ async def get_dashboard(user: dict = Depends(require_permission("can_access_site
             }
             for l in recent_logs
         ],
-        "sheet_coverage": {
-            "total_cache": total_cache,
-            "sheet_products": sheet_products,
-            "not_covered": not_covered,
-            "coverage_pct": coverage_pct,
-        },
+        "sheet_coverage": sheet_coverage,
         "cache_stock": {
             "in_stock": cache_in_stock,
             "out_of_stock": cache_out_of_stock,
@@ -2783,22 +2800,85 @@ async def analytics_seller_staleness(
 
 # ── Analytics Phase 7A ────────────────────────────────────────────────────────
 
+def _query_confirmed_apply_rows(db: Session, start_dt: datetime) -> list:
+    """ChangeHistory rows for confirmed successful Apply operations since start_dt.
+    Excludes pre-write rows from failed Apply attempts by requiring a matching
+    SyncItem(status=updated) for the same (job_id, product_id)."""
+    return (
+        db.query(ChangeHistory)
+        .filter(
+            ChangeHistory.changed_at >= start_dt,
+            ChangeHistory.source == "apply",
+            ChangeHistory.job_id.isnot(None),
+            db.query(SyncItem).filter(
+                SyncItem.job_id == ChangeHistory.job_id,
+                SyncItem.product_id == ChangeHistory.product_id,
+                SyncItem.status == ItemStatus.updated,
+            ).exists(),
+        )
+        .all()
+    )
+
+
+def _apply_change_type_filter(q, change_type):
+    """Apply a price/stock transition filter to a ChangeHistory query.
+    All stock comparisons are NULL-safe: a NULL old_status is treated as
+    'not instock' / 'not outofstock', consistent with no prior WC record.
+    stock_updated uses IS-DISTINCT-FROM semantics manually for SQLite."""
+    if change_type == "price_update":
+        return q.filter(
+            ChangeHistory.old_price.isnot(None),
+            ChangeHistory.new_price.isnot(None),
+            ChangeHistory.old_price != ChangeHistory.new_price,
+        )
+    if change_type == "stock_in":
+        # NULL → instock counts as a stock_in transition
+        return q.filter(
+            ChangeHistory.new_stock_status == "instock",
+            or_(
+                ChangeHistory.old_stock_status.is_(None),
+                ChangeHistory.old_stock_status != "instock",
+            ),
+        )
+    if change_type == "stock_out":
+        # NULL → outofstock counts as a stock_out transition
+        return q.filter(
+            ChangeHistory.new_stock_status == "outofstock",
+            or_(
+                ChangeHistory.old_stock_status.is_(None),
+                ChangeHistory.old_stock_status != "outofstock",
+            ),
+        )
+    if change_type == "stock_updated":
+        # IS DISTINCT FROM semantics (SQLite has no native support)
+        status_changed = or_(
+            ChangeHistory.old_stock_status != ChangeHistory.new_stock_status,
+            and_(ChangeHistory.old_stock_status.is_(None), ChangeHistory.new_stock_status.isnot(None)),
+            and_(ChangeHistory.old_stock_status.isnot(None), ChangeHistory.new_stock_status.is_(None)),
+        )
+        qty_changed = or_(
+            ChangeHistory.old_stock_quantity != ChangeHistory.new_stock_quantity,
+            and_(ChangeHistory.old_stock_quantity.is_(None), ChangeHistory.new_stock_quantity.isnot(None)),
+            and_(ChangeHistory.old_stock_quantity.isnot(None), ChangeHistory.new_stock_quantity.is_(None)),
+        )
+        return q.filter(or_(status_changed, qty_changed))
+    return q
+
+
 @app.get("/api/analytics/daily-changes")
 async def analytics_daily_changes(
     days: int = Query(default=30, ge=1, le=90),
     user: dict = Depends(require_permission("can_access_site")),
     db: Session = Depends(get_db),
 ):
-    """4-color daily bar chart: became_instock, became_outofstock, price_updated, stock_updated."""
+    """4-color daily Apply-changes bar chart: became_instock, became_outofstock, price_updated, stock_updated.
+    Only ChangeHistory rows with a matching SyncItem(status=updated) are counted, so failed
+    Apply attempts (whose ChangeHistory row is written before the WC call) are excluded."""
     end = datetime.utcnow().date()
     start = end - timedelta(days=days - 1)
     start_dt = datetime(start.year, start.month, start.day)
 
-    rows = (
-        db.query(ChangeHistory)
-        .filter(ChangeHistory.changed_at >= start_dt, ChangeHistory.source == "apply")
-        .all()
-    )
+    rows = _query_confirmed_apply_rows(db, start_dt)
 
     daily: dict[str, dict] = defaultdict(lambda: {
         "became_instock": 0,
@@ -2813,9 +2893,9 @@ async def analytics_daily_changes(
         new_s = row.new_stock_status or ""
         old_p = row.old_price or ""
         new_p = row.new_price or ""
-        if old_s and old_s != "instock" and new_s == "instock":
+        if old_s != "instock" and new_s == "instock":
             daily[d]["became_instock"] += 1
-        if old_s == "instock" and new_s and new_s != "instock":
+        if old_s != "outofstock" and new_s == "outofstock":
             daily[d]["became_outofstock"] += 1
         if old_p and new_p and old_p != new_p:
             daily[d]["price_updated"] += 1
@@ -2842,8 +2922,21 @@ async def analytics_change_log(
     user: dict = Depends(require_permission("can_view_logs")),
     db: Session = Depends(get_db),
 ):
-    """Filterable change history with product info for the Analytics detail view."""
-    q = db.query(ChangeHistory).filter(ChangeHistory.source == "apply")
+    """Filterable Apply-history with product info for the Analytics detail view.
+    Scope: source='apply' only (direct edits and rollbacks are excluded).
+    Only confirmed successful applies are returned (SyncItem.status=updated)."""
+    q = (
+        db.query(ChangeHistory)
+        .filter(
+            ChangeHistory.source == "apply",
+            ChangeHistory.job_id.isnot(None),
+            db.query(SyncItem).filter(
+                SyncItem.job_id == ChangeHistory.job_id,
+                SyncItem.product_id == ChangeHistory.product_id,
+                SyncItem.status == ItemStatus.updated,
+            ).exists(),
+        )
+    )
     if from_date:
         try:
             q = q.filter(ChangeHistory.changed_at >= datetime.strptime(from_date, "%Y-%m-%d"))
@@ -2854,18 +2947,7 @@ async def analytics_change_log(
             q = q.filter(ChangeHistory.changed_at < datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1))
         except ValueError:
             pass
-    if change_type == "price_update":
-        q = q.filter(
-            ChangeHistory.old_price.isnot(None),
-            ChangeHistory.new_price.isnot(None),
-            ChangeHistory.old_price != ChangeHistory.new_price,
-        )
-    elif change_type == "stock_in":
-        q = q.filter(ChangeHistory.new_stock_status == "instock")
-    elif change_type == "stock_out":
-        q = q.filter(ChangeHistory.new_stock_status == "outofstock")
-    elif change_type == "stock_updated":
-        q = q.filter(ChangeHistory.old_stock_status != ChangeHistory.new_stock_status)
+    q = _apply_change_type_filter(q, change_type)
     if brand_name or sku or product_name:
         pq = db.query(ProductCache.wc_id)
         if brand_name:

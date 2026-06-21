@@ -386,7 +386,7 @@ export default function Home() {
       {/* Row 4: Daily update bar chart (4 colors) */}
       <div className="bg-bg-card border border-border rounded-card shadow-card p-[22px]">
         <p className="text-[11.5px] uppercase tracking-[.7px] text-wp-muted mb-4 font-semibold">
-          Daily Product Changes — Last 30 Days
+          Daily Apply Changes — Last 30 Days
         </p>
         <div className="relative h-[240px]">
           {loadingChanges && !dailyChanges ? (
