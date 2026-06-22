@@ -226,14 +226,19 @@ def get_page(
     product_type: str | None = None,
     brand_name: str | None = None,
     category_id: int | None = None,
+    category_ids: list[int] | None = None,
     wc_id_exact: int | None = None,
     sku: str | None = None,
     name: str | None = None,
+    stock_status: str | None = None,
+    price_status: str | None = None,
+    sort: str = "newest",
+    quality_filter: str | None = None,
 ) -> tuple[list[dict], int]:
     """Return (items, total) for the requested page with optional combined filters.
 
-    Filters are AND-combined. category_id requires exact membership in the
-    cached JSON category array."""
+    Filters are AND-combined. category_id/category_ids require exact membership in the
+    cached JSON category array. category_ids applies OR logic across multiple IDs."""
     q = db.query(ProductCache)
     if search:
         like = f"%{search}%"
@@ -246,15 +251,58 @@ def get_page(
         q = q.filter(ProductCache.brand_name.ilike(f"%{brand_name}%"))
     if category_id is not None:
         q = filter_by_exact_category(q, category_id)
+    elif category_ids:
+        # Multi-category OR filter: match any of the given category IDs.
+        # IDs are validated as integers by FastAPI so safe to inline.
+        ids_literal = ", ".join(str(int(cid)) for cid in category_ids)
+        clause = text(f"""
+            EXISTS (
+                SELECT 1
+                FROM json_each(
+                    CASE WHEN json_valid(products_cache.categories)
+                         THEN products_cache.categories
+                         ELSE '[]' END
+                ) AS cat
+                WHERE CAST(json_extract(cat.value, '$.id') AS INTEGER) IN ({ids_literal})
+            )
+        """)
+        q = q.filter(clause)
     if wc_id_exact is not None:
         q = q.filter(ProductCache.wc_id == wc_id_exact)
     if sku:
         q = q.filter(ProductCache.sku.ilike(f"%{sku}%"))
     if name:
         q = q.filter(ProductCache.name.ilike(f"%{name}%"))
+    if stock_status:
+        q = q.filter(ProductCache.stock_status == stock_status)
+    if price_status == "has_price":
+        q = q.filter(
+            ProductCache.regular_price.isnot(None),
+            ProductCache.regular_price != "",
+        )
+    elif price_status == "no_price":
+        q = q.filter(
+            (ProductCache.regular_price.is_(None)) | (ProductCache.regular_price == "")
+        )
+    if quality_filter == "missing_sku":
+        q = q.filter(
+            (ProductCache.sku.is_(None)) | (ProductCache.sku == "")
+        )
+    elif quality_filter == "missing_image":
+        q = q.filter(
+            (ProductCache.image_url.is_(None)) | (ProductCache.image_url == "")
+        )
     total = q.count()
     offset = (page - 1) * limit
-    rows = q.order_by(ProductCache.wc_id).offset(offset).limit(limit).all()
+    if sort == "name_asc":
+        q = q.order_by(ProductCache.name.asc())
+    elif sort == "name_desc":
+        q = q.order_by(ProductCache.name.desc())
+    elif sort == "oldest":
+        q = q.order_by(ProductCache.last_synced_at.asc())
+    else:
+        q = q.order_by(ProductCache.last_synced_at.desc())
+    rows = q.offset(offset).limit(limit).all()
     items = [{"wc_id": r.wc_id, **_to_dict(r)} for r in rows]
     return items, total
 

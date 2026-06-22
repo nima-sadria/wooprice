@@ -1714,9 +1714,14 @@ async def list_cached_products(
     product_type: str | None = Query(None),
     brand_name: str | None = Query(None),
     category_id: int | None = Query(None),
+    category_ids: list[int] = Query(default=[]),
     wc_id: int | None = Query(None),
     sku: str | None = Query(None),
     name: str | None = Query(None),
+    stock_status: str | None = Query(None),
+    price_status: str | None = Query(None),
+    sort: str = Query("newest"),
+    quality_filter: str | None = Query(None),
     user: dict = Depends(require_permission("can_fetch")),
     db: Session = Depends(get_db),
 ):
@@ -1724,8 +1729,11 @@ async def list_cached_products(
     import math
     items, total = cache_get_page(
         db, page=page, limit=limit, search=search, product_type=product_type,
-        brand_name=brand_name, category_id=category_id, wc_id_exact=wc_id,
-        sku=sku, name=name,
+        brand_name=brand_name, category_id=category_id,
+        category_ids=category_ids or None,
+        wc_id_exact=wc_id, sku=sku, name=name,
+        stock_status=stock_status, price_status=price_status,
+        sort=sort, quality_filter=quality_filter,
     )
     return {
         "page": page,

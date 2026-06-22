@@ -119,6 +119,14 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
             {!collapsed && <span>Workspace</span>}
           </NavLink>
 
+          <NavLink to="/products" className={linkCls} onClick={onClose}>
+            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+            {!collapsed && <span>Products</span>}
+          </NavLink>
+
           <NavLink to="/analytics" className={linkCls} onClick={onClose}>
             <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="20" x2="18" y2="10" />

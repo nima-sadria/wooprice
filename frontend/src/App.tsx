@@ -5,6 +5,7 @@ import { DirectionProvider } from './direction'
 import AppShell from './components/AppShell'
 import Home from './pages/Home'
 import Workspace from './pages/Workspace'
+import Products from './pages/Products'
 import Analytics from './pages/Analytics'
 import Audit from './pages/Audit'
 import Logs from './pages/Logs'
@@ -85,6 +86,7 @@ export default function App() {
             <Route element={<AuthGuard><AppShell /></AuthGuard>}>
               <Route path="/home" element={<Home />} />
               <Route path="/workspace" element={<Workspace />} />
+              <Route path="/products" element={<RequirePermission permission="can_fetch"><Products /></RequirePermission>} />
               <Route
                 path="/analytics"
                 element={<RequirePermission permission="can_access_site"><Analytics /></RequirePermission>}
