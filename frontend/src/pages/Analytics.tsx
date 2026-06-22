@@ -282,7 +282,7 @@ export default function Analytics() {
     const updatedToday = data.brands.brands.reduce((sum, row) => sum + row.updated_today, 0) + (unknown?.updated_today ?? 0)
     const staleCount = data.staleness.counts.stale_3_5 + data.staleness.counts.stale_5_plus + data.staleness.counts.never_updated
     const total = data.adminOverview?.total_products ?? data.brands.total_products
-    const freshPct = total ? Math.max(0, Math.round(((total - staleCount) / total) * 1000) / 10) : 0
+    const freshPct = total ? Math.round(((total - staleCount) / total) * 1000) / 10 : 0
     return { updatedToday, staleCount, total, freshPct }
   }, [data])
 
@@ -452,25 +452,26 @@ export default function Analytics() {
             />
           </div>
 
-          {/* Freshness gauge + trend chart */}
+          {/* Apply Recency gauge + trend chart */}
           <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-4">
             <section className="bg-bg-card border border-border rounded-card shadow-card p-5">
-              <SectionTitle title="Catalog Freshness" action={`${pct(totals.freshPct)} fresh`} />
+              <SectionTitle title="Apply Recency" action={`${pct(totals.freshPct)} applied 0-3 days`} />
               <div className="flex items-center justify-center py-4">
                 <div
                   className="w-[190px] h-[190px] rounded-full flex items-center justify-center"
-                  style={{ background: `conic-gradient(#22c55e ${totals.freshPct * 3.6}deg, #E8EAED 0deg)` }}
+                  style={{ background: `conic-gradient(#22c55e ${Math.max(0, totals.freshPct) * 3.6}deg, #E8EAED 0deg)` }}
                 >
                   <div className="w-[132px] h-[132px] rounded-full bg-bg-card flex flex-col items-center justify-center border border-border">
                     <div className="text-[34px] font-bold text-text-base">{pct(totals.freshPct)}</div>
-                    <div className="text-[12px] text-wp-muted">fresh catalog</div>
+                    <div className="text-[12px] text-wp-muted">applied 0-3d</div>
                   </div>
                 </div>
               </div>
+              <div className="text-[11px] text-wp-muted text-center mb-2">Top-level products Applied within 3 days</div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                <MiniStat label="3-5 days" value={data.staleness.counts.stale_3_5} onClick={() => setModal({ title: 'Stale 3-5 Days', rows: data.staleness.stale_3_5 })} />
-                <MiniStat label="5+ days" value={data.staleness.counts.stale_5_plus} onClick={() => setModal({ title: 'Stale 5+ Days', rows: data.staleness.stale_5_plus })} />
-                <MiniStat label="Never" value={data.staleness.counts.never_updated} onClick={() => setModal({ title: 'Never Updated', rows: data.staleness.never_updated })} />
+                <MiniStat label="3-5 days" value={data.staleness.counts.stale_3_5} onClick={() => setModal({ title: 'Applied 3-5 Days Ago', rows: data.staleness.stale_3_5 })} />
+                <MiniStat label="5+ days" value={data.staleness.counts.stale_5_plus} onClick={() => setModal({ title: 'Applied 5+ Days Ago', rows: data.staleness.stale_5_plus })} />
+                <MiniStat label="Never" value={data.staleness.counts.never_updated} onClick={() => setModal({ title: 'Never Applied', rows: data.staleness.never_updated })} />
               </div>
             </section>
 
@@ -513,24 +514,31 @@ export default function Analytics() {
           {/* Coverage panels */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <CoveragePanel
-              title="Top Category Coverage"
+              title="Applied Today by Category"
               rows={topRows(data.categories.categories)}
               nameKey="category_name"
               onOpen={row => setModal({ title: row.category_name || 'Category Products', rows: row.products_not_updated })}
             />
             <CoveragePanel
-              title="Top Brand Coverage"
+              title="Applied Today by Brand"
               rows={topRows(data.brands.brands.concat(data.brands.unknown_brand ? [data.brands.unknown_brand] : []))}
               nameKey="brand_name"
               onOpen={row => setModal({ title: row.brand_name || 'Brand Products', rows: row.products_not_updated })}
             />
           </div>
 
-          {/* Issue severity cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Business issue cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <StaleCard title="In Stock, No Price" count={data.issues.in_stock_no_price.length} rows={data.issues.in_stock_no_price} total={totals.total} onOpen={setModal} />
             <StaleCard title="Priced, Out of Stock" count={data.issues.has_price_out_of_stock.length} rows={data.issues.has_price_out_of_stock} total={totals.total} onOpen={setModal} />
-            <StaleCard title="Legacy Stale Items" count={data.issues.stale_products.length} rows={data.issues.stale_products} total={totals.total} onOpen={setModal} />
+          </div>
+
+          {/* Diagnostics */}
+          <div>
+            <div className="text-[11px] font-semibold text-wp-muted uppercase tracking-wide mb-2">Diagnostics</div>
+            <div className="grid grid-cols-1 lg:grid-cols-1 gap-4">
+              <StaleCard title="Not Updated via WC (7d+)" count={data.issues.stale_products.length} rows={data.issues.stale_products} total={totals.total} onOpen={setModal} />
+            </div>
           </div>
 
           {/* Price movement panels (admin) */}

@@ -465,7 +465,7 @@ function CacheRefreshPanel({ op, running, log }: CacheRefreshPanelProps) {
   const logEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [log.length])
   const lastLevel = log[log.length - 1]?.level
-  const panelStatus = running ? 'running' : lastLevel === 'error' ? 'error' : 'done'
+  const panelStatus = running ? 'running' : lastLevel === 'error' ? 'error' : lastLevel === 'warn' ? 'degraded' : 'done'
   return (
     <div className="bg-bg-card border border-border rounded-lg p-4">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
@@ -483,6 +483,15 @@ function CacheRefreshPanel({ op, running, log }: CacheRefreshPanelProps) {
           <span className="flex items-center gap-1.5 text-[12px] text-[#16a34a] flex-shrink-0">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12" /></svg>
             Done
+          </span>
+        )}
+        {panelStatus === 'degraded' && (
+          <span className="flex items-center gap-1.5 text-[12px] text-[#b45309] flex-shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            Done (degraded)
           </span>
         )}
         {panelStatus === 'error' && (
@@ -1864,7 +1873,7 @@ function ProductBrowser({ authFetch, categories, categoriesLoading }: {
                           <div className="space-y-1.5">
                             <div className="text-[14px] font-semibold text-text-base">Product cache is empty</div>
                             <div className="text-[12px] text-wp-muted max-w-[360px] mx-auto">
-                              No products have been fetched yet. Run a <strong>Light</strong>, <strong>Full</strong>, or <strong>Deep Sync</strong> in the Sheet Sync tab to populate the cache.
+                              No products have been fetched yet. Run a <strong>Full Sync</strong> or <strong>Deep Sync</strong> in the Sheet Sync tab to populate the cache.
                             </div>
                           </div>
                         ) : (
@@ -1922,7 +1931,16 @@ export default function Workspace() {
       if (msg) dispatch({ type: 'CACHE_LOG', msg, level: 'error' })
       dispatch({ type: 'CACHE_ERROR', message: msg || 'Refresh failed.' })
     } else if (ev.step === 'done') {
-      if (msg) dispatch({ type: 'CACHE_LOG', msg, level: 'ok' })
+      const telemetry = ev.telemetry as Record<string, unknown> | undefined
+      const degraded = Boolean(telemetry?.degraded)
+      if (msg) dispatch({ type: 'CACHE_LOG', msg, level: degraded ? 'warn' : 'ok' })
+      if (degraded) {
+        dispatch({
+          type: 'CACHE_LOG',
+          msg: `WC retries during fetch — retry_count=${telemetry?.retry_count ?? 0}, retry_sleep_s=${telemetry?.retry_sleep_s ?? 0}s. API may be under load.`,
+          level: 'warn',
+        })
+      }
       dispatch({ type: 'CACHE_DONE' })
     } else if (msg) {
       dispatch({ type: 'CACHE_LOG', msg, level: ev.status === 'warning' ? 'warn' : 'info' })
@@ -2037,12 +2055,22 @@ export default function Workspace() {
   }, [state.sheetPolling, authFetch])
 
   // ── Categories ─────────────────────────────────────────────────────────────
+  // Try the cached-products endpoint first (no live WC call).
+  // Fall back to live /api/categories only when the product cache is empty.
 
   useEffect(() => {
     dispatch({ type: 'CAT_LOADING' })
-    authFetch('/api/categories')
+    authFetch('/api/products/categories')
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<WcCategory[]> })
-      .then(cats => dispatch({ type: 'CAT_LOADED', categories: cats }))
+      .then(cats => {
+        if (cats.length > 0) {
+          dispatch({ type: 'CAT_LOADED', categories: cats })
+        } else {
+          return authFetch('/api/categories')
+            .then(r2 => { if (!r2.ok) throw new Error(`HTTP ${r2.status}`); return r2.json() as Promise<WcCategory[]> })
+            .then(cats2 => dispatch({ type: 'CAT_LOADED', categories: cats2 }))
+        }
+      })
       .catch((e: unknown) => dispatch({ type: 'CAT_ERROR', message: String(e) }))
   }, [authFetch])
 

@@ -92,6 +92,8 @@ def upsert_products(
             row.status = p.get("status") or row.status
             row.stock_status = p.get("stock_status") or row.stock_status
             row.stock_quantity = p.get("stock_quantity") if p.get("stock_quantity") is not None else row.stock_quantity
+            if "manage_stock" in p:
+                row.manage_stock = p["manage_stock"]
             row.regular_price = p.get("regular_price", "") or row.regular_price
             row.sale_price = p.get("sale_price", "") or ""
             row.final_price = p.get("final_price", "") or row.final_price
@@ -163,6 +165,7 @@ def upsert_products(
                 status=p.get("status"),
                 stock_status=p.get("stock_status"),
                 stock_quantity=p.get("stock_quantity"),
+                manage_stock=p.get("manage_stock"),
                 regular_price=p.get("regular_price", ""),
                 sale_price=p.get("sale_price", ""),
                 final_price=p.get("final_price", ""),
@@ -280,6 +283,116 @@ def get_stats(db: Session) -> dict:
 def get_last_sync_time(db: Session) -> datetime | None:
     row = db.query(ProductCache).order_by(ProductCache.last_synced_at.desc()).first()
     return row.last_synced_at if row else None
+
+
+def get_last_wc_modified_time(db: Session) -> datetime | None:
+    """Return the latest date_modified_gmt across all top-level cached products.
+
+    Use this as the light-refresh watermark — it reflects WC's own modification
+    time, not the local cache upsert time, so we never advance past what WC
+    actually told us."""
+    from sqlalchemy import func
+    raw = (
+        db.query(func.max(ProductCache.date_modified_gmt))
+        .filter(ProductCache.parent_id == 0, ProductCache.date_modified_gmt.isnot(None))
+        .scalar()
+    )
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw
+    try:
+        return datetime.fromisoformat(str(raw))
+    except (ValueError, TypeError):
+        return None
+
+
+def propagate_parent_metadata_to_children(
+    db: Session,
+    parent_wc_ids: list[int],
+) -> int:
+    """Update inherited metadata on cached variation rows from their parent row.
+
+    Propagates: name, categories, brand, image (including removal), and stock
+    when the parent manages stock.  No WooCommerce API call is made.
+    Returns the count of child rows that were actually modified.
+    """
+    if not parent_wc_ids:
+        return 0
+    parents = {
+        r.wc_id: r
+        for r in db.query(ProductCache).filter(ProductCache.wc_id.in_(parent_wc_ids)).all()
+    }
+    if not parents:
+        return 0
+    children = (
+        db.query(ProductCache)
+        .filter(ProductCache.parent_id.in_(parent_wc_ids))
+        .all()
+    )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    count = 0
+    for child in children:
+        parent = parents.get(child.parent_id)
+        if parent is None:
+            continue
+        changed = False
+        image_changed = False
+
+        # Name
+        if child.name != parent.name:
+            child.name = parent.name
+            changed = True
+
+        # Categories
+        if child.categories != parent.categories:
+            child.categories = parent.categories
+            changed = True
+
+        # Brand
+        if child.brand_id != parent.brand_id or child.brand_name != parent.brand_name:
+            child.brand_id = parent.brand_id
+            child.brand_name = parent.brand_name
+            changed = True
+
+        # Image — only when child has no own variation-level image
+        if child.image_source not in ("variation",):
+            if parent.image_url:
+                # Parent has image — propagate it
+                if child.image_url != parent.image_url:
+                    child.image_url = parent.image_url
+                    child.image_source = "parent"
+                    changed = True
+                    image_changed = True
+            else:
+                # Parent image removed — clear stale inherited image
+                if child.image_url is not None or child.image_source not in ("none", None):
+                    child.image_url = None
+                    child.image_source = "none"
+                    child.image_last_synced_at = now
+                    changed = True
+                    image_changed = True
+
+        # Stock — propagate only when parent manages stock AND child explicitly inherits.
+        # manage_stock=NULL means the field was not fetched yet (pre-migration legacy row);
+        # do NOT overwrite its stock value until we have confirmed inheritance status.
+        parent_manages_stock = (parent.manage_stock == "true")
+        child_inherits_stock = (child.manage_stock in ("false", "parent"))
+        if parent_manages_stock and child_inherits_stock:
+            if child.stock_status != parent.stock_status:
+                child.stock_status = parent.stock_status
+                changed = True
+            if child.stock_quantity != parent.stock_quantity:
+                child.stock_quantity = parent.stock_quantity
+                changed = True
+
+        if changed:
+            child.cache_version = (child.cache_version or 0) + 1
+            child.last_synced_at = now
+            if image_changed:
+                child.image_last_synced_at = now
+            count += 1
+    return count
 
 
 def clear_all(db: Session) -> int:

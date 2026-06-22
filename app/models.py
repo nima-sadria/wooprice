@@ -118,6 +118,7 @@ class ProductCache(Base):
     status = Column(String, nullable=True)
     stock_status = Column(String, nullable=True)
     stock_quantity = Column(Integer, nullable=True)
+    manage_stock = Column(String, nullable=True)     # "true" | "false" | "parent" | None
     regular_price = Column(String, nullable=True)
     sale_price = Column(String, nullable=True)
     final_price = Column(String, nullable=True)       # effective display price

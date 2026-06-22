@@ -52,13 +52,16 @@ from .services.product_cache import (
     get_cached_by_ids,
     filter_by_exact_category,
     get_last_sync_time,
+    get_last_wc_modified_time,
     get_page as cache_get_page,
     get_stats as cache_get_stats,
     patch_cached_product,
+    propagate_parent_metadata_to_children,
     upsert_products,
     wc_response_to_cache_dict,
 )
 from .services.woocommerce import (
+    FetchTelemetry,
     batch_update_prices,
     clear_product_cache,
     fetch_all_products_fast,
@@ -66,7 +69,8 @@ from .services.woocommerce import (
     fetch_all_variations_stock,
     fetch_categories,
     fetch_product_prices,
-    fetch_products_modified_after,
+    check_variation_filter_capability,
+    fetch_products_light,
     fetch_variations_for_selected_parents,
     get_cache_info,
     lookup_product_info,
@@ -1805,10 +1809,11 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
             return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
 
         _t0 = time.monotonic()
+        _telemetry = FetchTelemetry(mode="full")
         yield ev({"step": "start", "status": "running", "msg": "Starting fast product cache refresh (top-level products + images, no variation sub-requests)…"})
         try:
             yield ev({"step": "fetch", "status": "running", "msg": "Fetching product catalog from WooCommerce (~24 pages, images included)…"})
-            fetch_task = asyncio.create_task(fetch_all_products_fast())
+            fetch_task = asyncio.create_task(fetch_all_products_fast(telemetry=_telemetry))
             while not fetch_task.done():
                 yield ": keepalive\n\n"
                 await asyncio.sleep(10)
@@ -1837,10 +1842,21 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
                 _db.close()
 
             _elapsed = time.monotonic() - _t0
+            _telemetry.elapsed_s = round(_elapsed, 1)
+            _telemetry.cache_rows_updated = inserted + updated
             without_img = len(products) - with_img_fetch
+            _degraded_full = _telemetry.retry_count > 0
+            if _degraded_full:
+                logger.warning(
+                    "event=wc_fetch_degraded mode=full retry_count=%d retry_sleep_s=%.1f "
+                    "wc_requests=%d elapsed_s=%.1f",
+                    _telemetry.retry_count, _telemetry.retry_sleep_s,
+                    _telemetry.wc_requests, _telemetry.elapsed_s,
+                )
             logger.warning(
-                "fast_fetch complete: total=%d inserted=%d updated=%d with_image=%d without_image=%d elapsed=%.1fs",
+                "fast_fetch complete: total=%d inserted=%d updated=%d with_image=%d without_image=%d elapsed=%.1fs wc_requests=%d retries=%d",
                 len(products), inserted, updated, with_img_fetch, without_img, _elapsed,
+                _telemetry.wc_requests, _telemetry.retry_count,
             )
             yield ev({
                 "step": "done",
@@ -1849,6 +1865,7 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
                     f"Product cache refreshed: {inserted} new, {updated} updated "
                     f"({with_img_fetch} with images, {without_img} without) in {_elapsed:.0f}s. "
                     f"Variation thumbnails fall back to parent image automatically."
+                    + (" (WC retries detected — check logs)" if _degraded_full else "")
                 ),
                 "inserted": inserted,
                 "updated": updated,
@@ -1856,6 +1873,17 @@ async def fetch_full_stream(request: Request, token: str | None = Query(None)):
                 "with_image": with_img_fetch,
                 "without_image": without_img,
                 "elapsed_seconds": round(_elapsed, 1),
+                "telemetry": {
+                    "mode": "full",
+                    "product_pages": _telemetry.product_pages,
+                    "variation_pages": _telemetry.variation_pages,
+                    "wc_requests": _telemetry.wc_requests,
+                    "retry_count": _telemetry.retry_count,
+                    "retry_sleep_s": round(_telemetry.retry_sleep_s, 1),
+                    "elapsed_s": _telemetry.elapsed_s,
+                    "cache_rows_updated": _telemetry.cache_rows_updated,
+                    "degraded": _degraded_full,
+                },
             })
 
         except asyncio.CancelledError:
@@ -1889,10 +1917,12 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
         def ev(d: dict) -> str:
             return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
 
+        _t0_deep = time.monotonic()
+        _telemetry_deep = FetchTelemetry(mode="deep")
         yield ev({"step": "start", "status": "running", "msg": "Deep Sync started. This can take a while for large catalogs. You can keep this page open and monitor progress."})
         try:
             yield ev({"step": "fetch", "status": "running", "msg": "Fetching all products and all variation pages from WooCommerce…"})
-            fetch_task = asyncio.create_task(fetch_all_products_full())
+            fetch_task = asyncio.create_task(fetch_all_products_full(telemetry=_telemetry_deep))
             while not fetch_task.done():
                 yield ": keepalive\n\n"
                 await asyncio.sleep(10)
@@ -1920,13 +1950,37 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
             finally:
                 _db.close()
 
+            _elapsed_deep = time.monotonic() - _t0_deep
+            _telemetry_deep.elapsed_s = round(_elapsed_deep, 1)
+            _telemetry_deep.cache_rows_updated = inserted + updated
+            _degraded_deep = _telemetry_deep.retry_count > 0
+            if _degraded_deep:
+                logger.warning(
+                    "event=wc_fetch_degraded mode=deep retry_count=%d retry_sleep_s=%.1f "
+                    "wc_requests=%d elapsed_s=%.1f",
+                    _telemetry_deep.retry_count, _telemetry_deep.retry_sleep_s,
+                    _telemetry_deep.wc_requests, _telemetry_deep.elapsed_s,
+                )
             yield ev({
                 "step": "done",
                 "status": "ok",
-                "msg": f"Deep sync complete: {inserted} new, {updated} updated ({len(products)} total)",
+                "msg": f"Deep sync complete: {inserted} new, {updated} updated ({len(products)} total) in {_elapsed_deep:.0f}s"
+                       + (" (WC retries detected — check logs)" if _degraded_deep else ""),
                 "inserted": inserted,
                 "updated": updated,
                 "total": len(products),
+                "elapsed_seconds": round(_elapsed_deep, 1),
+                "telemetry": {
+                    "mode": "deep",
+                    "product_pages": _telemetry_deep.product_pages,
+                    "variation_pages": _telemetry_deep.variation_pages,
+                    "wc_requests": _telemetry_deep.wc_requests,
+                    "retry_count": _telemetry_deep.retry_count,
+                    "retry_sleep_s": round(_telemetry_deep.retry_sleep_s, 1),
+                    "elapsed_s": _telemetry_deep.elapsed_s,
+                    "cache_rows_updated": _telemetry_deep.cache_rows_updated,
+                    "degraded": _degraded_deep,
+                },
             })
 
         except asyncio.CancelledError:
@@ -1939,13 +1993,21 @@ async def fetch_deep_variations_stream(request: Request, token: str | None = Que
     return StreamingResponse(_gen_deep(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
+_LIGHT_OVERLAP_SECONDS = 60   # subtract from watermark to catch in-flight products
+
 @app.get("/api/fetch/light")
 async def fetch_light_stream(
     request: Request,
     token: str | None = Query(None),
+    force_capability: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    """Stream a light sync (only products modified since last sync) into the DB cache."""
+    """Stream a light sync (only products/variations modified since last sync) into the DB cache.
+
+    Watermark: max(date_modified_gmt) of top-level cached products, minus a 60 s overlap.
+    Upper bound: fetch_start captured before the WC call so products modified during
+    the fetch are safely caught by the next Light Refresh.
+    """
     logger.warning("FETCH_ROUTE_ENTERED: route=/api/fetch/light mode=light_sync ip=%s", _client_ip(request))
     raw = token or request.headers.get("authorization", "").removeprefix("Bearer ").strip() or None
     try:
@@ -1957,22 +2019,73 @@ async def fetch_light_stream(
             media_type="text/event-stream",
         )
 
-    last_sync = get_last_sync_time(db)
-    if last_sync is None:
+    # Guard: require a prior full sync
+    if get_last_sync_time(db) is None:
         return StreamingResponse(
             iter(['data: {"error":"No prior full sync found. Run full sync first."}\n\n']),
             media_type="text/event-stream",
         )
-    modified_after = last_sync.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Guard: verify WC variation endpoint supports modified_after + dates_are_gmt
+    _probe_telemetry = FetchTelemetry()
+    _capable = await check_variation_filter_capability(db, telemetry=_probe_telemetry)
+    if not _capable:
+        _req_user = creds.get("sub", "unknown")
+        if force_capability:
+            # Admin-only override: non-admins are rejected even with the flag.
+            _app_user_row = db.query(AppUser).filter(AppUser.username == _req_user).first()
+            _is_admin = is_super_admin(_req_user) or (_app_user_row and _app_user_row.is_admin)
+            if not _is_admin:
+                return StreamingResponse(
+                    iter(['data: {"error":"Capability override requires admin access."}\n\n']),
+                    media_type="text/event-stream",
+                )
+            logger.warning(
+                "light_fetch: ADMIN CAPABILITY OVERRIDE by user=%s ip=%s — "
+                "capability probe returned unsupported; proceeding at admin's request",
+                _req_user, _client_ip(request),
+            )
+            _audit(_req_user, "light_refresh_capability_override", _client_ip(request), detail={
+                "reason": "admin override; capability probe returned unsupported",
+                "probe_requests": _probe_telemetry.capability_probe_requests,
+                "probe_retries": _probe_telemetry.capability_probe_retries,
+            })
+            # Fall through and run Light Refresh under admin's explicit override
+        else:
+            return StreamingResponse(
+                iter(['data: {"error":"WooCommerce variation filter unsupported. Run Deep Sync."}\n\n']),
+                media_type="text/event-stream",
+            )
+
+    # Capture fetch_start BEFORE querying WC so products modified during the fetch
+    # are not silently swallowed by the window.
+    fetch_start = datetime.utcnow()
+    modified_before = fetch_start.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Watermark: prefer WC's own date_modified_gmt; fall back to cache upsert time.
+    last_wc_mod = get_last_wc_modified_time(db)
+    if last_wc_mod is not None:
+        watermark_dt = last_wc_mod - timedelta(seconds=_LIGHT_OVERLAP_SECONDS)
+    else:
+        last_sync = get_last_sync_time(db)
+        watermark_dt = (last_sync or fetch_start) - timedelta(seconds=_LIGHT_OVERLAP_SECONDS)
+    modified_after = watermark_dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     async def _gen():
         def ev(d: dict) -> str:
             return f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
 
-        yield ev({"step": "start", "status": "running", "msg": f"Fetching products modified after {modified_after}…"})
+        _t0_light = time.monotonic()
+        _telemetry_light = FetchTelemetry()
+        yield ev({
+            "step": "start", "status": "running",
+            "msg": f"Light Refresh: window [{modified_after}, {modified_before}] (overlap={_LIGHT_OVERLAP_SECONDS}s)…",
+        })
         try:
-            yield ev({"step": "fetch", "status": "running", "msg": "Connecting to WooCommerce…"})
-            fetch_task = asyncio.create_task(fetch_products_modified_after(modified_after))
+            yield ev({"step": "fetch", "status": "running", "msg": "Fetching modified products from WooCommerce…"})
+            fetch_task = asyncio.create_task(
+                fetch_products_light(modified_after, modified_before, telemetry=_telemetry_light)
+            )
             while not fetch_task.done():
                 yield ": keepalive\n\n"
                 await asyncio.sleep(10)
@@ -1982,30 +2095,75 @@ async def fetch_light_stream(
                 logger.warning("fetch/light variation warning: %s", w)
                 yield ev({"step": "warning", "status": "warning", "msg": w})
 
+            var_count = sum(1 for p in products if p.get("product_type") == "variation")
+            parent_count = len(products) - var_count
             yield ev({
                 "step": "fetch",
                 "status": "done",
-                "msg": f"Fetched {len(products)} modified products",
+                "msg": f"Fetched {len(products)} modified record(s) — {parent_count} top-level, {var_count} variation(s)",
                 "count": len(products),
+                "parent_count": parent_count,
+                "variation_count": var_count,
                 "warnings": len(var_warnings),
             })
 
-            yield ev({"step": "upsert", "status": "running", "msg": f"Updating {len(products)} products in local cache…"})
+            yield ev({"step": "upsert", "status": "running", "msg": f"Updating {len(products)} record(s) in local cache…"})
             _db = SessionLocal()
             try:
                 inserted, updated, img_changed = upsert_products(_db, products, image_sync_authoritative=True)
                 _db.commit()
                 _invalidate_thumbs(img_changed, _db)
+                _telemetry_light.cache_rows_updated = inserted + updated
+                _variable_parent_ids = [p["wc_id"] for p in products if p.get("product_type") == "variable"]
+                _propagated = 0
+                if _variable_parent_ids:
+                    _propagated = propagate_parent_metadata_to_children(_db, _variable_parent_ids)
+                    _db.commit()
+                    logger.info(
+                        "light_fetch: propagated metadata to %d child variation row(s)", _propagated
+                    )
+                _telemetry_light.propagated_children = _propagated
             finally:
                 _db.close()
 
+            _elapsed_light = time.monotonic() - _t0_light
+            _telemetry_light.elapsed_s = round(_elapsed_light, 1)
+            _telemetry_light.capability_probe_requests = _probe_telemetry.capability_probe_requests
+            _telemetry_light.capability_probe_retries = _probe_telemetry.capability_probe_retries
+            _degraded = _telemetry_light.retry_count > 0
+            _probe_degraded = _probe_telemetry.capability_probe_retries > 0
+            if _degraded or _probe_degraded:
+                logger.warning(
+                    "event=wc_fetch_degraded mode=light retry_count=%d retry_sleep_s=%.1f "
+                    "wc_requests=%d capability_probe_requests=%d capability_probe_retries=%d elapsed_s=%.1f",
+                    _telemetry_light.retry_count, _telemetry_light.retry_sleep_s,
+                    _telemetry_light.wc_requests,
+                    _telemetry_light.capability_probe_requests,
+                    _telemetry_light.capability_probe_retries,
+                    _telemetry_light.elapsed_s,
+                )
             yield ev({
                 "step": "done",
                 "status": "ok",
-                "msg": f"Light sync complete: {inserted} new, {updated} updated",
+                "msg": f"Light sync complete: {inserted} new, {updated} updated in {_elapsed_light:.0f}s"
+                       + (" (WC retries detected — check logs)" if _degraded else ""),
                 "inserted": inserted,
                 "updated": updated,
                 "total": len(products),
+                "elapsed_seconds": round(_elapsed_light, 1),
+                "telemetry": {
+                    "mode": "light",
+                    "product_pages": _telemetry_light.product_pages,
+                    "variation_pages": _telemetry_light.variation_pages,
+                    "wc_requests": _telemetry_light.wc_requests,
+                    "retry_count": _telemetry_light.retry_count,
+                    "retry_sleep_s": round(_telemetry_light.retry_sleep_s, 1),
+                    "elapsed_s": _telemetry_light.elapsed_s,
+                    "cache_rows_updated": _telemetry_light.cache_rows_updated,
+                    "propagated_children": _telemetry_light.propagated_children,
+                    "capability_probe_requests": _telemetry_light.capability_probe_requests,
+                    "degraded": _degraded or _probe_degraded,
+                },
             })
 
         except asyncio.CancelledError:
@@ -2492,6 +2650,30 @@ async def get_categories(user: dict = Depends(require_permission("can_access_sit
     _cat_cache["data"] = data
     _cat_cache["ts"] = time.time()
     return data
+
+
+@app.get("/api/products/categories")
+async def get_cached_product_categories(
+    user: dict = Depends(require_permission("can_access_site")),
+    db: Session = Depends(get_db),
+):
+    """Return distinct categories derived from the product cache — no live WC call.
+    Returns empty list when the cache is unpopulated."""
+    rows = (
+        db.query(ProductCache.categories)
+        .filter(ProductCache.parent_id == 0, ProductCache.categories.isnot(None))
+        .all()
+    )
+    seen: dict[int, str] = {}
+    for (cats_json,) in rows:
+        try:
+            cats = json.loads(cats_json) if cats_json else []
+        except Exception:
+            cats = []
+        for c in cats:
+            if isinstance(c, dict) and c.get("id"):
+                seen[int(c["id"])] = str(c.get("name") or "")
+    return [{"id": cid, "name": cname} for cid, cname in sorted(seen.items(), key=lambda x: x[1])]
 
 
 # ── Currency proxy ───────────────────────────────────────────────────────────
@@ -3082,6 +3264,7 @@ async def analytics_seller_staleness(
 
     rows = (
         db.query(ProductCache, last_apply_sq.c.last_applied)
+        .filter(ProductCache.parent_id == 0)
         .outerjoin(last_apply_sq, ProductCache.wc_id == last_apply_sq.c.product_id)
         .all()
     )
@@ -4130,58 +4313,6 @@ async def preview_stream(
                 yield ev({"step": "wc", "status": "running", "msg": f"Loading {len(cached_data)} products from local cache…"})
 
             wc_data = cached_data
-
-            # Targeted variation image refresh — only for spreadsheet IDs that are
-            # variations missing image_url, capped to avoid crawling the whole catalog.
-            _VAR_PARENT_CAP = 30
-            _var_rows_no_img = (
-                db.query(ProductCache)
-                .filter(
-                    ProductCache.wc_id.in_(product_ids),
-                    ProductCache.product_type == "variation",
-                    ProductCache.image_url.is_(None),
-                    ProductCache.parent_id > 0,
-                )
-                .all()
-            )
-            if _var_rows_no_img:
-                _var_parent_ids = {r.parent_id for r in _var_rows_no_img}
-                if len(_var_parent_ids) <= _VAR_PARENT_CAP:
-                    _parent_rows = {
-                        r.wc_id: r for r in db.query(ProductCache)
-                        .filter(ProductCache.wc_id.in_(_var_parent_ids)).all()
-                    }
-                    if _parent_rows:
-                        _parent_info: dict[int, tuple] = {}
-                        for _pid, _pr in _parent_rows.items():
-                            try:
-                                _cats = json.loads(_pr.categories) if _pr.categories else []
-                            except Exception:
-                                _cats = []
-                            _parent_info[_pid] = (_pr.name or "", _cats, _pr.image_url, (_pr.brand_id, _pr.brand_name))
-                        yield ev({"step": "wc", "status": "running",
-                                  "msg": f"Fetching variation images for {len(_var_parent_ids)} parent(s) ({len(_var_rows_no_img)} variation(s) missing images)…"})
-                        try:
-                            _vt = asyncio.create_task(
-                                fetch_variations_for_selected_parents(_var_parent_ids, _parent_info)
-                            )
-                            while not _vt.done():
-                                yield ": keepalive\n\n"
-                                await asyncio.sleep(5)
-                            _var_products, _var_warn = await _vt
-                            if _var_products:
-                                upsert_products(db, _var_products, image_sync_authoritative=True)
-                                db.commit()
-                                wc_data.update(get_cached_by_ids(db, [p["wc_id"] for p in _var_products]))
-                            for _w in _var_warn:
-                                logger.warning("preview targeted variation: %s", _w)
-                        except Exception as _ve:
-                            logger.warning("preview_stream: targeted variation fetch error: %s", _ve)
-                else:
-                    logger.info(
-                        "preview_stream: skipping targeted variation fetch — %d parents exceeds cap %d",
-                        len(_var_parent_ids), _VAR_PARENT_CAP,
-                    )
 
             yield ev({"step": "wc", "status": "done", "msg": f"Loaded {len(wc_data)} products ({len(product_ids) - len(missing_ids)} from cache, {len(missing_ids)} from WooCommerce)"})
 

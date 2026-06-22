@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 import zlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import httpx
@@ -12,12 +13,43 @@ logger = logging.getLogger(__name__)
 
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 _MAX_RETRIES = 3
+_MAX_RETRY_SLEEP: float = 30.0        # cap per-retry Retry-After to 30 s
+_MAX_TOTAL_RETRY_SLEEP: float = 90.0  # fail fast when total sleep exceeds 90 s
 
 
-async def _get_with_retry(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
-    """GET with exponential backoff on 429/5xx. Respects Retry-After header."""
+@dataclass
+class FetchTelemetry:
+    """Per-fetch metrics collected across all WC API requests in one operation."""
+    product_pages: int = 0
+    variation_pages: int = 0
+    wc_requests: int = 0
+    retry_count: int = 0
+    retry_sleep_s: float = 0.0
+    elapsed_s: float = 0.0
+    cache_rows_updated: int = 0        # inserted + updated after upsert
+    mode: str = ""                     # light | full | deep
+    propagated_children: int = 0       # child rows updated by parent-metadata propagation
+    capability_probe_requests: int = 0  # WC requests made during capability probe
+    capability_probe_retries: int = 0   # retries during capability probe
+
+
+async def _get_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    telemetry: "FetchTelemetry | None" = None,
+    method: str = "get",
+    **kwargs,
+) -> httpx.Response:
+    """HTTP request with exponential backoff on 429/5xx.
+
+    method: HTTP verb to use — "get" (default) for all normal fetches,
+    "options" for capability probing.  All other behaviour is identical.
+    """
+    total_sleep = 0.0
     for attempt in range(_MAX_RETRIES + 1):
-        resp = await client.get(url, **kwargs)
+        resp = await getattr(client, method)(url, **kwargs)
+        if telemetry is not None:
+            telemetry.wc_requests += 1
         if resp.status_code not in _RETRY_STATUSES:
             resp.raise_for_status()
             return resp
@@ -25,14 +57,29 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str, **kwargs) -> http
             break
         retry_after = resp.headers.get("Retry-After")
         try:
-            wait = float(retry_after) if retry_after else float(2 ** attempt)
+            raw_wait = float(retry_after) if retry_after else float(2 ** attempt)
         except ValueError:
-            wait = float(2 ** attempt)
+            raw_wait = float(2 ** attempt)
+        wait = min(raw_wait, _MAX_RETRY_SLEEP)
+        if total_sleep + wait >= _MAX_TOTAL_RETRY_SLEEP:
+            logger.error(
+                "WC retry budget exhausted (%.0fs slept so far) on %s — aborting fetch",
+                total_sleep, url,
+            )
+            raise RuntimeError(
+                f"WooCommerce retry budget exhausted after {total_sleep:.0f}s sleep. "
+                "The API is rate-limiting or unavailable — wait a few minutes and try again."
+            )
         logger.warning(
-            "WC %d on %s — retry %d/%d in %.0fs",
+            "WC %d on %s — retry %d/%d in %.0fs (Retry-After: %s, capped from %.0fs)",
             resp.status_code, url, attempt + 1, _MAX_RETRIES, wait,
+            retry_after or "none", raw_wait,
         )
+        if telemetry is not None:
+            telemetry.retry_count += 1
+            telemetry.retry_sleep_s += wait
         await asyncio.sleep(wait)
+        total_sleep += wait
     resp.raise_for_status()
     return resp  # unreachable; raise_for_status raises
 
@@ -46,7 +93,7 @@ def _base() -> str:
     return get_settings().wc_url.rstrip("/") + "/wp-json/wc/v3"
 
 
-_PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories,brands,date_modified_gmt"
+_PRODUCT_FIELDS = "id,name,regular_price,sale_price,price,sku,stock_status,stock_quantity,categories,brands,attributes,date_modified_gmt"
 
 # In-memory product cache: {product_id: (data_dict, timestamp)}
 _product_cache: dict[int, tuple[dict, float]] = {}
@@ -431,8 +478,8 @@ async def batch_update_prices(updates: list[dict]) -> list[dict]:
     return results
 
 
-_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,categories,brands,date_modified_gmt,status,images"
-_VAR_FIELDS = "id,sku,regular_price,sale_price,price,stock_status,stock_quantity,date_modified_gmt,image"
+_FULL_FIELDS = "id,name,type,sku,regular_price,sale_price,price,stock_status,stock_quantity,manage_stock,categories,brands,attributes,date_modified_gmt,status,images"
+_VAR_FIELDS = "id,sku,regular_price,sale_price,price,stock_status,stock_quantity,manage_stock,date_modified_gmt,image"
 
 
 def _extract_image(p: dict, parent_id: int, parent_image: str | None) -> tuple[str | None, str]:
@@ -470,6 +517,13 @@ def _parse_full_product(
         brand_id, brand_name = _extract_brand(p)
     ptype = "variation" if parent_id > 0 else (p.get("type") or "simple")
     img_url, img_source = _extract_image(p, parent_id, parent_image)
+    raw_ms = p.get("manage_stock")
+    if isinstance(raw_ms, bool):
+        manage_stock = "true" if raw_ms else "false"
+    elif raw_ms is not None:
+        manage_stock = str(raw_ms).lower()
+    else:
+        manage_stock = None
     return {
         "wc_id": p["id"],
         "parent_id": parent_id,
@@ -479,6 +533,7 @@ def _parse_full_product(
         "status": p.get("status", "publish"),
         "stock_status": p.get("stock_status", "instock"),
         "stock_quantity": p.get("stock_quantity"),
+        "manage_stock": manage_stock,
         "regular_price": p.get("regular_price", ""),
         "sale_price": p.get("sale_price", ""),
         "final_price": p.get("regular_price") or p.get("price", ""),
@@ -498,14 +553,18 @@ async def _fetch_variations_for_parent(
     parent_cats: list,
     parent_image: str | None = None,
     parent_brand: tuple[int | None, str | None] | None = None,
+    telemetry: "FetchTelemetry | None" = None,
 ) -> list[dict]:
     variations = []
     page = 1
     while True:
         resp = await _get_with_retry(
             client, f"{_base()}/products/{parent_id}/variations",
+            telemetry=telemetry,
             params={"per_page": "100", "page": str(page), "status": "any", "_fields": _VAR_FIELDS},
         )
+        if telemetry is not None:
+            telemetry.variation_pages += 1
         data = resp.json()
         if not data:
             break
@@ -530,7 +589,9 @@ async def _fetch_variations_for_parent(
     return variations
 
 
-async def fetch_all_products_fast() -> tuple[list[dict], list[str]]:
+async def fetch_all_products_fast(
+    telemetry: "FetchTelemetry | None" = None,
+) -> tuple[list[dict], list[str]]:
     """Fetch all top-level products (simple + variable parents) — no variation sub-requests.
 
     Runs ~24 WC API pages instead of 2000+ variation calls.  Variable parent rows get the
@@ -545,8 +606,11 @@ async def fetch_all_products_fast() -> tuple[list[dict], list[str]]:
         while True:
             resp = await _get_with_retry(
                 client, f"{_base()}/products",
+                telemetry=telemetry,
                 params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
             )
+            if telemetry is not None:
+                telemetry.product_pages += 1
             data = resp.json()
             if not data:
                 break
@@ -606,7 +670,9 @@ async def fetch_variations_for_selected_parents(
     return all_variations, var_warnings
 
 
-async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
+async def fetch_all_products_full(
+    telemetry: "FetchTelemetry | None" = None,
+) -> tuple[list[dict], list[str]]:
     """Fetch ALL products and their variations from WooCommerce for full cache population.
     Returns (products, variation_warnings) where warnings list is non-empty if any
     variation fetches failed after all retries."""
@@ -620,8 +686,11 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
         while True:
             resp = await _get_with_retry(
                 client, f"{_base()}/products",
+                telemetry=telemetry,
                 params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
             )
+            if telemetry is not None:
+                telemetry.product_pages += 1
             data = resp.json()
             if not data:
                 break
@@ -648,7 +717,7 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand)
+                _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand, telemetry=telemetry)
                 for pid, name, cats, parent_img, parent_brand in batch
             ], return_exceptions=True)
             for j, r in enumerate(results):
@@ -667,24 +736,97 @@ async def fetch_all_products_full() -> tuple[list[dict], list[str]]:
     return all_products, var_warnings
 
 
-async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict], list[str]]:
-    """Fetch products modified after the given ISO timestamp (light sync).
-    Returns (products, variation_warnings)."""
+async def _fetch_variations_modified_after(
+    client: httpx.AsyncClient,
+    parent_id: int,
+    parent_name: str,
+    parent_cats: list,
+    parent_image: str | None,
+    parent_brand: tuple[int | None, str | None] | None,
+    modified_after: str,
+    modified_before: str,
+    telemetry: "FetchTelemetry | None" = None,
+) -> list[dict]:
+    """Fetch variations for one parent that were modified in [modified_after, modified_before].
+
+    Stops after the first empty page — if WC returns no results, there are no
+    modified variations for this parent and we do not crawl further.
+    Deep Sync remains the only operation that fetches ALL variations.
+    """
+    variations: list[dict] = []
+    page = 1
+    while True:
+        resp = await _get_with_retry(
+            client, f"{_base()}/products/{parent_id}/variations",
+            telemetry=telemetry,
+            params={
+                "per_page": "100", "page": str(page),
+                "status": "any", "_fields": _VAR_FIELDS,
+                "modified_after": modified_after,
+                "modified_before": modified_before,
+                "dates_are_gmt": "true",
+            },
+        )
+        if telemetry is not None:
+            telemetry.variation_pages += 1
+        data = resp.json()
+        if not data:
+            break
+        for v in data:
+            v["name"] = parent_name
+            variations.append(
+                _parse_full_product(
+                    v, parent_id=parent_id,
+                    parent_cats=parent_cats,
+                    parent_image=parent_image,
+                    parent_brand=parent_brand,
+                )
+            )
+        if len(data) < 100:
+            break
+        page += 1
+    logger.debug(
+        "light_fetch: %d modified variation(s) for parent_id=%d in window",
+        len(variations), parent_id,
+    )
+    return variations
+
+
+async def fetch_products_light(
+    modified_after: str,
+    modified_before: str,
+    telemetry: "FetchTelemetry | None" = None,
+) -> tuple[list[dict], list[str]]:
+    """Light sync: fetch only top-level products and their modified variations
+    in the half-open window (modified_after, modified_before], using WC GMT times.
+
+    For variable parents in the result set, only variations modified in the same
+    window are fetched — stops on first empty page per parent.
+    Deep Sync remains the only operation that crawls ALL variations globally.
+
+    Returns (products, variation_warnings).
+    """
     all_products: list[dict] = []
     variable_parents: list[tuple[int, str, list, str | None, tuple[int | None, str | None]]] = []
     var_warnings: list[str] = []
 
     async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+        # Phase 1: modified top-level products
         page = 1
         while True:
             resp = await _get_with_retry(
                 client, f"{_base()}/products",
+                telemetry=telemetry,
                 params={
                     "per_page": "100", "page": str(page),
                     "status": "any", "_fields": _FULL_FIELDS,
                     "modified_after": modified_after,
+                    "modified_before": modified_before,
+                    "dates_are_gmt": "true",
                 },
             )
+            if telemetry is not None:
+                telemetry.product_pages += 1
             data = resp.json()
             if not data:
                 break
@@ -694,15 +836,28 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
                 parent_img = images[0].get("src", "") if images else ""
                 all_products.append(_parse_full_product(p))
                 if p.get("type") == "variable":
-                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p)))
+                    variable_parents.append(
+                        (p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p))
+                    )
             if len(data) < 100:
                 break
             page += 1
 
+        logger.info(
+            "light_fetch: phase1 done — %d modified top-level product(s), %d variable parent(s)",
+            len(all_products), len(variable_parents),
+        )
+
+        # Phase 2: for each modified variable parent, fetch only its modified variations
         for i in range(0, len(variable_parents), 10):
             batch = variable_parents[i:i + 10]
             results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand)
+                _fetch_variations_modified_after(
+                    client, pid, name, cats, parent_img, parent_brand,
+                    modified_after=modified_after,
+                    modified_before=modified_before,
+                    telemetry=telemetry,
+                )
                 for pid, name, cats, parent_img, parent_brand in batch
             ], return_exceptions=True)
             for j, r in enumerate(results):
@@ -710,10 +865,14 @@ async def fetch_products_modified_after(modified_after: str) -> tuple[list[dict]
                     all_products.extend(r)
                 else:
                     parent_id, parent_name = batch[j][0], batch[j][1]
-                    msg = f"Variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
+                    msg = f"Light variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
                     logger.warning(msg)
                     var_warnings.append(msg)
 
+    logger.info(
+        "light_fetch: complete — %d total records (top-level + modified variations), %d warnings",
+        len(all_products), len(var_warnings),
+    )
     return all_products, var_warnings
 
 
@@ -756,3 +915,129 @@ async def update_parent_stock_statuses(parent_statuses: dict[int, str]) -> None:
             except Exception:
                 pass
         await asyncio.gather(*[_update_one(pid, s) for pid, s in parent_statuses.items()])
+
+
+_wc_variation_filter_capable: bool | None = None  # None = not yet checked
+
+
+def _schema_supports_modified_after(data: dict) -> bool:
+    """Return True if the WC OPTIONS response schema declares modified_after as a GET arg."""
+    routes = data.get("routes", {})
+    for route_data in routes.values():
+        for ep in route_data.get("endpoints", []):
+            if "GET" in ep.get("methods", []):
+                if "modified_after" in ep.get("args", {}):
+                    return True
+    # Some WC versions return endpoints at the top level
+    for ep in data.get("endpoints", []):
+        if "GET" in ep.get("methods", []):
+            if "modified_after" in ep.get("args", {}):
+                return True
+    return False
+
+
+async def check_variation_filter_capability(
+    db,
+    telemetry: "FetchTelemetry | None" = None,
+) -> bool:
+    """Verify the variation endpoint honours modified_after + dates_are_gmt.
+
+    Strategy: OPTIONS request (routed through _get_with_retry for 429/5xx
+    backoff) to the variation endpoint; inspect the schema's GET args.
+    Only marks capability True when the schema *explicitly* declares modified_after.
+
+    Cache states
+    ────────────
+    True  — schema confirmed modified_after supported
+    False — confirmed unsupported (schema omits it) OR retry budget exhausted
+    None  — not yet probed, or transient non-retryable error (probe again next call)
+
+    No variable parent: returns True without caching (no variations to filter).
+    """
+    global _wc_variation_filter_capable
+    if _wc_variation_filter_capable is not None:
+        return _wc_variation_filter_capable
+
+    from ..models import ProductCache as _PC
+    parent_row = (
+        db.query(_PC.wc_id)
+        .filter(_PC.parent_id == 0, _PC.product_type == "variable")
+        .first()
+    )
+    if parent_row is None:
+        # No variable product — cannot prove capability.  Do NOT cache: a later
+        # Deep Sync may add variable products and we must re-probe then.
+        # Return True so simple-product-only stores can still Light Refresh.
+        logger.info(
+            "wc_capability: no variable parent in cache — skipping probe, "
+            "variations will not be fetched during Light Refresh"
+        )
+        return True
+
+    test_pid = parent_row.wc_id
+    _probe_telem = FetchTelemetry()
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+            resp = await _get_with_retry(
+                client,
+                f"{_base()}/products/{test_pid}/variations",
+                telemetry=_probe_telem,
+                method="options",
+            )
+        if telemetry is not None:
+            telemetry.capability_probe_requests += _probe_telem.wc_requests
+            telemetry.capability_probe_retries += _probe_telem.retry_count
+
+        if resp.status_code == 200:
+            try:
+                schema = resp.json()
+            except Exception:
+                schema = {}
+            if _schema_supports_modified_after(schema):
+                logger.info(
+                    "wc_capability: variation modified_after filter confirmed via OPTIONS schema"
+                )
+                _wc_variation_filter_capable = True
+                return True
+            logger.warning(
+                "wc_capability: OPTIONS schema does not declare modified_after — "
+                "Light Refresh variation filtering unsupported"
+            )
+        else:
+            logger.warning(
+                "wc_capability: OPTIONS returned %d — cannot confirm filter support",
+                resp.status_code,
+            )
+        # Schema checked and does not confirm support → confirmed unsupported → cache
+        _wc_variation_filter_capable = False
+        return False
+
+    except RuntimeError:
+        # Retry budget exhausted — treat as confirmed unsupported for this process
+        # lifetime so callers stop hammering a rate-limited endpoint.
+        if telemetry is not None:
+            telemetry.capability_probe_requests += _probe_telem.wc_requests
+            telemetry.capability_probe_retries += _probe_telem.retry_count
+        logger.warning(
+            "wc_capability: OPTIONS retry budget exhausted after %d requests, "
+            "%d retries — caching as unsupported",
+            _probe_telem.wc_requests, _probe_telem.retry_count,
+        )
+        _wc_variation_filter_capable = False
+        return False
+
+    except Exception as exc:
+        # Transient / unexpected error — do NOT cache; allow re-probe on next call.
+        if telemetry is not None:
+            telemetry.capability_probe_requests += _probe_telem.wc_requests
+            telemetry.capability_probe_retries += _probe_telem.retry_count
+        logger.warning(
+            "wc_capability: OPTIONS probe error (result not cached, will retry): %s", exc
+        )
+        return False
+
+
+def reset_wc_capability_cache() -> None:
+    """Reset the cached capability check result (used in tests and on reconnect)."""
+    global _wc_variation_filter_capable
+    _wc_variation_filter_capable = None
