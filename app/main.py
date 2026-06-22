@@ -1603,8 +1603,36 @@ async def root():
 
 @app.get("/api/health")
 async def health():
+    import time as _time
     s = get_settings()
-    return {"status": "ok", "wc_url": s.wc_url, "nextcloud_url": s.nextcloud_url}
+
+    # Currency status from in-memory cache — no live probe to keep health fast.
+    _cur = _currency_cache
+    if _cur["data"] is not None:
+        currency_status = "ok" if (_time.time() - _cur["ts"]) < 300 else "stale"
+    else:
+        currency_status = "unavailable"
+
+    cache_info = get_cache_info()
+    age_s = cache_info.get("age_seconds")
+
+    return {
+        "status": "ok",
+        "wc_url": s.wc_url,
+        "nextcloud_url": s.nextcloud_url,
+        # Extended service-level status. woocommerce and nextcloud are not actively
+        # probed here to keep latency low; apply operations are the definitive test.
+        "services": {
+            "api": "ok",
+            "woocommerce": "unknown",
+            "nextcloud": "unknown",
+            "currency": currency_status,
+            "cache": {
+                "size": cache_info.get("size", 0),
+                "age_seconds": round(age_s) if age_s is not None else None,
+            },
+        },
+    }
 
 
 # ── Cache management ──────────────────────────────────────────────────────────
@@ -2053,7 +2081,12 @@ async def fetch_light_stream(
             # Fall through and run Light Refresh under admin's explicit override
         else:
             return StreamingResponse(
-                iter(['data: {"error":"WooCommerce variation filter unsupported. Run Deep Sync."}\n\n']),
+                iter([
+                    'data: {"error":"Light Refresh unavailable: this WooCommerce install does not support'
+                    ' incremental variation filtering (modified_after). This is a WooCommerce API capability'
+                    ' limitation — not a connectivity issue. Use Deep Sync to refresh the full catalog."'
+                    ',"capability_error":true}\n\n'
+                ]),
                 media_type="text/event-stream",
             )
 

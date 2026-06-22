@@ -152,11 +152,14 @@ def test_admin_override_requires_admin_check_in_source():
 # ── A3: Normal users still get capability error without override ───────────────
 
 def test_capability_error_message_still_present_for_normal_path():
-    """The non-override path must still emit the standard error."""
+    """The non-override path must emit a capability-guard SSE error."""
     import app.main as main_module
 
     src = inspect.getsource(main_module.fetch_light_stream)
-    assert "WooCommerce variation filter unsupported" in src
+    # Message changed to clarify capability vs connectivity; check stable substring.
+    assert "capability_error" in src, (
+        "Non-override path must emit a capability_error SSE payload"
+    )
 
 
 # ── A4: Override logs warning (structural check) ─────────────────────────────

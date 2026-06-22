@@ -30,8 +30,12 @@ _LEVEL_RANK = {
 }
 
 # Hard numeric bounds for price sanity checks.
+# Unit: Iranian Rial (IRR). USD/IRR ≈ 1,200,000 at time of writing.
+# A $8,000 product costs ~9.6 billion IRR — well within normal range.
+# 10 trillion IRR (≈ $8.3M USD) is genuinely unreachable for any legitimate product price.
+# Integer constant avoids float representation drift near the boundary.
 PRICE_EXTREMELY_LOW = 0.001
-PRICE_EXTREMELY_HIGH = 999999.0
+PRICE_EXTREMELY_HIGH = 10_000_000_000_000  # 10 trillion IRR
 LARGE_INCREASE_FACTOR = 10.0
 
 VALID_STOCK_STATUSES = frozenset({"instock", "outofstock", "onbackorder"})
@@ -111,8 +115,8 @@ def validate_price(
     Rules:
       non-numeric  → critical (invalid_price)
       negative     → critical (negative_price)
-      < 0.001      → critical (extremely_low)
-      > 999999     → warning  (extremely_high) — advisory only, does not block apply
+      < 0.001                 → critical (extremely_low)
+      > 10_000_000_000_000 IRR → warning  (extremely_high) — advisory only, does not block apply
       zero         → warning  (out_of_stock_marker)
       > 10x old    → warning  (large_increase)
     """
@@ -155,13 +159,10 @@ def validate_price(
             f"Price {new_f} is below the minimum allowed ({PRICE_EXTREMELY_LOW}).",
         ))
     if new_f > PRICE_EXTREMELY_HIGH:
-        # Advisory only — does not block apply. Catalogs priced in Rial/Toman routinely
-        # exceed this absolute figure; blocking on it surprise-blocked valid products.
-        # Real protection against extreme/runaway price changes is the configurable,
-        # opt-in percentage-based critical threshold applied in _compute_dry_run_summary.
+        # Advisory only — does not block apply.
         out.append(ValidationResult(
             ValidationLevel.warning, "extremely_high", product_id, "new_price", new_price,
-            f"Price {new_f} exceeds {PRICE_EXTREMELY_HIGH:.0f} — please double-check this is correct.",
+            f"Price {new_f:,.0f} is unusually high — please double-check this is correct.",
         ))
 
     old_f = _to_float(old_price)

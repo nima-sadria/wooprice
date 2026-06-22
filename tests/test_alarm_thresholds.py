@@ -45,11 +45,21 @@ def make_item(**kw):
 
 
 def test_extremely_high_price_is_warning_not_critical():
-    results = validate_price(1, "2000000", None)
+    # Price above 9,999,999,999,999 — genuinely unreachable for Rial/Toman catalogs in normal use.
+    results = validate_price(1, "20000000000000", None)
     levels = {r.level for r in results}
     assert ValidationLevel.critical not in levels, results
     assert any(r.rule == "extremely_high" and r.level == ValidationLevel.warning for r in results), results
     print("test_extremely_high_price_is_warning_not_critical: PASS")
+
+
+def test_rial_price_below_threshold_is_clean():
+    """Typical high-end Iranian product price must not trigger extremely_high warning."""
+    # ~$8,000 item at USD/IRR ≈ 1,200,000 → 9,600,000,000 IRR, well below new 9.99T threshold
+    results = validate_price(1, "9600000000", None)
+    assert not any(r.rule == "extremely_high" for r in results), (
+        f"A typical 9.6B IRR price must not trigger extremely_high, got: {[r.rule for r in results]}"
+    )
 
 
 def test_resolve_alarm_threshold_global_fallback():
@@ -124,6 +134,7 @@ def test_dry_run_no_thresholds_configured_is_safe_default():
 
 if __name__ == "__main__":
     test_extremely_high_price_is_warning_not_critical()
+    test_rial_price_below_threshold_is_clean()
     test_resolve_alarm_threshold_global_fallback()
     test_resolve_alarm_threshold_category_override()
     test_resolve_alarm_threshold_legacy_call_no_category_dict()

@@ -479,8 +479,8 @@ def test_fetch_light_stream_returns_error_when_capability_guard_false():
     import app.main as main_module
 
     src = inspect.getsource(main_module.fetch_light_stream)
-    assert "WooCommerce variation filter unsupported" in src, (
-        "fetch_light_stream must surface capability-guard failure as SSE error"
+    assert "capability_error" in src, (
+        "fetch_light_stream must surface capability-guard failure as SSE error with capability_error field"
     )
     assert "check_variation_filter_capability" in src, (
         "fetch_light_stream must call check_variation_filter_capability"

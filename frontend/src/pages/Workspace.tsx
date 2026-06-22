@@ -1152,7 +1152,7 @@ function DryRunPanel({ phase, error, result, invalidated }: DryRunPanelProps) {
                       <span className="text-[11px] text-[#b45309]/70 ml-1">— percentage change exceeds the configured warning threshold; review before applying</span>
                     )}
                     {w.type === 'validation_extremely_high' && (
-                      <span className="text-[11px] text-[#b45309]/70 ml-1">— price exceeds the 999,999 limit; please verify this is correct</span>
+                      <span className="text-[11px] text-[#b45309]/70 ml-1">— price is unusually large; confirm this is intentional</span>
                     )}
                   </div>
                 ))}
@@ -1928,6 +1928,14 @@ export default function Workspace() {
     const ev = raw as Record<string, unknown>
     const msg = String(ev.msg ?? ev.error ?? '')
     if (ev.status === 'error' || ev.step === 'error' || ev.error) {
+      if (ev.capability_error) {
+        // WooCommerce API capability limitation — not a connectivity failure.
+        // Show as degraded (orange) rather than failed (red) so the user knows
+        // the app and WooCommerce are both accessible; only this feature is unsupported.
+        if (msg) dispatch({ type: 'CACHE_LOG', msg, level: 'warn' })
+        dispatch({ type: 'CACHE_DONE' })
+        return
+      }
       if (msg) dispatch({ type: 'CACHE_LOG', msg, level: 'error' })
       dispatch({ type: 'CACHE_ERROR', message: msg || 'Refresh failed.' })
     } else if (ev.step === 'done') {

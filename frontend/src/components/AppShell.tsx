@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import Sidebar from './Sidebar'
@@ -6,28 +6,69 @@ import Topbar from './Topbar'
 
 type HealthStatus = 'ok' | 'error' | 'loading'
 
+const HEALTH_INTERVAL_MS = 15_000
+const HEALTH_RETRY_MS = 5_000
+const HEALTH_MAX_RETRIES = 3
+
 export default function AppShell() {
-  const { user, clearAuth } = useAuth()
+  const { user, clearAuth, authFetch } = useAuth()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('wp-sb-col') === '1'
   )
   const [health, setHealth] = useState<HealthStatus>('loading')
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryCountRef = useRef(0)
 
   useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>
+
+    const cancelRetry = () => {
+      if (retryRef.current !== null) {
+        clearTimeout(retryRef.current)
+        retryRef.current = null
+      }
+    }
+
     const check = async () => {
+      cancelRetry()
       try {
-        const r = await fetch('/api/health')
-        setHealth(r.ok ? 'ok' : 'error')
+        const r = await authFetch('/api/health')
+        if (r.ok) {
+          retryCountRef.current = 0
+          setHealth('ok')
+        } else {
+          handleFailure()
+        }
       } catch {
+        handleFailure()
+      }
+    }
+
+    const handleFailure = () => {
+      retryCountRef.current += 1
+      if (retryCountRef.current <= HEALTH_MAX_RETRIES) {
+        // Show loading (checking) instead of hard error during retry window
+        setHealth('loading')
+        retryRef.current = setTimeout(() => { void check() }, HEALTH_RETRY_MS)
+      } else {
+        retryCountRef.current = 0
         setHealth('error')
       }
     }
+
     void check()
-    const id = setInterval(() => { void check() }, 30_000)
-    return () => clearInterval(id)
-  }, [])
+    intervalId = setInterval(() => {
+      retryCountRef.current = 0
+      void check()
+    }, HEALTH_INTERVAL_MS)
+
+    return () => {
+      clearInterval(intervalId)
+      cancelRetry()
+    }
+  }, [authFetch])
 
   function handleLogout() {
     clearAuth()

@@ -69,6 +69,16 @@ interface CurrencyData {
   stale?: boolean
 }
 
+type ServiceState = 'ok' | 'stale' | 'unknown' | 'unavailable'
+
+interface HealthServices {
+  api: ServiceState
+  woocommerce: ServiceState
+  nextcloud: ServiceState
+  currency: ServiceState
+  cache: { size: number; age_seconds: number | null }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
@@ -188,6 +198,70 @@ function CurrencyCard({ data, loading, error }: { data: CurrencyData | null; loa
   )
 }
 
+// ─── System status card ───────────────────────────────────────────────────────
+
+const SERVICE_DOT: Record<ServiceState, string> = {
+  ok:          'bg-wp-green',
+  stale:       'bg-[#f59e0b]',
+  unknown:     'bg-border',
+  unavailable: 'bg-wp-red',
+}
+const SERVICE_LABEL: Record<ServiceState, string> = {
+  ok:          'OK',
+  stale:       'Stale',
+  unknown:     '—',
+  unavailable: 'Unavailable',
+}
+
+function ServicePill({ label, state }: { label: string; state: ServiceState }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className={['w-2 h-2 rounded-full flex-shrink-0', SERVICE_DOT[state]].join(' ')} />
+      <span className="text-[12px] text-wp-muted">{label}</span>
+      <span className="text-[12px] font-medium text-text-base ml-auto">{SERVICE_LABEL[state]}</span>
+    </div>
+  )
+}
+
+function SystemStatusCard({ services }: { services: HealthServices | null }) {
+  const cacheSize = services?.cache.size ?? null
+  const cacheAge = services?.cache.age_seconds
+  let cacheLabel = '—'
+  if (cacheSize !== null) {
+    cacheLabel = `${cacheSize.toLocaleString('en')} products`
+    if (cacheAge != null) {
+      const mins = Math.floor(cacheAge / 60)
+      cacheLabel += mins > 0 ? `, ${mins}m ago` : ', fresh'
+    }
+  }
+
+  return (
+    <div className="bg-bg-card border border-border rounded-card shadow-card p-[22px] flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <svg viewBox="0 0 24 24" className="w-4 h-4 text-accent flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.93 4.93l2.12 2.12m9.9 9.9 2.12 2.12M4.93 19.07l2.12-2.12m9.9-9.9 2.12-2.12" />
+        </svg>
+        <span className="text-[11.5px] uppercase tracking-[.7px] text-wp-muted font-semibold">System Status</span>
+      </div>
+      {services ? (
+        <div className="flex flex-col gap-2">
+          <ServicePill label="API Server" state={services.api} />
+          <ServicePill label="WooCommerce" state={services.woocommerce} />
+          <ServicePill label="Nextcloud" state={services.nextcloud} />
+          <ServicePill label="Currency API" state={services.currency} />
+          <div className="flex items-center gap-1.5 pt-1 border-t border-border/50">
+            <span className="text-[11px] text-wp-muted">Cache:</span>
+            <span className="text-[11px] text-text-base ml-auto">{cacheLabel}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="text-[12px] text-wp-muted">Loading…</div>
+      )}
+    </div>
+  )
+}
+
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
@@ -244,6 +318,7 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null)
   const [dailyChanges, setDailyChanges] = useState<DailyChanges | null>(null)
   const [currency, setCurrency] = useState<CurrencyData | null>(null)
+  const [services, setServices] = useState<HealthServices | null>(null)
 
   const [loadingDash, setLoadingDash] = useState(true)
   const [loadingChanges, setLoadingChanges] = useState(true)
@@ -282,18 +357,23 @@ export default function Home() {
     }
     setLoadingChanges(false)
 
-    // Currency — best-effort, shown even if auth fetch fails
-    try {
-      const r = await fetch('/api/currency')
-      if (r.ok) {
-        setCurrency(await r.json() as CurrencyData)
-      } else {
-        setErrorCurrency('Rate unavailable')
-      }
-    } catch {
-      setErrorCurrency('Network error')
+    // Currency + health services — both best-effort, no auth required
+    const [curRes, healthRes] = await Promise.allSettled([
+      fetch('/api/currency'),
+      fetch('/api/health'),
+    ])
+
+    if (curRes.status === 'fulfilled' && curRes.value.ok) {
+      setCurrency(await curRes.value.json() as CurrencyData)
+    } else {
+      setErrorCurrency('Rate unavailable')
     }
     setLoadingCurrency(false)
+
+    if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
+      const h = await healthRes.value.json() as { services?: HealthServices }
+      if (h.services) setServices(h.services)
+    }
   }, [authFetch])
 
   useEffect(() => { void load() }, [load])
@@ -357,10 +437,11 @@ export default function Home() {
         </div>
       )}
 
-      {/* Row 1: Calendar + Currency */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Row 1: Calendar + Currency + System Status */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <CalendarCard />
         <CurrencyCard data={currency} loading={loadingCurrency} error={errorCurrency} />
+        <SystemStatusCard services={services} />
       </div>
 
       {/* Row 2: Sheet coverage (4 cards) */}
