@@ -44,7 +44,8 @@ from app.config import get_settings  # noqa: E402
 
 @pytest.fixture(scope="module")
 def client():
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 # ── P1: Regression — test usernames must not be in bootstrap config ───────────

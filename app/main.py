@@ -520,12 +520,31 @@ async def _cleanup_stale_jobs():
         db.close()
 
 
+_bg_tasks: list[asyncio.Task] = []
+
+
 @app.on_event("startup")
 async def _start_auto_fetch():
-    asyncio.create_task(_cleanup_stale_jobs())
+    _bg_tasks.append(asyncio.create_task(_cleanup_stale_jobs()))
     s = get_settings()
     if s.wc_auto_fetch_hours > 0:
-        asyncio.create_task(_auto_fetch_loop(s.wc_auto_fetch_hours * 3600))
+        _bg_tasks.append(asyncio.create_task(_auto_fetch_loop(s.wc_auto_fetch_hours * 3600)))
+
+
+@app.on_event("shutdown")
+async def _stop_bg_tasks():
+    """Cancel infinite background tasks so the event loop can exit cleanly.
+
+    Without this, TestClient teardown and graceful server shutdown hang
+    because _auto_fetch_loop never exits on its own.
+    """
+    for task in _bg_tasks:
+        if not task.done():
+            task.cancel()
+    if _bg_tasks:
+        import asyncio as _ao
+        await _ao.gather(*_bg_tasks, return_exceptions=True)
+    _bg_tasks.clear()
 
 static_dir = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -1604,28 +1623,43 @@ async def root():
 @app.get("/api/health")
 async def health():
     import time as _time
+    import app.services.woocommerce as _wc_svc
+    import app.services.nextcloud as _nc_svc
     s = get_settings()
 
-    # Currency status from in-memory cache — no live probe to keep health fast.
+    # Currency: derive from in-memory cache — no live probe to keep latency low.
     _cur = _currency_cache
     if _cur["data"] is not None:
         currency_status = "ok" if (_time.time() - _cur["ts"]) < 300 else "stale"
     else:
         currency_status = "unavailable"
 
+    # WooCommerce: derive from in-memory product cache and last capability probe.
+    # A non-empty product cache proves WooCommerce was accessible at last sync.
     cache_info = get_cache_info()
+    if cache_info.get("size", 0) > 0:
+        capable = _wc_svc._wc_variation_filter_capable
+        # capable=False means accessible but feature-limited (not a connectivity failure)
+        wc_status = "limited" if capable is False else "ok"
+    else:
+        wc_status = "unknown"  # no successful fetch recorded yet
+
+    # Nextcloud: derive from in-memory xlsx cache timestamp.
+    # A non-zero ts proves Nextcloud was reachable at last sheet download.
+    nc_status = "ok" if _nc_svc._xlsx_cache.get("ts", 0) > 0 else "unknown"
+
     age_s = cache_info.get("age_seconds")
 
     return {
         "status": "ok",
         "wc_url": s.wc_url,
         "nextcloud_url": s.nextcloud_url,
-        # Extended service-level status. woocommerce and nextcloud are not actively
-        # probed here to keep latency low; apply operations are the definitive test.
+        # Per-service status derived from existing in-memory signals.
+        # No live network probes are made to keep /api/health fast.
         "services": {
             "api": "ok",
-            "woocommerce": "unknown",
-            "nextcloud": "unknown",
+            "woocommerce": wc_status,
+            "nextcloud": nc_status,
             "currency": currency_status,
             "cache": {
                 "size": cache_info.get("size", 0),
