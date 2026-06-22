@@ -273,17 +273,18 @@ def get_page(
         q = q.filter(ProductCache.sku.ilike(f"%{sku}%"))
     if name:
         q = q.filter(ProductCache.name.ilike(f"%{name}%"))
-    if stock_status:
+    if stock_status and stock_status != "all":
         q = q.filter(ProductCache.stock_status == stock_status)
-    if price_status == "has_price":
-        q = q.filter(
-            ProductCache.regular_price.isnot(None),
-            ProductCache.regular_price != "",
-        )
-    elif price_status == "no_price":
-        q = q.filter(
-            (ProductCache.regular_price.is_(None)) | (ProductCache.regular_price == "")
-        )
+    if price_status not in (None, "", "all"):
+        if price_status == "has_price":
+            q = q.filter(
+                ProductCache.regular_price.isnot(None),
+                ProductCache.regular_price != "",
+            )
+        elif price_status == "no_price":
+            q = q.filter(
+                (ProductCache.regular_price.is_(None)) | (ProductCache.regular_price == "")
+            )
     if quality_filter == "missing_sku":
         q = q.filter(
             (ProductCache.sku.is_(None)) | (ProductCache.sku == "")

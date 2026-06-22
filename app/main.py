@@ -26,6 +26,7 @@ _SSE_HEADERS = {
     "Content-Type": "text/event-stream",
 }
 
+from typing import Literal
 from fastapi import Depends, FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1711,28 +1712,34 @@ async def list_cached_products(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
     search: str | None = Query(None),
-    product_type: str | None = Query(None),
+    product_type: Literal["simple", "variable", "variation"] | None = Query(None),
     brand_name: str | None = Query(None),
     category_id: int | None = Query(None),
     category_ids: list[int] = Query(default=[]),
     wc_id: int | None = Query(None),
     sku: str | None = Query(None),
     name: str | None = Query(None),
-    stock_status: str | None = Query(None),
-    price_status: str | None = Query(None),
-    sort: str = Query("newest"),
-    quality_filter: str | None = Query(None),
+    stock_status: Literal["all", "instock", "outofstock", "onbackorder"] | None = Query(None),
+    price_status: Literal["all", "has_price", "no_price"] | None = Query(None),
+    sort: Literal["newest", "oldest", "name_asc", "name_desc"] = Query("newest"),
+    quality_filter: Literal["missing_sku", "missing_image"] | None = Query(None),
     user: dict = Depends(require_permission("can_fetch")),
     db: Session = Depends(get_db),
 ):
-    """Return paginated products from the local DB cache with combined filters."""
+    """Return paginated products from the local DB cache with combined filters.
+
+    'all' is accepted for stock_status and price_status and treated as no filter,
+    matching frontend convention. Invalid enum values return HTTP 422."""
     import math
+    # Normalise sentinel "all" values to None so get_page applies no filter.
+    _stock = None if not stock_status or stock_status == "all" else stock_status
+    _price = None if not price_status or price_status == "all" else price_status
     items, total = cache_get_page(
         db, page=page, limit=limit, search=search, product_type=product_type,
         brand_name=brand_name, category_id=category_id,
         category_ids=category_ids or None,
         wc_id_exact=wc_id, sku=sku, name=name,
-        stock_status=stock_status, price_status=price_status,
+        stock_status=_stock, price_status=_price,
         sort=sort, quality_filter=quality_filter,
     )
     return {

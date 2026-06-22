@@ -13,6 +13,17 @@ Covers the get_page() additions:
   F10 — sort name_asc: alphabetical
   F11 — /api/products endpoint accepts new query params (HTTP integration)
   F12 — category_ids with multiple IDs uses OR logic
+
+R1 (7.4A R1 remediation):
+  V1  — stock_status=all returns all products (no filter)
+  V2  — price_status=all returns all products (no filter)
+  V3  — stock_status=all is safe in get_page() (no spurious DB predicate)
+  V4  — price_status=all is safe in get_page() (no spurious DB predicate)
+  V5  — invalid stock_status returns HTTP 422
+  V6  — invalid price_status returns HTTP 422
+  V7  — invalid sort returns HTTP 422
+  V8  — invalid quality_filter returns HTTP 422
+  V9  — invalid product_type returns HTTP 422
 """
 import json
 import os
@@ -306,3 +317,104 @@ def test_api_products_new_params(client):
     body = r.json()
     wc_ids = {it["wc_id"] for it in body["items"]}
     assert 97002 in wc_ids
+
+
+# ── V1: stock_status=all returns all products (no filter) ─────────────────────
+
+def test_stock_all_returns_all_products(db):
+    items_all, total_all = get_page(db, limit=1000, stock_status="all")
+    items_none, total_none = get_page(db, limit=1000, stock_status=None)
+    assert total_all == total_none, (
+        f"stock_status='all' must apply no filter; "
+        f"got {total_all} vs {total_none} with no filter"
+    )
+
+
+# ── V2: price_status=all returns all products (no filter) ─────────────────────
+
+def test_price_all_returns_all_products(db):
+    items_all, total_all = get_page(db, limit=1000, price_status="all")
+    items_none, total_none = get_page(db, limit=1000, price_status=None)
+    assert total_all == total_none, (
+        f"price_status='all' must apply no filter; "
+        f"got {total_all} vs {total_none} with no filter"
+    )
+
+
+# ── V3: stock_status=all never creates a spurious DB predicate ────────────────
+
+def test_stock_all_not_spurious_predicate(db):
+    """stock_status='all' must not search for a literal stock_status='all' value."""
+    items, total = get_page(db, limit=1000, stock_status="all")
+    ids_result = {it["wc_id"] for it in items}
+    # All seeded products must appear (they have instock/outofstock, never 'all')
+    for wc_id in WC_IDS:
+        assert wc_id in ids_result, (
+            f"wc_id={wc_id} was excluded by stock_status='all' — spurious predicate suspected"
+        )
+
+
+# ── V4: price_status=all never creates a spurious DB predicate ───────────────
+
+def test_price_all_not_spurious_predicate(db):
+    """price_status='all' must not filter; all products must be returned."""
+    _, total_all = get_page(db, limit=1000, price_status="all")
+    _, total_baseline = get_page(db, limit=1000)
+    assert total_all == total_baseline, (
+        f"price_status='all' changed result count: {total_all} vs baseline {total_baseline}"
+    )
+
+
+# ── V5: invalid stock_status → HTTP 422 ───────────────────────────────────────
+
+def test_invalid_stock_status_returns_422(client):
+    tok = create_token(_HTTP_USER, permission_version=0, role="user")
+    headers = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/api/products?stock_status=unknown_value", headers=headers)
+    assert r.status_code == 422, (
+        f"Invalid stock_status must return HTTP 422, got {r.status_code}"
+    )
+
+
+# ── V6: invalid price_status → HTTP 422 ───────────────────────────────────────
+
+def test_invalid_price_status_returns_422(client):
+    tok = create_token(_HTTP_USER, permission_version=0, role="user")
+    headers = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/api/products?price_status=cheap", headers=headers)
+    assert r.status_code == 422, (
+        f"Invalid price_status must return HTTP 422, got {r.status_code}"
+    )
+
+
+# ── V7: invalid sort → HTTP 422 ───────────────────────────────────────────────
+
+def test_invalid_sort_returns_422(client):
+    tok = create_token(_HTTP_USER, permission_version=0, role="user")
+    headers = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/api/products?sort=random", headers=headers)
+    assert r.status_code == 422, (
+        f"Invalid sort must return HTTP 422, got {r.status_code}"
+    )
+
+
+# ── V8: invalid quality_filter → HTTP 422 ────────────────────────────────────
+
+def test_invalid_quality_filter_returns_422(client):
+    tok = create_token(_HTTP_USER, permission_version=0, role="user")
+    headers = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/api/products?quality_filter=bad_filter", headers=headers)
+    assert r.status_code == 422, (
+        f"Invalid quality_filter must return HTTP 422, got {r.status_code}"
+    )
+
+
+# ── V9: invalid product_type → HTTP 422 ──────────────────────────────────────
+
+def test_invalid_product_type_returns_422(client):
+    tok = create_token(_HTTP_USER, permission_version=0, role="user")
+    headers = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/api/products?product_type=bundle", headers=headers)
+    assert r.status_code == 422, (
+        f"Invalid product_type must return HTTP 422, got {r.status_code}"
+    )
