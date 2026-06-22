@@ -1027,10 +1027,17 @@ async def check_variation_filter_capability(
             telemetry.capability_probe_retries += _probe_telem.retry_count
 
         if resp.status_code == 200:
+            record_wc_success()
             try:
                 schema = resp.json()
             except Exception:
-                schema = {}
+                # WC responded but body is not parseable — connectivity confirmed,
+                # capability indeterminate. Do NOT cache so next call can re-probe.
+                logger.warning(
+                    "wc_capability: OPTIONS returned 200 but body is not valid JSON "
+                    "— capability indeterminate (not cached)"
+                )
+                return None
             if _schema_supports_modified_after(schema):
                 logger.info(
                     "wc_capability: variation modified_after filter confirmed via OPTIONS schema"
@@ -1041,18 +1048,22 @@ async def check_variation_filter_capability(
                 "wc_capability: OPTIONS schema does not declare modified_after — "
                 "Light Refresh variation filtering unsupported"
             )
+            _wc_variation_filter_capable = False
+            return False
         else:
+            # WC is reachable (it responded); non-200 status is not a network failure.
+            # Capability cannot be determined from this response — do NOT cache.
+            record_wc_success()
             logger.warning(
-                "wc_capability: OPTIONS returned %d — cannot confirm filter support",
+                "wc_capability: OPTIONS returned %d — capability indeterminate (not cached)",
                 resp.status_code,
             )
-        # Schema checked and does not confirm support → confirmed unsupported → cache
-        _wc_variation_filter_capable = False
-        return False
+            return None
 
     except RuntimeError:
         # Retry budget exhausted — connectivity/rate-limit failure, NOT a confirmed schema
         # check. Do NOT cache: allows re-probe on next call once the API recovers.
+        record_wc_failure()
         if telemetry is not None:
             telemetry.capability_probe_requests += _probe_telem.wc_requests
             telemetry.capability_probe_retries += _probe_telem.retry_count
@@ -1065,6 +1076,7 @@ async def check_variation_filter_capability(
 
     except Exception as exc:
         # Transient / unexpected error — do NOT cache; allow re-probe on next call.
+        record_wc_failure()
         if telemetry is not None:
             telemetry.capability_probe_requests += _probe_telem.wc_requests
             telemetry.capability_probe_retries += _probe_telem.retry_count

@@ -16,6 +16,9 @@ WC10 — Empty successful fetch still records WC success
 WC11 — DB failure after successful WC fetch does NOT mark WC unavailable
 WC12 — Retry budget exhaustion returns None, not cached as False
 WC13 — force_capability rejected when capability is indeterminate (None)
+WC14 — Retry exhaustion after prior success → WC becomes 'unavailable' (failure recorded)
+WC15 — Valid unsupported schema → records WC success; health is 'limited'
+WC16 — Malformed JSON response → returns None, not cached; records WC success
 
 NC1  — NC status 'unknown' before any download
 NC2  — NC status 'ok' after fresh successful download
@@ -356,6 +359,183 @@ def test_force_capability_rejected_when_capability_indeterminate(client):
     )
 
 
+# ── WC14: Retry exhaustion after prior success → WC becomes 'unavailable' ────
+
+def test_capability_retry_exhaustion_records_wc_failure(client):
+    """After retry budget exhaustion, record_wc_failure() must be called, so
+    /api/health transitions WC to 'unavailable' if failure > success."""
+    from app.services.woocommerce import (
+        check_variation_filter_capability, FetchTelemetry,
+        _MAX_RETRY_SLEEP, reset_wc_capability_cache,
+    )
+    from app.database import SessionLocal
+    from app.models import ProductCache
+
+    reset_wc_capability_cache()
+    wc_svc.record_wc_success()  # prior healthy state
+    assert _svc(client)["woocommerce"] in ("ok", "limited", "stale"), "Pre-condition"
+
+    db = SessionLocal()
+    try:
+        db.query(ProductCache).filter(ProductCache.wc_id == 9310).delete()
+        db.commit()
+        row = ProductCache(
+            wc_id=9310, parent_id=0, product_type="variable",
+            last_synced_at=datetime.utcnow(), last_seen_at=datetime.utcnow(), cache_version=1,
+        )
+        db.add(row)
+        db.commit()
+
+        rate_resp = MagicMock(spec=httpx.Response)
+        rate_resp.status_code = 429
+        rate_resp.headers = httpx.Headers({"Retry-After": str(int(_MAX_RETRY_SLEEP))})
+        rate_resp.json.return_value = {}
+        rate_resp.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("429", request=MagicMock(), response=rate_resp)
+        )
+
+        mock_client = MagicMock(spec=httpx.AsyncClient)
+        mock_client.options = AsyncMock(return_value=rate_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        async def run():
+            with patch("app.services.woocommerce.httpx.AsyncClient", return_value=mock_client):
+                with patch("asyncio.sleep", new=AsyncMock()):
+                    return await check_variation_filter_capability(db, telemetry=FetchTelemetry())
+
+        result = asyncio.run(run())
+        assert result is None
+        assert wc_svc._wc_last_failure_ts > wc_svc._wc_last_success_ts, (
+            "Retry budget exhaustion must call record_wc_failure() — "
+            f"failure_ts={wc_svc._wc_last_failure_ts} success_ts={wc_svc._wc_last_success_ts}"
+        )
+        assert _svc(client)["woocommerce"] == "unavailable", (
+            "WC health must be 'unavailable' when failure_ts > success_ts after probe exhaustion"
+        )
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 9310).delete()
+        db.commit()
+        db.close()
+        reset_wc_capability_cache()
+
+
+# ── WC15: Valid unsupported schema → records success, health is 'limited' ─────
+
+def test_capability_unsupported_schema_records_wc_success(client):
+    """When OPTIONS returns a valid schema without modified_after, record_wc_success()
+    must be called. WC health should be 'limited' (fresh + capability=False)."""
+    from app.services.woocommerce import (
+        check_variation_filter_capability, reset_wc_capability_cache,
+    )
+    from app.database import SessionLocal
+    from app.models import ProductCache
+
+    reset_wc_capability_cache()
+    db = SessionLocal()
+    try:
+        db.query(ProductCache).filter(ProductCache.wc_id == 9311).delete()
+        db.commit()
+        row = ProductCache(
+            wc_id=9311, parent_id=0, product_type="variable",
+            last_synced_at=datetime.utcnow(), last_seen_at=datetime.utcnow(), cache_version=1,
+        )
+        db.add(row)
+        db.commit()
+
+        schema_no_modified_after = {
+            "routes": {
+                "/wc/v3/products/(?P<id>[\\d]+)/variations": {
+                    "endpoints": [{"methods": ["GET"], "args": {"per_page": {}, "page": {}}}]
+                }
+            }
+        }
+        ok_resp = MagicMock(spec=httpx.Response)
+        ok_resp.status_code = 200
+        ok_resp.headers = httpx.Headers({})
+        ok_resp.json.return_value = schema_no_modified_after
+        ok_resp.raise_for_status = MagicMock()
+
+        mock_client = MagicMock(spec=httpx.AsyncClient)
+        mock_client.options = AsyncMock(return_value=ok_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        async def run():
+            with patch("app.services.woocommerce.httpx.AsyncClient", return_value=mock_client):
+                return await check_variation_filter_capability(db)
+
+        result = asyncio.run(run())
+        assert result is False, f"Expected False (unsupported schema), got {result!r}"
+        assert wc_svc._wc_last_success_ts > 0, (
+            "OPTIONS 200 with valid (unsupported) schema must call record_wc_success()"
+        )
+        assert _svc(client)["woocommerce"] == "limited", (
+            f"WC health must be 'limited' when capability=False + fresh success; "
+            f"got {_svc(client)['woocommerce']!r}"
+        )
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 9311).delete()
+        db.commit()
+        db.close()
+        reset_wc_capability_cache()
+
+
+# ── WC16: Malformed JSON → returns None, not cached, records success ──────────
+
+def test_capability_malformed_json_returns_none_not_cached(client):
+    """OPTIONS 200 with malformed JSON body: WC is reachable (record_wc_success),
+    but capability is indeterminate — must return None and NOT cache False."""
+    from app.services.woocommerce import (
+        check_variation_filter_capability, reset_wc_capability_cache,
+    )
+    from app.database import SessionLocal
+    from app.models import ProductCache
+
+    reset_wc_capability_cache()
+    db = SessionLocal()
+    try:
+        db.query(ProductCache).filter(ProductCache.wc_id == 9312).delete()
+        db.commit()
+        row = ProductCache(
+            wc_id=9312, parent_id=0, product_type="variable",
+            last_synced_at=datetime.utcnow(), last_seen_at=datetime.utcnow(), cache_version=1,
+        )
+        db.add(row)
+        db.commit()
+
+        bad_resp = MagicMock(spec=httpx.Response)
+        bad_resp.status_code = 200
+        bad_resp.headers = httpx.Headers({})
+        bad_resp.json.side_effect = ValueError("not valid json")
+        bad_resp.raise_for_status = MagicMock()
+
+        mock_client = MagicMock(spec=httpx.AsyncClient)
+        mock_client.options = AsyncMock(return_value=bad_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        async def run():
+            with patch("app.services.woocommerce.httpx.AsyncClient", return_value=mock_client):
+                return await check_variation_filter_capability(db)
+
+        result = asyncio.run(run())
+        assert result is None, (
+            f"Malformed JSON must return None (indeterminate), got {result!r}"
+        )
+        assert wc_svc._wc_variation_filter_capable is None, (
+            f"Malformed JSON must NOT cache the result — got {wc_svc._wc_variation_filter_capable!r}"
+        )
+        assert wc_svc._wc_last_success_ts > 0, (
+            "OPTIONS 200 (even with bad body) means WC responded — must call record_wc_success()"
+        )
+    finally:
+        db.query(ProductCache).filter(ProductCache.wc_id == 9312).delete()
+        db.commit()
+        db.close()
+        reset_wc_capability_cache()
+
+
 # ── NC1: unknown before any download ─────────────────────────────────────────
 
 def test_nc_status_unknown_before_any_download(client):
@@ -478,21 +658,40 @@ def test_successful_upload_clears_all_cache_fields():
 # ── NC9: status is 'unknown' after upload invalidation ───────────────────────
 
 def test_nc_status_unknown_after_upload_invalidation(client):
-    """After a successful upload clears the cache, NC status must be 'unknown'
-    until a new successful download occurs and records nc_success."""
-    nc_svc._nc_last_success_ts = time.time()  # simulate prior success
-    nc_svc._nc_last_failure_ts = 0.0
-    nc_svc._xlsx_cache.update({
-        "data": b"oldbytes", "ts": time.time(), "etag": "", "last_modified": "",
-    })
+    """_upload_wb must reset both health timestamps so /api/health reports 'unknown'
+    until a fresh download is completed. Exercises real _upload_wb() with mocked HTTP."""
+    from app.services.nextcloud import _upload_wb
+    from openpyxl import Workbook
 
-    # Simulate upload invalidation (clears ts → triggers nc_health to derive unknown)
-    # We also reset last_success_ts because the upload clears all state
-    nc_svc._nc_last_success_ts = 0.0
-    nc_svc._xlsx_cache.update({"data": None, "ts": 0.0, "etag": "", "last_modified": ""})
+    nc_svc.record_nc_success()
+    nc_svc._xlsx_cache.update({"data": b"old", "ts": time.time(), "etag": "", "last_modified": ""})
+    assert _svc(client)["nextcloud"] in ("ok", "stale"), "Pre-condition: NC should be healthy"
 
+    wb = Workbook()
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+
+    async def _run():
+        with patch("app.services.nextcloud.httpx.AsyncClient") as MockCl:
+            mock_client = MagicMock()
+            mock_client.put = AsyncMock(return_value=mock_resp)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            MockCl.return_value = mock_client
+            await _upload_wb(wb)
+
+    asyncio.run(_run())
+
+    assert nc_svc._nc_last_success_ts == 0.0, "_upload_wb must reset _nc_last_success_ts to 0"
+    assert nc_svc._nc_last_failure_ts == 0.0, "_upload_wb must reset _nc_last_failure_ts to 0"
     assert _svc(client)["nextcloud"] == "unknown", (
         "NC status must be 'unknown' after upload invalidation and before new download"
+    )
+
+    # Recovery: a successful download restores health
+    nc_svc.record_nc_success()
+    assert _svc(client)["nextcloud"] in ("ok", "stale"), (
+        "NC status must recover to ok/stale after record_nc_success()"
     )
 
 

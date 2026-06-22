@@ -394,6 +394,7 @@ async def write_back_to_sheet(results: list[dict]) -> None:
 
 
 async def _upload_wb(wb) -> None:
+    global _nc_last_success_ts, _nc_last_failure_ts
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -413,9 +414,11 @@ async def _upload_wb(wb) -> None:
     except Exception:
         record_nc_failure()
         raise
-    # Invalidate ALL cache fields — status becomes "unknown" until a new successful
-    # download occurs (the uploaded file must be re-fetched to verify freshness).
+    # Invalidate ALL cache fields and health timestamps — status becomes "unknown" until
+    # a fresh download is completed and record_nc_success() is called.
     _xlsx_cache["data"] = None
     _xlsx_cache["ts"] = 0.0
     _xlsx_cache["etag"] = ""
     _xlsx_cache["last_modified"] = ""
+    _nc_last_success_ts = 0.0
+    _nc_last_failure_ts = 0.0
