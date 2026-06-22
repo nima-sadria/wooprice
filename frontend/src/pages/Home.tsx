@@ -69,7 +69,7 @@ interface CurrencyData {
   stale?: boolean
 }
 
-type ServiceState = 'ok' | 'stale' | 'unknown' | 'unavailable'
+type ServiceState = 'ok' | 'limited' | 'stale' | 'unknown' | 'unavailable'
 
 interface HealthServices {
   api: ServiceState
@@ -77,6 +77,14 @@ interface HealthServices {
   nextcloud: ServiceState
   currency: ServiceState
   cache: { size: number; age_seconds: number | null }
+}
+
+const KNOWN_STATES = new Set<string>(['ok', 'limited', 'stale', 'unknown', 'unavailable'])
+
+function toServiceState(raw: unknown): ServiceState {
+  return typeof raw === 'string' && KNOWN_STATES.has(raw)
+    ? (raw as ServiceState)
+    : 'unknown'
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -202,23 +210,27 @@ function CurrencyCard({ data, loading, error }: { data: CurrencyData | null; loa
 
 const SERVICE_DOT: Record<ServiceState, string> = {
   ok:          'bg-wp-green',
+  limited:     'bg-[#f59e0b]',
   stale:       'bg-[#f59e0b]',
   unknown:     'bg-border',
   unavailable: 'bg-wp-red',
 }
 const SERVICE_LABEL: Record<ServiceState, string> = {
   ok:          'OK',
+  limited:     'Limited',
   stale:       'Stale',
   unknown:     '—',
   unavailable: 'Unavailable',
 }
 
 function ServicePill({ label, state }: { label: string; state: ServiceState }) {
+  const dot = SERVICE_DOT[state] ?? SERVICE_DOT['unknown']
+  const lbl = SERVICE_LABEL[state] ?? '—'
   return (
     <div className="flex items-center gap-1.5">
-      <span className={['w-2 h-2 rounded-full flex-shrink-0', SERVICE_DOT[state]].join(' ')} />
+      <span className={['w-2 h-2 rounded-full flex-shrink-0', dot].join(' ')} />
       <span className="text-[12px] text-wp-muted">{label}</span>
-      <span className="text-[12px] font-medium text-text-base ml-auto">{SERVICE_LABEL[state]}</span>
+      <span className="text-[12px] font-medium text-text-base ml-auto">{lbl}</span>
     </div>
   )
 }
@@ -371,8 +383,17 @@ export default function Home() {
     setLoadingCurrency(false)
 
     if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
-      const h = await healthRes.value.json() as { services?: HealthServices }
-      if (h.services) setServices(h.services)
+      const h = await healthRes.value.json() as { services?: Record<string, unknown> }
+      if (h.services) {
+        const s = h.services
+        setServices({
+          api:        toServiceState(s['api']),
+          woocommerce: toServiceState(s['woocommerce']),
+          nextcloud:  toServiceState(s['nextcloud']),
+          currency:   toServiceState(s['currency']),
+          cache: (s['cache'] as HealthServices['cache']) ?? { size: 0, age_seconds: null },
+        })
+      }
     }
   }, [authFetch])
 

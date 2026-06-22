@@ -1626,35 +1626,51 @@ async def health():
     import app.services.woocommerce as _wc_svc
     import app.services.nextcloud as _nc_svc
     s = get_settings()
+    _now = _time.time()
 
     # Currency: derive from in-memory cache — no live probe to keep latency low.
     _cur = _currency_cache
     if _cur["data"] is not None:
-        currency_status = "ok" if (_time.time() - _cur["ts"]) < 300 else "stale"
+        currency_status = "ok" if (_now - _cur["ts"]) < 300 else "stale"
     else:
         currency_status = "unavailable"
 
-    # WooCommerce: derive from in-memory product cache and last capability probe.
-    # A non-empty product cache proves WooCommerce was accessible at last sync.
-    cache_info = get_cache_info()
-    if cache_info.get("size", 0) > 0:
-        capable = _wc_svc._wc_variation_filter_capable
-        # capable=False means accessible but feature-limited (not a connectivity failure)
-        wc_status = "limited" if capable is False else "ok"
+    # WooCommerce — 5-level precedence using recorded health state timestamps.
+    # No live probes; the timestamps are updated by fetch operations in woocommerce.py.
+    _wc_ok = _wc_svc._wc_last_success_ts
+    _wc_fail = _wc_svc._wc_last_failure_ts
+    if _wc_ok == 0.0 and _wc_fail == 0.0:
+        wc_status = "unknown"
+    elif _wc_fail > _wc_ok:
+        wc_status = "unavailable"
+    elif _now - _wc_ok > 300:
+        wc_status = "stale"
+    elif _wc_svc._wc_variation_filter_capable is False:
+        wc_status = "limited"
     else:
-        wc_status = "unknown"  # no successful fetch recorded yet
+        wc_status = "ok"
 
-    # Nextcloud: derive from in-memory xlsx cache timestamp.
-    # A non-zero ts proves Nextcloud was reachable at last sheet download.
-    nc_status = "ok" if _nc_svc._xlsx_cache.get("ts", 0) > 0 else "unknown"
+    # Nextcloud — same precedence pattern using _XLSX_CACHE_TTL as freshness threshold.
+    _nc_ok = _nc_svc._nc_last_success_ts
+    _nc_fail = _nc_svc._nc_last_failure_ts
+    _nc_ttl = _nc_svc._XLSX_CACHE_TTL
+    if _nc_ok == 0.0 and _nc_fail == 0.0:
+        nc_status = "unknown"
+    elif _nc_fail > _nc_ok:
+        nc_status = "unavailable"
+    elif _now - _nc_ok > _nc_ttl:
+        nc_status = "stale"
+    else:
+        nc_status = "ok"
 
+    cache_info = get_cache_info()
     age_s = cache_info.get("age_seconds")
 
     return {
         "status": "ok",
         "wc_url": s.wc_url,
         "nextcloud_url": s.nextcloud_url,
-        # Per-service status derived from existing in-memory signals.
+        # Per-service status derived from recorded in-memory signals.
         # No live network probes are made to keep /api/health fast.
         "services": {
             "api": "ok",
@@ -2089,12 +2105,26 @@ async def fetch_light_stream(
         )
 
     # Guard: verify WC variation endpoint supports modified_after + dates_are_gmt
+    # Tri-state: True=supported, False=confirmed unsupported, None=connectivity/probe failure
     _probe_telemetry = FetchTelemetry()
     _capable = await check_variation_filter_capability(db, telemetry=_probe_telemetry)
-    if not _capable:
-        _req_user = creds.get("sub", "unknown")
+    _req_user = creds.get("sub", "unknown")
+
+    if _capable is None:
+        # Connectivity or probe failure — capability is indeterminate.
+        # Admin override is NOT permitted: we cannot confirm the feature exists.
+        return StreamingResponse(
+            iter([
+                'data: {"error":"Light Refresh probe failed: WooCommerce API probe encountered a'
+                ' connectivity, authentication, or rate-limit error. Capability is indeterminate —'
+                ' try again or run a Full Sync."}\n\n'
+            ]),
+            media_type="text/event-stream",
+        )
+    elif _capable is False:
+        # Schema explicitly confirmed that modified_after is unsupported.
+        # Admin override is permitted via force_capability=true.
         if force_capability:
-            # Admin-only override: non-admins are rejected even with the flag.
             _app_user_row = db.query(AppUser).filter(AppUser.username == _req_user).first()
             _is_admin = is_super_admin(_req_user) or (_app_user_row and _app_user_row.is_admin)
             if not _is_admin:
@@ -2123,6 +2153,7 @@ async def fetch_light_stream(
                 ]),
                 media_type="text/event-stream",
             )
+    # _capable is True: proceed normally
 
     # Capture fetch_start BEFORE querying WC so products modified during the fetch
     # are not silently swallowed by the window.

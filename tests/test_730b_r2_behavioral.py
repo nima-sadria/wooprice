@@ -37,6 +37,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 from app.services.auth import create_token  # noqa: E402
 from app.database import Base, engine  # noqa: E402
+import app.services.woocommerce as _wc_svc  # noqa: E402
+import app.services.nextcloud as _nc_svc  # noqa: E402
 
 Base.metadata.create_all(bind=engine)
 
@@ -45,6 +47,17 @@ Base.metadata.create_all(bind=engine)
 def client():
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _reset_wc_nc_state():
+    _wc_svc.reset_wc_health_state()
+    _wc_svc.reset_wc_capability_cache()
+    _nc_svc.reset_nc_health_state()
+    yield
+    _wc_svc.reset_wc_health_state()
+    _wc_svc.reset_wc_capability_cache()
+    _nc_svc.reset_nc_health_state()
 
 
 def _admin_tok():
@@ -96,39 +109,30 @@ def test_health_cache_field_has_expected_shape(client: TestClient):
 
 # ── B2: WooCommerce status is not hardcoded "unknown" ─────────────────────────
 
-def test_health_wc_status_reflects_cache_when_populated(client: TestClient):
-    """With a populated in-memory product cache, wc status must be 'ok' or 'limited'.
-
-    We patch get_cache_info() to simulate a populated cache since no real WC
-    server is available in the test environment.
-    """
-    with patch("app.main.get_cache_info", return_value={"size": 42, "age_seconds": 60.0}):
-        with patch("app.services.woocommerce._wc_variation_filter_capable", None):
-            r = client.get("/api/health")
-    status = r.json()["services"]["woocommerce"]
+def test_health_wc_status_reflects_recent_success(client: TestClient):
+    """After a successful WC fetch, status must be 'ok' (not permanently 'unknown')."""
+    _wc_svc.record_wc_success()
+    status = client.get("/api/health").json()["services"]["woocommerce"]
     assert status in ("ok", "limited"), (
-        f"woocommerce status must be 'ok' or 'limited' when cache is populated; got '{status}'"
+        f"woocommerce status must be 'ok' or 'limited' after a recorded success; got '{status}'"
     )
 
 
 def test_health_wc_status_is_limited_when_capability_false(client: TestClient):
-    """When WC capability probe returned False, status must be 'limited' (not 'failed')."""
-    with patch("app.main.get_cache_info", return_value={"size": 10, "age_seconds": 120.0}):
-        with patch("app.services.woocommerce._wc_variation_filter_capable", False):
-            r = client.get("/api/health")
-    status = r.json()["services"]["woocommerce"]
+    """When capability probe returned False AND a fresh success is recorded → 'limited'."""
+    _wc_svc.record_wc_success()
+    _wc_svc._wc_variation_filter_capable = False
+    status = client.get("/api/health").json()["services"]["woocommerce"]
     assert status == "limited", (
-        f"woocommerce must be 'limited' when _wc_variation_filter_capable=False; got '{status}'"
+        f"woocommerce must be 'limited' when capability=False + fresh success; got '{status}'"
     )
 
 
-def test_health_wc_status_is_unknown_when_cache_empty(client: TestClient):
-    """Empty product cache means WC has never been successfully contacted → 'unknown'."""
-    with patch("app.main.get_cache_info", return_value={"size": 0, "age_seconds": None}):
-        r = client.get("/api/health")
-    status = r.json()["services"]["woocommerce"]
+def test_health_wc_status_is_unknown_before_any_fetch(client: TestClient):
+    """Before any successful WC fetch is recorded, status must be 'unknown'."""
+    status = client.get("/api/health").json()["services"]["woocommerce"]
     assert status == "unknown", (
-        f"woocommerce must be 'unknown' when cache is empty; got '{status}'"
+        f"woocommerce must be 'unknown' before any fetch is recorded; got '{status}'"
     )
 
 

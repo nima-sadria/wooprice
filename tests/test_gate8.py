@@ -230,10 +230,11 @@ def test_options_retry_success_after_transient_429():
         reset_wc_capability_cache()
 
 
-# ── R2: OPTIONS all-429 exhausts budget → False, cached ─────────────────────
+# ── R2: OPTIONS all-429 exhausts budget → None, NOT cached ──────────────────
 
-def test_options_retry_exhaustion_caches_false():
-    """When all OPTIONS retries are exhausted (budget) → capability=False, cached."""
+def test_options_retry_exhaustion_returns_none_not_cached():
+    """Retry budget exhaustion is a connectivity failure, not a schema determination.
+    Must return None (indeterminate) and must NOT be cached so the next call can re-probe."""
     reset_wc_capability_cache()
     db = SessionLocal()
     try:
@@ -261,13 +262,17 @@ def test_options_retry_exhaustion_caches_false():
                     return await check_variation_filter_capability(db, telemetry=telem)
 
         result = asyncio.run(run())
-        assert result is False, f"Expected False after budget exhaustion, got {result!r}"
+        assert result is None, (
+            f"Expected None (indeterminate) after budget exhaustion, got {result!r}. "
+            "Retry exhaustion is a connectivity failure, not a schema determination."
+        )
         assert telem.capability_probe_retries >= 1
 
-        # Must be cached as False
+        # Must NOT be cached — stays None so next call can re-probe when API recovers.
         import app.services.woocommerce as wc_mod
-        assert wc_mod._wc_variation_filter_capable is False, (
-            "After budget exhaustion, capability must be cached as False"
+        assert wc_mod._wc_variation_filter_capable is None, (
+            "After budget exhaustion, capability must NOT be cached "
+            f"(got {wc_mod._wc_variation_filter_capable!r})"
         )
     finally:
         _cleanup(db, 9101)
@@ -275,10 +280,10 @@ def test_options_retry_exhaustion_caches_false():
         reset_wc_capability_cache()
 
 
-# ── R3: Transient exception → False, NOT cached ──────────────────────────────
+# ── R3: Transient exception → None, NOT cached ───────────────────────────────
 
-def test_options_transient_exception_not_cached():
-    """A transient network error must return False without caching the result."""
+def test_options_transient_exception_returns_none_not_cached():
+    """A transient network error must return None (indeterminate) without caching."""
     reset_wc_capability_cache()
     db = SessionLocal()
     try:
@@ -295,7 +300,9 @@ def test_options_transient_exception_not_cached():
                 return await check_variation_filter_capability(db)
 
         result = asyncio.run(run())
-        assert result is False
+        assert result is None, (
+            f"Transient error must return None (indeterminate), got {result!r}"
+        )
 
         # Must NOT be cached — stays None so next call can re-probe
         import app.services.woocommerce as wc_mod

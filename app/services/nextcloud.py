@@ -26,6 +26,28 @@ def _webdav_url() -> str:
 _xlsx_cache: dict = {"data": None, "ts": 0.0, "etag": "", "last_modified": ""}
 _XLSX_CACHE_TTL = 60  # seconds
 
+# ── Nextcloud connectivity health state ───────────────────────────────────────
+# Records the epoch of the most recent successful/failed NC network access.
+# Used by /api/health to derive status without live probes.
+_nc_last_success_ts: float = 0.0
+_nc_last_failure_ts: float = 0.0
+
+
+def record_nc_success() -> None:
+    global _nc_last_success_ts
+    _nc_last_success_ts = time.time()
+
+
+def record_nc_failure() -> None:
+    global _nc_last_failure_ts
+    _nc_last_failure_ts = time.time()
+
+
+def reset_nc_health_state() -> None:
+    global _nc_last_success_ts, _nc_last_failure_ts
+    _nc_last_success_ts = 0.0
+    _nc_last_failure_ts = 0.0
+
 
 async def download_xlsx(force: bool = False) -> bytes:
     if (
@@ -33,20 +55,26 @@ async def download_xlsx(force: bool = False) -> bytes:
         and _xlsx_cache["data"] is not None
         and time.time() - _xlsx_cache["ts"] < _XLSX_CACHE_TTL
     ):
+        # Cache hit: do NOT update verification timestamp — no network access occurred.
         logger.info("download_xlsx: returning cached xlsx (%d bytes, age=%.0fs)",
                     len(_xlsx_cache["data"]), time.time() - _xlsx_cache["ts"])
         return _xlsx_cache["data"]
     logger.info("download_xlsx: fetching from Nextcloud (force=%s)", force)
-    async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
-        resp = await client.get(_webdav_url(), timeout=httpx.Timeout(10.0, read=60.0))
-        resp.raise_for_status()
-        data = resp.content
+    try:
+        async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
+            resp = await client.get(_webdav_url(), timeout=httpx.Timeout(10.0, read=60.0))
+            resp.raise_for_status()
+            data = resp.content
+    except Exception:
+        record_nc_failure()
+        raise
     logger.info("download_xlsx: downloaded %d bytes from Nextcloud etag=%s",
                 len(data), resp.headers.get("etag", ""))
     _xlsx_cache["data"] = data
     _xlsx_cache["ts"] = time.time()
     _xlsx_cache["etag"] = resp.headers.get("etag", "")
     _xlsx_cache["last_modified"] = resp.headers.get("last-modified", "")
+    record_nc_success()
     return data
 
 
@@ -369,16 +397,25 @@ async def _upload_wb(wb) -> None:
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
-        resp = await client.put(
-            _webdav_url(),
-            content=buf.read(),
-            timeout=60,
-            headers={
-                "Content-Type": (
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            },
-        )
-        resp.raise_for_status()
-    _xlsx_cache["data"] = None  # invalidate so next read fetches the just-uploaded file
+    try:
+        async with httpx.AsyncClient(auth=_auth(), follow_redirects=True) as client:
+            resp = await client.put(
+                _webdav_url(),
+                content=buf.read(),
+                timeout=60,
+                headers={
+                    "Content-Type": (
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                },
+            )
+            resp.raise_for_status()
+    except Exception:
+        record_nc_failure()
+        raise
+    # Invalidate ALL cache fields — status becomes "unknown" until a new successful
+    # download occurs (the uploaded file must be re-fetched to verify freshness).
+    _xlsx_cache["data"] = None
+    _xlsx_cache["ts"] = 0.0
+    _xlsx_cache["etag"] = ""
+    _xlsx_cache["last_modified"] = ""

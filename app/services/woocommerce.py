@@ -601,25 +601,30 @@ async def fetch_all_products_fast(
     logger.warning("FETCH_ROUTE_ENTERED: route=fetch_all_products_fast mode=fast_no_variations")
     all_products: list[dict] = []
 
-    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
-        page = 1
-        while True:
-            resp = await _get_with_retry(
-                client, f"{_base()}/products",
-                telemetry=telemetry,
-                params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
-            )
-            if telemetry is not None:
-                telemetry.product_pages += 1
-            data = resp.json()
-            if not data:
-                break
-            for p in data:
-                all_products.append(_parse_full_product(p))
-            if len(data) < 100:
-                break
-            page += 1
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+            page = 1
+            while True:
+                resp = await _get_with_retry(
+                    client, f"{_base()}/products",
+                    telemetry=telemetry,
+                    params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
+                )
+                if telemetry is not None:
+                    telemetry.product_pages += 1
+                data = resp.json()
+                if not data:
+                    break
+                for p in data:
+                    all_products.append(_parse_full_product(p))
+                if len(data) < 100:
+                    break
+                page += 1
+    except Exception:
+        record_wc_failure()
+        raise
 
+    record_wc_success()
     variable_count = sum(1 for p in all_products if p.get("product_type") == "variable")
     logger.info(
         "fast_fetch: done — %d products (%d variable parents, no variations fetched)",
@@ -681,54 +686,59 @@ async def fetch_all_products_full(
     variable_parents: list[tuple[int, str, list, str | None, tuple[int | None, str | None]]] = []
     var_warnings: list[str] = []
 
-    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
-        page = 1
-        while True:
-            resp = await _get_with_retry(
-                client, f"{_base()}/products",
-                telemetry=telemetry,
-                params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+            page = 1
+            while True:
+                resp = await _get_with_retry(
+                    client, f"{_base()}/products",
+                    telemetry=telemetry,
+                    params={"per_page": "100", "page": str(page), "status": "any", "_fields": _FULL_FIELDS},
+                )
+                if telemetry is not None:
+                    telemetry.product_pages += 1
+                data = resp.json()
+                if not data:
+                    break
+                for p in data:
+                    cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
+                    images = p.get("images") or []
+                    parent_img = images[0].get("src", "") if images else ""
+                    all_products.append(_parse_full_product(p))
+                    if p.get("type") == "variable":
+                        logger.debug(
+                            "full_fetch: variable parent pid=%d name=%r img=%s",
+                            p["id"], p.get("name", ""), parent_img or "none",
+                        )
+                        variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p)))
+                if len(data) < 100:
+                    break
+                page += 1
+
+            logger.info(
+                "full_fetch: phase1 done — %d top-level products, %d variable parents",
+                len(all_products), len(variable_parents),
             )
-            if telemetry is not None:
-                telemetry.product_pages += 1
-            data = resp.json()
-            if not data:
-                break
-            for p in data:
-                cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
-                images = p.get("images") or []
-                parent_img = images[0].get("src", "") if images else ""
-                all_products.append(_parse_full_product(p))
-                if p.get("type") == "variable":
-                    logger.debug(
-                        "full_fetch: variable parent pid=%d name=%r img=%s",
-                        p["id"], p.get("name", ""), parent_img or "none",
-                    )
-                    variable_parents.append((p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p)))
-            if len(data) < 100:
-                break
-            page += 1
 
-        logger.info(
-            "full_fetch: phase1 done — %d top-level products, %d variable parents",
-            len(all_products), len(variable_parents),
-        )
+            for i in range(0, len(variable_parents), 10):
+                batch = variable_parents[i:i + 10]
+                results = await asyncio.gather(*[
+                    _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand, telemetry=telemetry)
+                    for pid, name, cats, parent_img, parent_brand in batch
+                ], return_exceptions=True)
+                for j, r in enumerate(results):
+                    if isinstance(r, list):
+                        all_products.extend(r)
+                    else:
+                        parent_id, parent_name = batch[j][0], batch[j][1]
+                        msg = f"Variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
+                        logger.warning(msg)
+                        var_warnings.append(msg)
+    except Exception:
+        record_wc_failure()
+        raise
 
-        for i in range(0, len(variable_parents), 10):
-            batch = variable_parents[i:i + 10]
-            results = await asyncio.gather(*[
-                _fetch_variations_for_parent(client, pid, name, cats, parent_img, parent_brand, telemetry=telemetry)
-                for pid, name, cats, parent_img, parent_brand in batch
-            ], return_exceptions=True)
-            for j, r in enumerate(results):
-                if isinstance(r, list):
-                    all_products.extend(r)
-                else:
-                    parent_id, parent_name = batch[j][0], batch[j][1]
-                    msg = f"Variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
-                    logger.warning(msg)
-                    var_warnings.append(msg)
-
+    record_wc_success()
     logger.info(
         "full_fetch: complete — %d total products (top-level + variations), %d warnings",
         len(all_products), len(var_warnings),
@@ -810,65 +820,70 @@ async def fetch_products_light(
     variable_parents: list[tuple[int, str, list, str | None, tuple[int | None, str | None]]] = []
     var_warnings: list[str] = []
 
-    async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
-        # Phase 1: modified top-level products
-        page = 1
-        while True:
-            resp = await _get_with_retry(
-                client, f"{_base()}/products",
-                telemetry=telemetry,
-                params={
-                    "per_page": "100", "page": str(page),
-                    "status": "any", "_fields": _FULL_FIELDS,
-                    "modified_after": modified_after,
-                    "modified_before": modified_before,
-                    "dates_are_gmt": "true",
-                },
-            )
-            if telemetry is not None:
-                telemetry.product_pages += 1
-            data = resp.json()
-            if not data:
-                break
-            for p in data:
-                cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
-                images = p.get("images") or []
-                parent_img = images[0].get("src", "") if images else ""
-                all_products.append(_parse_full_product(p))
-                if p.get("type") == "variable":
-                    variable_parents.append(
-                        (p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p))
-                    )
-            if len(data) < 100:
-                break
-            page += 1
-
-        logger.info(
-            "light_fetch: phase1 done — %d modified top-level product(s), %d variable parent(s)",
-            len(all_products), len(variable_parents),
-        )
-
-        # Phase 2: for each modified variable parent, fetch only its modified variations
-        for i in range(0, len(variable_parents), 10):
-            batch = variable_parents[i:i + 10]
-            results = await asyncio.gather(*[
-                _fetch_variations_modified_after(
-                    client, pid, name, cats, parent_img, parent_brand,
-                    modified_after=modified_after,
-                    modified_before=modified_before,
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=120) as client:
+            # Phase 1: modified top-level products
+            page = 1
+            while True:
+                resp = await _get_with_retry(
+                    client, f"{_base()}/products",
                     telemetry=telemetry,
+                    params={
+                        "per_page": "100", "page": str(page),
+                        "status": "any", "_fields": _FULL_FIELDS,
+                        "modified_after": modified_after,
+                        "modified_before": modified_before,
+                        "dates_are_gmt": "true",
+                    },
                 )
-                for pid, name, cats, parent_img, parent_brand in batch
-            ], return_exceptions=True)
-            for j, r in enumerate(results):
-                if isinstance(r, list):
-                    all_products.extend(r)
-                else:
-                    parent_id, parent_name = batch[j][0], batch[j][1]
-                    msg = f"Light variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
-                    logger.warning(msg)
-                    var_warnings.append(msg)
+                if telemetry is not None:
+                    telemetry.product_pages += 1
+                data = resp.json()
+                if not data:
+                    break
+                for p in data:
+                    cats = [{"id": c["id"], "name": c["name"]} for c in p.get("categories", [])]
+                    images = p.get("images") or []
+                    parent_img = images[0].get("src", "") if images else ""
+                    all_products.append(_parse_full_product(p))
+                    if p.get("type") == "variable":
+                        variable_parents.append(
+                            (p["id"], p.get("name", ""), cats, parent_img or None, _extract_brand(p))
+                        )
+                if len(data) < 100:
+                    break
+                page += 1
 
+            logger.info(
+                "light_fetch: phase1 done — %d modified top-level product(s), %d variable parent(s)",
+                len(all_products), len(variable_parents),
+            )
+
+            # Phase 2: for each modified variable parent, fetch only its modified variations
+            for i in range(0, len(variable_parents), 10):
+                batch = variable_parents[i:i + 10]
+                results = await asyncio.gather(*[
+                    _fetch_variations_modified_after(
+                        client, pid, name, cats, parent_img, parent_brand,
+                        modified_after=modified_after,
+                        modified_before=modified_before,
+                        telemetry=telemetry,
+                    )
+                    for pid, name, cats, parent_img, parent_brand in batch
+                ], return_exceptions=True)
+                for j, r in enumerate(results):
+                    if isinstance(r, list):
+                        all_products.extend(r)
+                    else:
+                        parent_id, parent_name = batch[j][0], batch[j][1]
+                        msg = f"Light variation fetch failed for parent #{parent_id} ({parent_name}): {r}"
+                        logger.warning(msg)
+                        var_warnings.append(msg)
+    except Exception:
+        record_wc_failure()
+        raise
+
+    record_wc_success()
     logger.info(
         "light_fetch: complete — %d total records (top-level + modified variations), %d warnings",
         len(all_products), len(var_warnings),
@@ -917,6 +932,29 @@ async def update_parent_stock_statuses(parent_statuses: dict[int, str]) -> None:
         await asyncio.gather(*[_update_one(pid, s) for pid, s in parent_statuses.items()])
 
 
+# ── WooCommerce connectivity health state ─────────────────────────────────────
+# Records the epoch of the most recent successful/failed WC network access.
+# Used by /api/health to derive status without live probes.
+_wc_last_success_ts: float = 0.0
+_wc_last_failure_ts: float = 0.0
+
+
+def record_wc_success() -> None:
+    global _wc_last_success_ts
+    _wc_last_success_ts = time.time()
+
+
+def record_wc_failure() -> None:
+    global _wc_last_failure_ts
+    _wc_last_failure_ts = time.time()
+
+
+def reset_wc_health_state() -> None:
+    global _wc_last_success_ts, _wc_last_failure_ts
+    _wc_last_success_ts = 0.0
+    _wc_last_failure_ts = 0.0
+
+
 _wc_variation_filter_capable: bool | None = None  # None = not yet checked
 
 
@@ -939,7 +977,7 @@ def _schema_supports_modified_after(data: dict) -> bool:
 async def check_variation_filter_capability(
     db,
     telemetry: "FetchTelemetry | None" = None,
-) -> bool:
+) -> bool | None:
     """Verify the variation endpoint honours modified_after + dates_are_gmt.
 
     Strategy: OPTIONS request (routed through _get_with_retry for 429/5xx
@@ -948,9 +986,9 @@ async def check_variation_filter_capability(
 
     Cache states
     ────────────
-    True  — schema confirmed modified_after supported
-    False — confirmed unsupported (schema omits it) OR retry budget exhausted
-    None  — not yet probed, or transient non-retryable error (probe again next call)
+    True  — schema confirmed modified_after supported (cached)
+    False — schema explicitly omits modified_after (cached)
+    None  — retry exhaustion / timeout / auth / transport / malformed response (NOT cached)
 
     No variable parent: returns True without caching (no variations to filter).
     """
@@ -1013,18 +1051,17 @@ async def check_variation_filter_capability(
         return False
 
     except RuntimeError:
-        # Retry budget exhausted — treat as confirmed unsupported for this process
-        # lifetime so callers stop hammering a rate-limited endpoint.
+        # Retry budget exhausted — connectivity/rate-limit failure, NOT a confirmed schema
+        # check. Do NOT cache: allows re-probe on next call once the API recovers.
         if telemetry is not None:
             telemetry.capability_probe_requests += _probe_telem.wc_requests
             telemetry.capability_probe_retries += _probe_telem.retry_count
         logger.warning(
             "wc_capability: OPTIONS retry budget exhausted after %d requests, "
-            "%d retries — caching as unsupported",
+            "%d retries — capability indeterminate (not cached)",
             _probe_telem.wc_requests, _probe_telem.retry_count,
         )
-        _wc_variation_filter_capable = False
-        return False
+        return None
 
     except Exception as exc:
         # Transient / unexpected error — do NOT cache; allow re-probe on next call.
@@ -1034,7 +1071,7 @@ async def check_variation_filter_capability(
         logger.warning(
             "wc_capability: OPTIONS probe error (result not cached, will retry): %s", exc
         )
-        return False
+        return None
 
 
 def reset_wc_capability_cache() -> None:
