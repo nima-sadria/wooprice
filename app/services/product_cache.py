@@ -277,13 +277,15 @@ def get_page(
         q = q.filter(ProductCache.stock_status == stock_status)
     if price_status not in (None, "", "all"):
         if price_status == "has_price":
+            # Matches display logic: final_price || regular_price
             q = q.filter(
-                ProductCache.regular_price.isnot(None),
-                ProductCache.regular_price != "",
+                (ProductCache.final_price.isnot(None) & (ProductCache.final_price != ""))
+                | (ProductCache.regular_price.isnot(None) & (ProductCache.regular_price != ""))
             )
         elif price_status == "no_price":
             q = q.filter(
-                (ProductCache.regular_price.is_(None)) | (ProductCache.regular_price == "")
+                (ProductCache.final_price.is_(None) | (ProductCache.final_price == ""))
+                & (ProductCache.regular_price.is_(None) | (ProductCache.regular_price == ""))
             )
     if quality_filter == "missing_sku":
         q = q.filter(
@@ -296,13 +298,13 @@ def get_page(
     total = q.count()
     offset = (page - 1) * limit
     if sort == "name_asc":
-        q = q.order_by(ProductCache.name.asc())
+        q = q.order_by(ProductCache.name.asc(), ProductCache.wc_id.asc())
     elif sort == "name_desc":
-        q = q.order_by(ProductCache.name.desc())
+        q = q.order_by(ProductCache.name.desc(), ProductCache.wc_id.desc())
     elif sort == "oldest":
-        q = q.order_by(ProductCache.last_synced_at.asc())
+        q = q.order_by(ProductCache.last_synced_at.asc(), ProductCache.wc_id.asc())
     else:
-        q = q.order_by(ProductCache.last_synced_at.desc())
+        q = q.order_by(ProductCache.last_synced_at.desc(), ProductCache.wc_id.desc())
     rows = q.offset(offset).limit(limit).all()
     items = [{"wc_id": r.wc_id, **_to_dict(r)} for r in rows]
     return items, total

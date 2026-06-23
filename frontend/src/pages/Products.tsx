@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth'
 import { fmtPrice } from '../utils/price'
+import { readPageSize, writePageSize } from '../utils/pageSize'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -442,7 +443,7 @@ export default function Products() {
 
   // Controls
   const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(10)
+  const [limit, setLimit] = useState(readPageSize)
   const [sort, setSort] = useState<SortValue>('newest')
 
   // Data
@@ -600,7 +601,7 @@ export default function Products() {
               <MiniSelect value={sort} onChange={setSort} options={SORT_OPTIONS} />
               <select
                 value={limit}
-                onChange={e => setLimit(Number(e.target.value))}
+                onChange={e => { const n = Number(e.target.value); setLimit(n); writePageSize(n) }}
                 className="px-2.5 py-1.5 rounded-lg border border-border bg-bg-card text-[13px] text-text-base focus:outline-none focus:border-accent transition-colors cursor-pointer"
               >
                 {PAGE_SIZES.map(n => <option key={n} value={n}>{n} / page</option>)}
