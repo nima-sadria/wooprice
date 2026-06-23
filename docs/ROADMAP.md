@@ -55,7 +55,7 @@ Near-term items:
 | 7.6A | Settings Center | Planned |
 | 7.6B | Product Browser Advanced Filters | Planned |
 | 7.7A | Bulk Edit Framework | Design complete (A1); implementation pending |
-| 7.7B | Inline Editing in Product Browser | Planned |
+| 7.7B | Inline Editing in Product Browser (price/stock edit in rows) | Planned |
 | 7.8A | Dashboard Redesign | Planned |
 | 7.9A | Saved Views | Planned |
 
@@ -75,18 +75,21 @@ architecture design before implementation. See `docs/OWNER_DECISIONS.md` for rat
 5. Lightweight synchronization (delta detection, not full sheet scans)
 6. AI Pricing (future — not scheduled)
 
-### Scheduling Stream
+### Change Set Scheduling Stream (S1–S4)
 
-Scheduling is a first-class roadmap stream, not a sub-feature of something else.
+This stream covers **Change Set execution scheduling** — the ability for a seller to
+choose when a Change Set executes (now, deferred, or low-traffic window).
+
+This is distinct from multi-channel automation sync schedules (see 8.0 below).
 
 | Item | Description | Status |
 |---|---|---|
 | S1 | Scheduling architecture (modes: Now / Deferred / Low-traffic window) | Blocked on A2 |
-| S2 | Scheduler backend (cron-style executor, heartbeat, abandonment detection) | Blocked on S1 |
+| S2 | Scheduler backend (queue executor, heartbeat, abandonment detection) | Blocked on S1 |
 | S3 | Schedule UI (mode selector, time picker, low-traffic recommendation) | Blocked on S2 |
 | S4 | Scheduled Change Set history and cancellation | Blocked on S2 |
 
-No scheduling implementation begins before A2 architecture is approved.
+No S1–S4 implementation begins before A2 architecture is approved.
 
 ### Change Set Platform
 

@@ -13,21 +13,23 @@ When in doubt: ask the owner before implementing.
 
 ## Document Authority Matrix
 
-In any conflict between documents, the following precedence applies:
+Documents have authority within their domain. Conflicts across domains are resolved by domain,
+not by a single global ranking.
 
-| Priority | Document | Scope |
-|---|---|---|
-| 1 (highest) | `docs/OWNER_DECISIONS.md` (this file) | Product and architectural decisions |
-| 2 | `docs/WORKFLOW.md` | Development process and safety rules |
-| 3 | `docs/PLATFORM_MAP.md` | Current live architecture snapshot |
-| 4 | `docs/ARCHITECTURE.md` | Structural reference and component design |
-| 5 | `docs/ROADMAP.md` | Sequencing and scope |
-| 6 (lowest) | Code and tests | Implementation authority (always wins over any doc for factual claims about current behavior) |
+| Domain | Authoritative document | Wins over | Examples of questions it answers |
+|---|---|---|---|
+| **Policy** — what the product must do and why | `docs/OWNER_DECISIONS.md` (this file) | Everything else | Is approval required? What is the spreadsheet's role? What channels are supported? |
+| **Delivery process** — how changes are shipped safely | `docs/WORKFLOW.md` | PLATFORM_MAP, ARCHITECTURE, ROADMAP | What gates must pass before a commit? What counts as a HIGH audit finding? |
+| **Sequencing** — what gets built and when | `docs/ROADMAP.md` | PLATFORM_MAP Section E, ARCHITECTURE future items | Is S2 blocked on S1? Is 7.7B planned or in progress? |
+| **Current implementation truth** — what the code actually does today | Code + database schema | All documents | Does Products.tsx have inline editing? Which routes are guarded? |
+| **Derived references** — structured summaries of the above | `docs/PLATFORM_MAP.md`, `docs/ARCHITECTURE.md` | Each other | Convenience maps of routes, permissions, APIs. Must not conflict with code or policy. |
 
-**Rules:**
-- If this file says "approval is optional" and ARCHITECTURE.md implies it is required: this file wins.
-- If code behavior contradicts any document: code wins for factual claims; escalate to owner for policy questions.
-- AI agents must not resolve a conflict by choosing the lower-precedence document. Escalate instead.
+**Conflict resolution rules:**
+
+1. **Policy conflict:** If this file contradicts ARCHITECTURE.md or PLATFORM_MAP.md on a policy question (approval, scope, channels, scheduling), this file wins. Update the lower-authority doc.
+2. **Factual conflict:** If code contradicts any document on a factual claim ("does this endpoint exist?", "is this feature implemented?"), code wins. Update the document.
+3. **Sequencing conflict:** If ROADMAP.md contradicts PLATFORM_MAP Section E on item status, ROADMAP.md wins. Update PLATFORM_MAP.
+4. **Unresolvable conflict:** If the conflict cannot be resolved by domain (e.g., two policy questions contradict each other within this file), stop and escalate to the owner. Do not pick a side.
 
 ---
 
@@ -78,20 +80,26 @@ This is the primary workflow. Every feature addition must fit within or extend t
 
 ### Approval Policy
 
-Approval is **optional**. It is **disabled by default**.
+There are two distinct confirmation concepts. Do not conflate them:
+
+| Concept | Description | Status |
+|---|---|---|
+| **Seller confirmation** | The seller who created the Change Set reviews the dry run and explicitly triggers execution. This is always required. | Implemented (current Apply flow) |
+| **Second-party approval** | A different person (manager, admin, or peer) must review and approve before execution. | Optional, disabled by default, not yet implemented |
+
+**Second-party approval (opt-in):**
 
 | State | Behavior |
 |---|---|
-| Default (approval off) | Change Set → Schedule → Execute directly |
-| Approval enabled (opt-in) | Change Set → Approval Step → Schedule → Execute |
+| Default (approval off) | Change Set → Dry Run → Seller confirms → Schedule → Execute |
+| Approval enabled (opt-in) | Change Set → Dry Run → Approver reviews → Approval Step → Seller schedules → Execute |
 
-- Approval is activated per policy — for example, admin-configured thresholds for large price swings.
+- Second-party approval is activated per policy — for example, admin-configured thresholds for large price swings.
 - Most sellers apply their own Change Sets without requiring a second approver.
 - The system must not require or prompt for approval unless a policy rule explicitly activates it.
-- Approval workflow code must be hidden in the UI when approval is disabled.
-- No approval workflow is scheduled for implementation until the Change Set Platform (A2+) is designed.
+- No second-party approval workflow is scheduled for implementation until A2+ architecture is designed.
 
-**Implementation constraint:** Do not design data models, APIs, or UI components that assume approval is always present. Approval is an optional layer, not a required step.
+**Implementation constraint:** Do not design data models, APIs, or UI components that assume second-party approval is always present. It is an optional layer. Seller confirmation (first-party review) is always present and is not "approval" in the second-party sense.
 
 ---
 
@@ -281,6 +289,22 @@ AI will never auto-apply prices without human confirmation. It proposes; humans 
 | 2026-06-23 | Change Set capacity: typical <100, supported up to 1000 | Reflects internal team size and WC batch API practical ceiling |
 | 2026-06-23 | Spreadsheet contract: Import / Export / Event Source / Optional Writeback | Four distinct roles defined; prevents role confusion in future implementation |
 | 2026-06-23 | Document authority matrix established | Resolves conflicts without escalating every disagreement to the owner |
+
+## Contract Index
+
+The following decisions are expressed as explicit contracts that constrain implementation.
+Any code, API, or UI design that touches these areas must read the corresponding section.
+
+| Contract | Section in this file | Key constraint |
+|---|---|---|
+| Capacity contract | Change Set Capacity | Typical < 100; supported max 1,000; API must reject above 1,000 |
+| Spreadsheet contract | Spreadsheet Strategy → Spreadsheet contract | Four roles: Import / Export / Event Source / Optional Writeback. Never system of record. |
+| Approval contract | Workflow Authority → Approval Policy | Seller confirmation always required. Second-party approval optional, disabled by default, not yet implemented. |
+| Scope contract | Permission Philosophy | Out-of-scope products rejected at Change Set creation. Admins implicitly global scope. |
+| Scheduling contract | Scheduling Philosophy + Change Set Capacity | Three modes (Now / Deferred / Low-traffic). No scheduling code until A2 approved. |
+| Multi-channel contract | Multi-Channel Strategy | One Change Set per channel. WC adapter required before adding channel 2. |
+
+---
 
 ## AI Resource Policy
 

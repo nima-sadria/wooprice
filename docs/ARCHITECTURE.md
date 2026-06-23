@@ -205,7 +205,10 @@ not the raw UI selection. This is an invariant — never weaken it.
 - Sort: newest / oldest / name_asc / name_desc (all deterministic via secondary wc_id key)
 - Page sizes: 10, 20, 50 (persisted in sessionStorage)
 - Thumbnail lazy loading via `/api/products/{id}/thumb`
-- Inline price and stock editing (PUT /api/products/{id}/price, PUT /api/products/{id}/stock)
+- Read-only view — no inline editing in Product Browser rows (planned: 7.7B)
+
+Note: Inline price and stock editing via PUT /api/products/{id}/price and
+PUT /api/products/{id}/stock exists in the **Workspace** (Workspace.tsx), not in Product Browser.
 
 ---
 

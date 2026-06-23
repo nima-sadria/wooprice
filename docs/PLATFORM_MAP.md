@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | dccabab |
+| Last verified commit | 1d01cd7 |
 | Last verified date | 2026-06-23 |
 | Verified against code | Yes |
 | Source of truth priority | OWNER_DECISIONS > WORKFLOW > PLATFORM_MAP > ARCHITECTURE > ROADMAP > Code (for factual claims about current behavior, code always wins) |
@@ -82,7 +82,11 @@ WooPrice
 │   │   ├── POST /api/rollback/product/{id} — restore last change_history entry
 │   │   └── POST /api/rollback/job/{id}     — restore all entries for a job (≤500)
 │   ├── Audit
-│   │   ├── AuditLog table  — every action, IP, job_id, detail JSON
+│   │   ├── AuditLog table  — state-mutating + access-sensitive actions only; IP, job_id, detail JSON
+│   │   │                     Audited: login, fetch, apply, direct_edit, emergency, rollback, undo,
+│   │   │                              permission_denied, user_access_*, maintenance_*
+│   │   │                     NOT audited: read-only endpoints (/api/products, /api/dashboard,
+│   │   │                                  /api/analytics, /api/jobs GET, /api/audit-logs GET, etc.)
 │   │   ├── ChangeHistory   — old/new price+stock per product per change
 │   │   ├── GET  /api/audit-logs            — action log [can_view_logs]
 │   │   ├── GET  /api/audit/history         — change history [can_view_logs]
@@ -414,7 +418,11 @@ Roadmap
 │   └── Persistent filter/sort presets in Product Browser
 │
 └── 🔲 8.0   Business Operations Suite
-    └── Multi-store support, reporting exports, scheduled syncs
+    ├── Multi-channel automation (Digikala, SnapShop)
+    ├── Reporting exports
+    └── Automated sync schedules (distinct from Change Set scheduling S1–S4:
+        this refers to recurring channel-level catalog sync jobs, not seller-driven
+        Change Set execution timing)
 ```
 
 ---
@@ -474,12 +482,16 @@ These are not implementation notes — they are binding policy. See `docs/OWNER_
 
 ### Approval Policy
 
-Approval is **disabled by default**. It is an optional, opt-in feature.
+Two distinct concepts — do not conflate:
 
-- Do not annotate any route, endpoint, or workflow step as requiring approval unless
-  a policy rule has explicitly enabled it.
-- The current system has no approval workflow. No route or API for approval exists yet.
-- Future approval workflow (when implemented) will be a no-op unless activated.
+| Concept | Status |
+|---|---|
+| **Seller confirmation** (first-party review of dry run before Apply) | Always required. Implemented in current Apply flow. |
+| **Second-party approval** (a different person must approve before execution) | Optional, disabled by default. Not yet implemented. No route or API exists. |
+
+- Do not annotate any route, endpoint, or workflow step as requiring second-party approval
+  unless a policy rule has explicitly enabled it.
+- Future second-party approval (when implemented) will be a no-op unless activated by admin policy.
 
 ### Change Set Capacity
 
