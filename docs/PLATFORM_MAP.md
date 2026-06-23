@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | HEAD — 2026-06-23 |
+| Last verified commit | 1257e29 |
 | Last verified date | 2026-06-23 |
 | Verified against code | Yes |
 | Source of truth priority | Code > Database schema > Migrations > ROADMAP > PLATFORM_MAP |
@@ -28,7 +28,7 @@ WooPrice
 │   │   ├── RequirePermission  — route + inline action guards
 │   │   └── AuthGuard  — redirect to /login if unauthenticated
 │   ├── Routes
-│   │   ├── /home          → Dashboard        [no route guard; sidebar + API require can_access_site]
+│   │   ├── /home          → Dashboard        [can_access_site]
 │   │   ├── /workspace     → Workspace        [can_fetch]
 │   │   ├── /products      → Product Browser  [can_fetch]
 │   │   ├── /analytics     → Analytics        [can_access_site]
@@ -213,7 +213,7 @@ User workflows
 Permissions  (current)
 ├── can_access_site
 │   ├── Gate: checked before every other specific permission for regular users
-│   ├── Routes: /analytics (route guard); /home sidebar + API only (no route guard)
+│   ├── Routes: /home (Dashboard), /analytics
 │   └── APIs: /api/dashboard, /api/analytics, /api/analytics/brands,
 │             /api/analytics/seller/*, /api/analytics/daily-changes,
 │             /api/categories
@@ -316,14 +316,20 @@ Safety mechanisms
 │   └── /api/health and /api/auth/* always bypass maintenance mode
 │
 ├── Audit logging
-│   ├── Every action written to AuditLog before response is returned
+│   ├── State-mutating and access-sensitive actions written to AuditLog before response is returned
+│   ├── Read-only API calls (/api/products, /api/dashboard, etc.) are NOT audited
 │   ├── Uses dedicated DB session — audit failure never breaks the response
 │   └── Covers: login, fetch, apply, direct_edit, emergency, rollback, undo,
 │               permission_denied, user_access_*, maintenance_*
 │
 ├── WooCommerce write path protection
-│   ├── All WC writes gated behind JWT + permission check + dry-run guards
-│   ├── Direct edits also invalidate dry runs and write ChangeHistory
+│   ├── All WC writes gated behind JWT + permission check
+│   ├── Apply path — additionally requires dry-run guards (status ∈ {passed, warnings}),
+│   │   sheet freshness hash match, and scope match between dry run and apply
+│   ├── Direct Edit path — no dry-run gate; invalidates dry runs for the affected product
+│   ├── Emergency Apply path — no dry-run gate; uses atomic SQL claim + per-item
+│   │   freshness check (skips items whose cached price changed since preview)
+│   ├── Rollback / Undo path — admin-only; no dry-run gate; writes ChangeHistory
 │   └── WC write failures surface as HTTP 502 without corrupting DB state
 │
 └── Alarm thresholds
@@ -335,6 +341,12 @@ Safety mechanisms
 ---
 
 ## E. Roadmap Tree
+
+Note: This section uses 7.x/8.x feature numbering within the implementation stream.
+The repository-level roadmap (`docs/ROADMAP.md`) tracks higher-level phases (Phase 5,
+Phase 6, etc.). These are independent naming schemes — 7.x here does not mean Phase 7.
+Current repository roadmap status: Phase 6 is the next planned phase. Current work
+is the 7.x feature stream within Phase 5 (Production Cutover Preparation).
 
 ```
 Roadmap
@@ -399,6 +411,9 @@ Known gaps  (as of 7.5A + Audit Remediation 2026-06-23)
 ├── ✅ Frontend permission inheritance mismatch (fixed — Audit Remediation 2026-06-23)
 │   └── hasPerm and RequirePermission now use effectiveHasPerm, mirroring backend
 │       _enforce_permission: can_access_site is the global gate for regular users
+│
+├── ✅ /home had no route guard (fixed — 7.5A R2 2026-06-23)
+│   └── /home now wrapped with RequirePermission(can_access_site); component tests added
 │
 ├── Permission model
 │   ├── can_fetch overloaded: browse-products and trigger-sync same permission

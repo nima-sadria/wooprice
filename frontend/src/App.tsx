@@ -84,7 +84,7 @@ export default function App() {
             <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route element={<AuthGuard><AppShell /></AuthGuard>}>
-              <Route path="/home" element={<Home />} />
+              <Route path="/home" element={<RequirePermission permission="can_access_site"><Home /></RequirePermission>} />
               <Route path="/workspace" element={<RequirePermission permission="can_fetch"><Workspace /></RequirePermission>} />
               <Route path="/products" element={<RequirePermission permission="can_fetch"><Products /></RequirePermission>} />
               <Route

@@ -19,7 +19,7 @@ export interface AuthUser {
 
 type AuthStatus = 'loading' | 'authenticated' | 'login_required' | 'permission_denied'
 
-interface AuthContextValue {
+export interface AuthContextValue {
   user: AuthUser | null
   status: AuthStatus
   refreshUser: () => Promise<void>
@@ -27,7 +27,7 @@ interface AuthContextValue {
   authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null)
+export const AuthContext = createContext<AuthContextValue | null>(null)
 
 function clearStoredAuth() {
   localStorage.removeItem('wp_token')
