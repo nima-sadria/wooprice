@@ -1,5 +1,18 @@
 # WooPrice Platform Map
 
+## Platform Map Metadata
+
+| Field | Value |
+|---|---|
+| Last verified commit | HEAD — 2026-06-23 |
+| Last verified date | 2026-06-23 |
+| Verified against code | Yes |
+| Source of truth priority | Code > Database schema > Migrations > ROADMAP > PLATFORM_MAP |
+
+Verified against: `frontend/src/App.tsx`, `frontend/src/auth.tsx`, `frontend/src/components/Sidebar.tsx`, `app/main.py`, `app/config.py`, `Dockerfile`. Unverifiable items are marked UNKNOWN.
+
+---
+
 Living architecture reference. Must be kept current when architecture, routing, permissions, API contracts, workflow behavior, deployment, or major UI modules change.
 
 ---
@@ -10,12 +23,12 @@ Living architecture reference. Must be kept current when architecture, routing, 
 WooPrice
 ├── Frontend  (React 18 + TypeScript + Tailwind)
 │   ├── Auth layer
-│   │   ├── JWT token storage (sessionStorage)
-│   │   ├── AuthProvider  — token decode, /api/auth/me polling
+│   │   ├── JWT token storage (localStorage, keys: wp_token / wp_user)
+│   │   ├── AuthProvider  — on-mount /api/auth/me fetch; storage-event refresh (no polling, no frontend token decode)
 │   │   ├── RequirePermission  — route + inline action guards
 │   │   └── AuthGuard  — redirect to /login if unauthenticated
 │   ├── Routes
-│   │   ├── /home          → Dashboard        [can_access_site]
+│   │   ├── /home          → Dashboard        [no route guard; sidebar + API require can_access_site]
 │   │   ├── /workspace     → Workspace        [can_fetch]
 │   │   ├── /products      → Product Browser  [can_fetch]
 │   │   ├── /analytics     → Analytics        [can_access_site]
@@ -34,7 +47,7 @@ WooPrice
 │       ├── Settings        — placeholder (Phase 7.6A)
 │       └── Admin           — user CRUD, permission toggles, maintenance mode
 │
-├── Backend  (FastAPI + Python 3.11)
+├── Backend  (FastAPI + Python 3.12)
 │   ├── Auth
 │   │   ├── POST /api/auth/login    — Nextcloud credential verify → JWT issue
 │   │   ├── GET  /api/auth/me       — token decode + permission snapshot
@@ -125,7 +138,7 @@ WooPrice
     ├── Port: 8000 (internal)
     ├── Nginx Proxy Manager  — TLS termination, reverse proxy
     ├── Production URL: woo.softpple.business
-    └── Database: /data/wooprice.db (volume-mounted)
+    └── Database: /app/data/wooprice.db (volume-mounted)
 ```
 
 ---
@@ -200,8 +213,10 @@ User workflows
 Permissions  (current)
 ├── can_access_site
 │   ├── Gate: checked before every other specific permission for regular users
-│   ├── Routes: /home (Dashboard), /analytics
-│   └── APIs: /api/dashboard, /api/analytics*, /api/categories, /api/currency
+│   ├── Routes: /analytics (route guard); /home sidebar + API only (no route guard)
+│   └── APIs: /api/dashboard, /api/analytics, /api/analytics/brands,
+│             /api/analytics/seller/*, /api/analytics/daily-changes,
+│             /api/categories
 │
 ├── can_fetch
 │   ├── Routes: /workspace, /products
@@ -380,7 +395,11 @@ Roadmap
 ## F. Known Gaps Tree
 
 ```
-Known gaps  (as of 7.5A)
+Known gaps  (as of 7.5A + Audit Remediation 2026-06-23)
+├── ✅ Frontend permission inheritance mismatch (fixed — Audit Remediation 2026-06-23)
+│   └── hasPerm and RequirePermission now use effectiveHasPerm, mirroring backend
+│       _enforce_permission: can_access_site is the global gate for regular users
+│
 ├── Permission model
 │   ├── can_fetch overloaded: browse-products and trigger-sync same permission
 │   ├── can_apply overloaded: dry-run analysis and WC writes same permission
@@ -415,3 +434,30 @@ Known gaps  (as of 7.5A)
     └── No persistent filter presets in Product Browser
         → Planned: 7.9A
 ```
+
+---
+
+## G. Codex Review Protocol
+
+Codex must re-verify PLATFORM_MAP against current code when any change affects:
+- Architecture, routing, permissions, API contracts, workflow behavior, deployment, or major UI modules
+
+### Drift detection checklist
+
+| Section | Verify against |
+|---|---|
+| A — Auth layer (storage, flow) | `frontend/src/auth.tsx` |
+| A — Routes + guards | `frontend/src/App.tsx` |
+| A — Sidebar visibility | `frontend/src/components/Sidebar.tsx` |
+| A — Python version | `Dockerfile` `FROM` line |
+| A — Database path | `app/config.py` `_default_database_url` |
+| B — Workflow tree | `app/main.py` endpoint list + permission deps |
+| C — Permission tree | `app/main.py` `_enforce_permission`, `require_permission`, `require_admin` |
+| C — API permission list | `app/main.py` each `@app.get`/`@app.post` decorator |
+| D — Safety tree | Dry-run guards + apply guards in `app/main.py` |
+| E — Roadmap | `docs/ROADMAP.md` |
+
+### Rules
+- If information cannot be verified from code, mark it UNKNOWN or remove it.
+- Do not trust the map itself as a source of truth — code wins.
+- After verifying, update the metadata header with the new commit hash and date.

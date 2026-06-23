@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { effectiveHasPerm } from './utils/permissions'
 
 type PermissionMap = Record<string, boolean>
 
@@ -170,7 +171,7 @@ export function RequirePermission({
   if (status !== 'authenticated') return <AccessState status={status} />
   if (!user) return <AccessState status="login_required" />
   if (adminOnly && !user.is_admin) return <AccessState status="permission_denied" />
-  if (permission && !user.is_admin && !user.permissions?.[permission]) {
+  if (permission && !effectiveHasPerm(user, permission)) {
     return <AccessState status="permission_denied" />
   }
   return <>{children}</>

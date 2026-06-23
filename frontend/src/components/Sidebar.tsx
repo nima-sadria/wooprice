@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import type { AuthUser } from '../auth'
 import { useAuth } from '../auth'
+import { effectiveHasPerm } from '../utils/permissions'
 
 interface Props {
   open: boolean
@@ -19,9 +20,7 @@ export default function Sidebar({ open, collapsed, onClose, onToggleCollapse, us
   const navigate = useNavigate()
 
   function hasPerm(perm: string): boolean {
-    if (!user) return false
-    if (user.is_admin || user.is_super_admin) return true
-    return user.permissions?.[perm] === true
+    return effectiveHasPerm(user, perm)
   }
 
   const linkCls = ({ isActive }: { isActive: boolean }) =>
