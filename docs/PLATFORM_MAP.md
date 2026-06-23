@@ -4,10 +4,10 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | 5ead5b1 |
+| Last verified commit | dccabab |
 | Last verified date | 2026-06-23 |
 | Verified against code | Yes |
-| Source of truth priority | Code > Database schema > Migrations > ROADMAP > PLATFORM_MAP |
+| Source of truth priority | OWNER_DECISIONS > WORKFLOW > PLATFORM_MAP > ARCHITECTURE > ROADMAP > Code (for factual claims about current behavior, code always wins) |
 
 Verified against: `frontend/src/App.tsx`, `frontend/src/auth.tsx`, `frontend/src/components/Sidebar.tsx`, `app/main.py`, `app/config.py`, `Dockerfile`. Unverifiable items are marked UNKNOWN.
 
@@ -467,7 +467,49 @@ Known gaps  (as of 7.5A + Audit Remediation 2026-06-23)
 
 ---
 
-## G. Codex Review Protocol
+## G. Governance Constraints
+
+The following owner decisions constrain how this platform map is interpreted.
+These are not implementation notes — they are binding policy. See `docs/OWNER_DECISIONS.md`.
+
+### Approval Policy
+
+Approval is **disabled by default**. It is an optional, opt-in feature.
+
+- Do not annotate any route, endpoint, or workflow step as requiring approval unless
+  a policy rule has explicitly enabled it.
+- The current system has no approval workflow. No route or API for approval exists yet.
+- Future approval workflow (when implemented) will be a no-op unless activated.
+
+### Change Set Capacity
+
+| Tier | Limit |
+|---|---|
+| Typical | < 100 products |
+| Supported maximum | 1,000 products |
+| Not supported | > 1,000 products (use separate Change Sets or Fetch engine) |
+
+Any bulk operation design (7.7A+) must enforce the 1,000-product ceiling at the API layer.
+
+### Spreadsheet Contract
+
+The spreadsheet has four distinct roles. Do not conflate them:
+
+| Role | Current state |
+|---|---|
+| Import | Supported (Workspace flow) |
+| Export (Optional Writeback) | Supported, optional |
+| Event Source (delta detection) | Not yet implemented |
+| System of record | **Never** — WooCommerce is the system of record |
+
+### Scheduling
+
+Scheduling is a first-class stream (S1–S4 in `docs/ROADMAP.md`).
+No scheduling code exists yet. It is blocked on A2 architecture.
+
+---
+
+## H. Codex Review Protocol
 
 Codex must re-verify PLATFORM_MAP against current code when any change affects:
 - Architecture, routing, permissions, API contracts, workflow behavior, deployment, or major UI modules
@@ -489,5 +531,6 @@ Codex must re-verify PLATFORM_MAP against current code when any change affects:
 
 ### Rules
 - If information cannot be verified from code, mark it UNKNOWN or remove it.
-- Do not trust the map itself as a source of truth — code wins.
+- Do not trust the map itself as a source of truth — code wins for factual claims.
 - After verifying, update the metadata header with the new commit hash and date.
+- Section G (Governance Constraints) reflects owner policy, not code — do not alter it without owner approval.

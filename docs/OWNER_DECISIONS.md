@@ -11,6 +11,26 @@ When in doubt: ask the owner before implementing.
 
 ---
 
+## Document Authority Matrix
+
+In any conflict between documents, the following precedence applies:
+
+| Priority | Document | Scope |
+|---|---|---|
+| 1 (highest) | `docs/OWNER_DECISIONS.md` (this file) | Product and architectural decisions |
+| 2 | `docs/WORKFLOW.md` | Development process and safety rules |
+| 3 | `docs/PLATFORM_MAP.md` | Current live architecture snapshot |
+| 4 | `docs/ARCHITECTURE.md` | Structural reference and component design |
+| 5 | `docs/ROADMAP.md` | Sequencing and scope |
+| 6 (lowest) | Code and tests | Implementation authority (always wins over any doc for factual claims about current behavior) |
+
+**Rules:**
+- If this file says "approval is optional" and ARCHITECTURE.md implies it is required: this file wins.
+- If code behavior contradicts any document: code wins for factual claims; escalate to owner for policy questions.
+- AI agents must not resolve a conflict by choosing the lower-precedence document. Escalate instead.
+
+---
+
 ## Business Context
 
 ### Business Type
@@ -56,16 +76,22 @@ Apply
 
 This is the primary workflow. Every feature addition must fit within or extend this model. Nothing replaces it.
 
-### Approval Philosophy
+### Approval Policy
 
-Approval is **optional**. It is **not** the default workflow.
+Approval is **optional**. It is **disabled by default**.
 
+| State | Behavior |
+|---|---|
+| Default (approval off) | Change Set → Schedule → Execute directly |
+| Approval enabled (opt-in) | Change Set → Approval Step → Schedule → Execute |
+
+- Approval is activated per policy — for example, admin-configured thresholds for large price swings.
 - Most sellers apply their own Change Sets without requiring a second approver.
-- Approval gates may be activated per policy (e.g., for large price swings or admin-configured thresholds).
-- When approval is off (default): Change Set → Schedule → Execute directly.
-- When approval is on (optional): Change Set → Approval Step → Schedule → Execute.
+- The system must not require or prompt for approval unless a policy rule explicitly activates it.
+- Approval workflow code must be hidden in the UI when approval is disabled.
+- No approval workflow is scheduled for implementation until the Change Set Platform (A2+) is designed.
 
-Do not design the system as if approval is always required. Do not prompt users for approval flows they did not configure.
+**Implementation constraint:** Do not design data models, APIs, or UI components that assume approval is always present. Approval is an optional layer, not a required step.
 
 ---
 
@@ -79,11 +105,19 @@ The WooPrice product cache is a read-optimized snapshot of WooCommerce. It is no
 
 The spreadsheet is a human-maintained input device. It was historically used as the primary workflow driver ("scan sheet → apply prices"). This is being changed.
 
-**Future spreadsheet role:**
-- Import source: user manually imports a sheet to seed a Change Set
-- Change event source: WooPrice detects changed rows and proposes a Change Set automatically
+**Spreadsheet contract — four defined roles:**
 
-The spreadsheet must never be treated as authoritative truth for product prices. Full sheet scanning on every operation is an anti-pattern to eliminate.
+| Role | Description | Status |
+|---|---|---|
+| **Import** | User manually uploads a sheet to seed a Change Set in draft state | Supported (current Workspace flow) |
+| **Export** | System writes confirmed price changes back to the sheet after apply | Optional; current writeback feature — not a required workflow step |
+| **Event Source** | WooPrice detects changed rows vs. products_cache and proposes a Change Set automatically | Target state (not yet implemented) |
+| **Optional Writeback** | After Apply, write confirmed values back to sheet for record-keeping | Optional; off by default in the target workflow |
+
+**Constraints:**
+- The spreadsheet must never be treated as authoritative truth for product prices.
+- Full sheet scanning on every operation is an anti-pattern to eliminate.
+- Writeback is retained as a feature but must not be a required step in any future workflow.
 
 ---
 
@@ -134,6 +168,30 @@ Scheduling protects:
 
 ---
 
+## Change Set Capacity
+
+### Defined capacity bounds
+
+| Tier | Description |
+|---|---|
+| **Typical** | < 100 products per Change Set. Covers the overwhelming majority of daily operations (one brand, one category, one seller's weekly update). |
+| **Supported** | Up to 1,000 products per Change Set. System must handle this without degradation. |
+| **Not supported** | > 1,000 products in a single Change Set. Use multiple Change Sets or the Fetch/Sync engine instead. |
+
+### Rationale
+
+Internal teams update pricing by brand or category. A typical brand has 20–80 products.
+The 1,000-product ceiling provides a 10× safety margin while keeping batch execution times
+predictable (< 2 minutes at WC batch API rate limits).
+
+### Implementation constraints
+
+- Change Set creation must reject or warn when item count exceeds 1,000.
+- Progress reporting and timeout handling must be designed for the 1,000-product ceiling.
+- Bulk engine (7.7A) must enforce this ceiling at the API layer.
+
+---
+
 ## Multi-Channel Strategy
 
 WooPrice will support 3–5 sales channels. WooCommerce is the first. Future channels include:
@@ -175,7 +233,7 @@ Seller reviews, schedules, applies
 
 1. **Do not re-read the entire spreadsheet repeatedly.** One full read per scheduled cycle. Delta detection for incremental changes.
 2. **Spreadsheet changes are proposals, not commands.** A changed spreadsheet row creates a Change Set in draft state. Humans review and schedule before execution.
-3. **No writeback by default.** The current "writeback" feature (writing confirmed prices back to the sheet) may be retained as optional but should not be a required step in the workflow.
+3. **Writeback is optional.** The writeback feature is retained for record-keeping convenience but must not be a required step in any workflow. Default: off.
 
 ### Short-term
 
@@ -220,6 +278,9 @@ AI will never auto-apply prices without human confirmation. It proposes; humans 
 | 2026-06-23 | Multi-channel: 3–5 channels target | Digikala and SnapShop are planned; channel adapter pattern prevents future rewrites |
 | 2026-06-23 | Scheduling is first-class | WooCommerce on shared hosting; overnight bulk runs reduce customer-visible disruption |
 | 2026-06-23 | AI Pricing is future-only | Current priority is operational reliability; AI suggestions require clean data foundation first |
+| 2026-06-23 | Change Set capacity: typical <100, supported up to 1000 | Reflects internal team size and WC batch API practical ceiling |
+| 2026-06-23 | Spreadsheet contract: Import / Export / Event Source / Optional Writeback | Four distinct roles defined; prevents role confusion in future implementation |
+| 2026-06-23 | Document authority matrix established | Resolves conflicts without escalating every disagreement to the owner |
 
 ## AI Resource Policy
 

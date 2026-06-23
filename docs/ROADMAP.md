@@ -75,10 +75,23 @@ architecture design before implementation. See `docs/OWNER_DECISIONS.md` for rat
 5. Lightweight synchronization (delta detection, not full sheet scans)
 6. AI Pricing (future — not scheduled)
 
+### Scheduling Stream
+
+Scheduling is a first-class roadmap stream, not a sub-feature of something else.
+
+| Item | Description | Status |
+|---|---|---|
+| S1 | Scheduling architecture (modes: Now / Deferred / Low-traffic window) | Blocked on A2 |
+| S2 | Scheduler backend (cron-style executor, heartbeat, abandonment detection) | Blocked on S1 |
+| S3 | Schedule UI (mode selector, time picker, low-traffic recommendation) | Blocked on S2 |
+| S4 | Scheduled Change Set history and cancellation | Blocked on S2 |
+
+No scheduling implementation begins before A2 architecture is approved.
+
 ### Change Set Platform
 
 Architecture design: A1 complete.
-Next: A2 architecture (scoped permissions + channel adapter layer).
+Next: A2 architecture (scoped permissions + channel adapter layer + scheduling contracts).
 Implementation: after A2 approved.
 
 ### Scoped Permissions
