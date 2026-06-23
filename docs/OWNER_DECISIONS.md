@@ -20,6 +20,7 @@ not by a single global ranking.
 |---|---|---|---|
 | **Policy** — what the product must do and why | `docs/OWNER_DECISIONS.md` (this file) | Everything else | Is approval required? What is the spreadsheet's role? What channels are supported? |
 | **Delivery process** — how changes are shipped safely | `docs/WORKFLOW.md` | PLATFORM_MAP, ARCHITECTURE, ROADMAP | What gates must pass before a commit? What counts as a HIGH audit finding? |
+| **Agent control** — which operations require human sign-off | `docs/OWNER_AGENT_WORKFLOW.md` | AI_OPERATING_MANUAL (gate list only) | When must an AI agent stop and wait? What text constitutes approval? |
 | **Sequencing** — what gets built and when | `docs/ROADMAP.md` | PLATFORM_MAP Section E, ARCHITECTURE future items | Is S2 blocked on S1? Is 7.7B planned or in progress? |
 | **Current implementation truth** — what the code actually does today | Code + database schema | All documents | Does Products.tsx have inline editing? Which routes are guarded? |
 | **Derived references** — structured summaries of the above | `docs/PLATFORM_MAP.md`, `docs/ARCHITECTURE.md` | Each other | Convenience maps of routes, permissions, APIs. Must not conflict with code or policy. |

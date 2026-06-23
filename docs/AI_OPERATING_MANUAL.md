@@ -49,6 +49,7 @@ Every AI session must start by reading:
 
 README.md
 docs/OWNER_DECISIONS.md
+docs/OWNER_AGENT_WORKFLOW.md
 docs/WORKFLOW.md
 docs/ARCHITECTURE.md
 docs/PLATFORM_MAP.md
@@ -112,17 +113,29 @@ and what is next.
 
 ## Human Approval Gates
 
-The following transitions require explicit human approval:
+The following operations require explicit human approval before an AI agent proceeds.
+Full gate definitions (triggers, required text, constraints, escalation) are in
+`docs/OWNER_AGENT_WORKFLOW.md`.
 
-* Start Phase 6 (complete — approved)
-* Production Cutover (complete)
-* Deployment
-* Major Architecture Changes
-* Any new channel adapter implementation
-* Any scoped permissions implementation
+| Gate | Trigger summary | Required approval |
+|---|---|---|
+| 1 — Production Deployment | Any action that updates the running production system | Explicit "deploy" or "push to production" in current session |
+| 2 — Apply Workflow Changes | Any change to confirm endpoint, apply-stream, canRunApply, or scope pinning | `approved` or `safe to proceed: YES` after formal audit |
+| 3 — Dry Run Workflow Changes | Any change to dry-run endpoint, invalidation triggers, or dryRunPhase state machine | `approved` or `safe to proceed: YES` after formal audit |
+| 4 — Emergency Apply | Any change to emergency preview, apply, cancel, atomic claim, or checkpoints | Explicit owner instruction naming Emergency Apply |
+| 5 — WooCommerce Write Paths | Any new or modified code that writes to the WooCommerce REST API | Explicit owner instruction naming the write operation |
+| 6 — Authentication / JWT | Any change to JWT, pv validation, SUPER_ADMIN_USERS, login, or AuthProvider | Explicit owner instruction naming the auth component |
+| 7 — Maintenance Mode | Enabling/disabling maintenance mode on production, or changing middleware | Explicit owner instruction naming maintenance mode |
+| 8 — Safety-Policy Changes | Any change to alarm thresholds, block_enabled, or future safety rule defaults | Explicit owner instruction naming the safety rule or threshold |
+
+**Approval does not carry across sessions. Each session starts with all gates closed.**
+
+Completed transitions (historical, no longer gated):
+- Start Phase 6 — complete
+- Production Cutover — complete
 
 AI systems may prepare reports and audits but must stop and wait for approval
-before proceeding past any of the above gates.
+before proceeding past any open gate.
 ## Claude Resource Usage Rules
 
 For WooPrice:
