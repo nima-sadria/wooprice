@@ -95,9 +95,19 @@ No S1–S4 implementation begins before A2 architecture is approved.
 
 ### Change Set Platform
 
-Architecture design: A1 complete.
-Next: A2 architecture (scoped permissions + channel adapter layer + scheduling contracts).
-Implementation: after A2 approved.
+A1 architecture design: complete (session history — no committed design doc).
+A2 architecture: next required design step before any implementation.
+
+**A2 must cover:**
+- Change Set execution engine and state machine
+- Change Set scheduling (Now / Deferred / Low-traffic window)
+- Scoped permissions (Brand / Category / Channel)
+- Source adapter interface and field mapping
+- Channel adapter interface (WooCommerce abstraction + future channel pattern)
+- Transformation rules engine
+- Configurable safety rules architecture
+
+Implementation: zero implementation before A2 is approved.
 
 ### Scoped Permissions
 

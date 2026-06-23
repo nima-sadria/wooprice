@@ -1,8 +1,14 @@
 # WooPrice
 
-A high-performance WooCommerce product and price management platform designed for stores with large catalogs, variable products, and spreadsheet-based workflows.
+A high-performance, multi-source, multi-channel product and price management platform
+for internal enterprise use. Designed for stores with large catalogs, variable products,
+and complex pricing workflows.
 
-WooPrice provides fast product browsing, bulk price updates, intelligent caching, and WooCommerce synchronization while minimizing API load on production stores.
+WooPrice provides fast product browsing, bulk price updates, intelligent caching,
+and channel synchronization while minimizing API load on production stores.
+Price data can be sourced from Nextcloud/Excel spreadsheets, databases, or a native
+pricing table. Destination channels include WooCommerce today, with Digikala, SnapShop,
+and other platforms planned.
 
 ---
 
@@ -10,14 +16,14 @@ WooPrice provides fast product browsing, bulk price updates, intelligent caching
 
 Managing thousands of WooCommerce products directly through the WordPress admin panel becomes increasingly inefficient as catalogs grow.
 
-WooPrice addresses this by introducing a local product cache layer and a spreadsheet-driven workflow that allows users to:
+WooPrice addresses this by introducing a local product cache layer and a workflow that allows users to:
 
 - Load products instantly from a local cache
-- Update prices and stock in bulk from an Excel / Nextcloud spreadsheet
+- Update prices and stock from a configured price source (spreadsheet, database, or native table)
 - Preview all changes before applying them (Dry Run)
 - Apply only the changes that passed validation
 - Roll back individual products to their last known good state
-- Write confirmed updates back to the source spreadsheet
+- Write confirmed updates back to the source (optional writeback)
 - Synchronize only changed products, reducing WooCommerce API load
 - Stream all long-running operations in real time via SSE
 
@@ -26,11 +32,11 @@ WooPrice addresses this by introducing a local product cache layer and a spreads
 | Capability | Description |
 |---|---|
 | WooCommerce synchronization | Full, light, and deep-variation cache refresh via REST API |
-| Spreadsheet integration | Excel/XLSX price list on Nextcloud via WebDAV |
+| Source integration | Nextcloud/OnlyOffice XLSX via WebDAV (current); future: Excel upload, MySQL, native table |
 | Dry Run | Validates scope before apply; blocks on critical errors |
 | Apply | SSE-streamed write of validated changes to WooCommerce |
 | Rollback | Per-product admin rollback to pre-sync price/stock |
-| Writeback | Confirms applied prices back to the source spreadsheet |
+| Optional Writeback | Writes confirmed prices back to the source (off by default) |
 | Product cache | Local SQLite cache for instant loading and diff calculation |
 | SSE-based operations | All cache refresh, preview, and apply operations stream progress in real time |
 
@@ -39,11 +45,11 @@ WooPrice addresses this by introducing a local product cache layer and a spreads
 ## Architecture
 
 ```text
- Nextcloud / OnlyOffice (Excel price list)
-        │  WebDAV
+ Price Source (Nextcloud/OnlyOffice now; Excel, MySQL, native table future)
+        │  Source adapter (WebDAV currently)
         ▼
-   React Frontend (Vite + TypeScript + Tailwind)
-        │  HTTP / SSE  (proxied in dev; served from /static in production)
+   React Frontend (Vite + TypeScript + Tailwind — deployed SPA)
+        │  HTTP / SSE
         ▼
    FastAPI Backend  (port 8000, Docker)
         │
@@ -52,8 +58,9 @@ WooPrice addresses this by introducing a local product cache layer and a spreads
   Product Cache   Sync Engine   Update Engine   Auth / JWT
   (SQLite)             │         (Prices/Stock)
                        ▼
-                  WooCommerce
-                  (REST API)
+               Channel Adapter
+               (WooCommerce now;
+               Digikala, Shopify, etc. future)
 ```
 
 ### Frontend
@@ -79,39 +86,26 @@ WooPrice addresses this by introducing a local product cache layer and a spreads
 | SSE | FastAPI `StreamingResponse` with `text/event-stream` |
 | Deployment | Docker on port 8000 |
 
-> **Migration note:** The frontend is currently mid-migration from a legacy static HTML/JS UI to a React SPA. Both coexist; `static/index.html` serves the legacy UI. The React build output is not yet deployed to production. See [docs/MIGRATION_STATUS.md](docs/MIGRATION_STATUS.md).
+> **Current state:** The React SPA is deployed to production. Phases 1–6 (migration era) are complete. Current work is the 7.x feature stream. See `docs/ROADMAP.md` for current state and next items.
 
 ---
 
-## Current Migration Status
+## Current State
 
-### Completed
+### Migration Era (Phases 1–6) — Complete
 
-| Phase | Description |
-|---|---|
-| Phase 1–3 | Core backend, auth, product cache, sync engine |
-| Analytics | Product analytics page (React) |
-| Auth | JWT login flow, `AuthProvider`, `RequirePermission` |
-| Direction Layer | Global LTR/RTL via `DirectionProvider`; all Tailwind utilities logical |
-| Logs | Audit log + sync history page (React) |
-| WS-A | Workspace shell: layout, header buttons, cache refresh panel, spreadsheet status |
-| WS-B | Preview stream: SSE progress steps, filters, category hierarchy, product table |
-| WS-C | Dry Run / Apply / Writeback / Cancel / Inline edits / Rollback |
-| WS-D Audit | Integration audit; H-D1 and MD-2 defects found and resolved |
+| Phase | Description | Status |
+|---|---|---|
+| Phase 1–3 | Core backend, auth, product cache, sync engine | Complete |
+| Phase 4 (Analytics, Auth, Logs, Workspace) | Full React SPA feature set | Complete |
+| Phase 5 | Production cutover preparation | Complete |
+| Phase 6 | Legacy frontend replacement; React SPA deployed | Complete |
 
-### In Progress
+### 7.x Feature Stream — Active
 
-| Phase | Description |
-|---|---|
-| Phase 5 | Production Cutover Preparation — planning complete, awaiting Codex audit |
+Current work. See `docs/ROADMAP.md` for the full list of completed and planned items.
 
-### Pending
-
-| Phase | Description |
-|---|---|
-| Phase 6 | Legacy Frontend Replacement |
-
-Full status and open findings: [docs/MIGRATION_STATUS.md](docs/MIGRATION_STATUS.md)
+**Test counts (current):** 339 backend tests · 74 frontend tests
 
 ---
 
@@ -119,10 +113,11 @@ Full status and open findings: [docs/MIGRATION_STATUS.md](docs/MIGRATION_STATUS.
 
 - **Backend stability first** — backend APIs are never changed without a verified defect requiring it
 - **Audit before approval** — every phase requires a formal audit with BLOCKERS / HIGH / MEDIUM / LOW report
-- **No direct production cutover** — the React build is not served to production until Phase 5 is formally approved
-- **Dry Run before Apply** — the Apply operation is blocked unless a passing Dry Run exists for the exact same scope
+- **Dry Run required for Spreadsheet/Change Set Apply** — Apply is blocked unless a passing Dry Run exists for the exact same scope. Direct Edit, Emergency Apply, Rollback, and Undo are exempt but have dedicated safety controls.
 - **Rollback safety** — per-product rollback is admin-only and always invalidates the local dry run state
 - **SSE safety** — terminal server events (stale_preview, freshness_unverifiable, dry_run_invalidated) win over subsequent EventSource onerror callbacks; Apply SSE never auto-retries
+- **Source-agnostic** — WooPrice is not locked to one spreadsheet provider. Architecture must support multiple source adapters.
+- **Channel-agnostic** — WooPrice is not locked to WooCommerce. All WC-specific code must be behind a channel adapter interface.
 
 Full workflow rules: [docs/WORKFLOW.md](docs/WORKFLOW.md)
 
@@ -203,18 +198,20 @@ wooprice/
 │   │   │   └── useSSEStream.ts # EventSource wrapper with generation guard
 │   │   └── pages/
 │   │       ├── Workspace.tsx   # Main sync workspace (WS-A/B/C)
+│   │       ├── Products.tsx    # Product Browser (server-side filter/sort/paginate)
 │   │       ├── Analytics.tsx   # Product analytics
 │   │       ├── Logs.tsx        # Audit log + sync history
+│   │       ├── Audit.tsx       # Change history
 │   │       ├── Home.tsx        # Dashboard / home
 │   │       ├── Settings.tsx    # User settings
 │   │       └── Admin.tsx       # Admin panel
 │   ├── dist/                   # Production build output (not committed)
 │   └── package.json
 │
-├── static/                     # Legacy frontend (served by FastAPI)
-│   └── index.html              # Legacy UI entry point (active in production)
+├── static/                     # Legacy UI entry point (retained; React SPA is active in production)
+│   └── index.html
 │
-├── tests/                      # Backend pytest tests (47 tests)
+├── tests/                      # Backend pytest tests (339 tests)
 ├── alembic/                    # DB migrations
 ├── docker-compose.yml
 ├── requirements.txt
@@ -286,12 +283,6 @@ canonical_username
 ```
 
 JWT `sub` is always the canonical Nextcloud username, never an email.
-
----
-
-## Product Name Strategy
-
-WooPrice separates display names from WooCommerce names. Column A of the spreadsheet is always the authoritative display name source. WooCommerce names never overwrite spreadsheet names. Product matching uses Product ID and Variation ID only.
 
 ---
 

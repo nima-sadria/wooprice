@@ -56,22 +56,31 @@
 The following capabilities are planned but not yet implemented.
 They inform architecture decisions made today.
 
-**Change Set Platform:** All changes to WooCommerce will eventually flow through
-a Change Set model (draft → dry run → schedule → execute → rollback). The current
-sync workflow (spreadsheet → preview → apply) will be re-expressed as a Change Set
-producer. Design document: `docs/A1_CHANGESET_DESIGN.md` (architecture only).
+**Change Set Platform:** All changes will eventually flow through a Change Set model
+(draft → dry run → seller confirmation → schedule → execute → rollback). The current
+sync workflow (source → preview → dry run → apply) will be re-expressed as a Change Set
+producer. A1 architecture design was completed in session history (not a committed doc).
+A2 architecture is the next required design step before any implementation.
 
-**Scoped Permissions:** Users will be assigned scope (Brand, Category, or Channel)
-by admin. Change Sets may only contain products within the user's scope.
-This is a new permission dimension, additive to current flags.
+**A2 architecture scope** (must be designed before any of the following is implemented):
+- Change Set execution engine and state machine
+- Change Set scheduling (Now / Deferred / Low-traffic window)
+- Scoped permissions (Brand / Category / Channel)
+- Source adapter interface (Nextcloud → WooPrice field mapping)
+- Channel adapter interface (WooCommerce → future channel abstraction)
+- Transformation rules engine (cost+profit, cost×FX+profit, etc.)
+- Configurable safety rules architecture (warn/block model)
 
-**Multi-Channel:** WooCommerce is the first channel. Future channels: Digikala,
-SnapShop. All WooCommerce-specific execution code will be placed behind a
-channel adapter interface when the Execution Engine is built.
+**Multi-Source:** WooPrice is not locked to one spreadsheet provider. Nextcloud/OnlyOffice
+XLSX via WebDAV is the only implemented source adapter. Future: Excel upload, MySQL,
+custom DB, native pricing table. Source adapter interface to be designed in A2.
 
-**Spreadsheet Evolution:** The spreadsheet moves from workflow driver to change
-event source. Full sheet scanning is an anti-pattern to eliminate. Target:
-detect only changed rows, propose Change Set, seller reviews and schedules.
+**Multi-Channel:** WooCommerce is the first channel. Future: Digikala, SnapShop, Shopify,
+Magento, Amazon, custom CMS. Channel adapter interface to be designed in A2.
+
+**Source Evolution:** The source moves from workflow driver to change event source.
+Full source scanning is an anti-pattern to eliminate. Target: delta detection proposes
+Change Sets for changed rows only; seller reviews and schedules.
 
 See `docs/OWNER_DECISIONS.md` for authoritative rationale.
 

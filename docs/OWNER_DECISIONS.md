@@ -71,12 +71,38 @@ Seller
   ↓
 Change Set (scoped to seller's assigned brands/categories/channels)
   ↓
+Dry Run (validate scope, price anomalies, safety rules)
+  ↓
+Seller Confirmation (seller reviews dry run result and triggers execution)
+  ↓
 Schedule (now / deferred / low-traffic window)
   ↓
-Apply
+Apply (execute to channel)
 ```
 
-This is the primary workflow. Every feature addition must fit within or extend this model. Nothing replaces it.
+This is the primary workflow. Every feature addition must fit within or extend this model.
+Nothing replaces it.
+
+### Dry Run Contract
+
+Dry Run is **required** for some write paths and **not required** for others.
+Do not make universal statements like "no channel write without dry run" — they are inaccurate.
+
+| Write path | Dry Run required? | Notes |
+|---|---|---|
+| Spreadsheet Apply (current Workspace flow) | **Yes** | Dry run must pass before Apply is enabled |
+| Change Set Apply (future) | **Yes** | Dry run is mandatory step in canonical workflow |
+| Scheduled Change Set Apply (future) | **Yes** | Dry run must have passed before scheduling |
+| Direct Edit (price/stock inline edit) | **No** | No dry run gate; invalidates existing dry runs for the product |
+| Emergency Apply | **No** | No dry run gate; uses atomic claim + per-item freshness check instead |
+| Rollback | **No** | No dry run gate; admin-only; reads old_value from ChangeHistory |
+| Undo | **No** | No dry run gate; admin-only; reads from audit history |
+
+**Exempt path safety controls:** Direct Edit, Emergency Apply, Rollback, and Undo do not
+require dry run but each has its own safety controls:
+- Direct Edit: invalidates all open dry runs for the affected product
+- Emergency Apply: atomic SQL claim prevents double-execution; per-item freshness check detects stale prices
+- Rollback and Undo: admin-only; produce ChangeHistory entries and audit log entries
 
 ### Approval Policy
 
@@ -113,19 +139,20 @@ The WooPrice product cache is a read-optimized snapshot of WooCommerce. It is no
 
 The spreadsheet is a human-maintained input device. It was historically used as the primary workflow driver ("scan sheet → apply prices"). This is being changed.
 
-**Spreadsheet contract — four defined roles:**
+**Source contract — four defined roles:**
 
-| Role | Description | Status |
+| Role | Definition | Status |
 |---|---|---|
-| **Import** | User manually uploads a sheet to seed a Change Set in draft state | Supported (current Workspace flow) |
-| **Export** | System writes confirmed price changes back to the sheet after apply | Optional; current writeback feature — not a required workflow step |
-| **Event Source** | WooPrice detects changed rows vs. products_cache and proposes a Change Set automatically | Target state (not yet implemented) |
-| **Optional Writeback** | After Apply, write confirmed values back to sheet for record-keeping | Optional; off by default in the target workflow |
+| **Import** | Read source data (rows, prices, stock) into WooPrice. Creates a Change Set or preview. | Implemented (current Workspace flow reads Nextcloud XLSX) |
+| **Export** | Generate an outbound file or table *from* WooPrice for an external system (e.g., accounting, archive). Source file is not modified. | Not yet implemented |
+| **Optional Writeback** | Write WooPrice-calculated results *back to the source file* when explicitly enabled. This updates the same file that was imported. | Implemented (current writeback feature — off by default; must not be a required step) |
+| **Event Source** | WooPrice monitors source for row-level changes and automatically proposes a Change Set for changed rows only. | Target state — not yet implemented |
 
 **Constraints:**
-- The spreadsheet must never be treated as authoritative truth for product prices.
-- Full sheet scanning on every operation is an anti-pattern to eliminate.
-- Writeback is retained as a feature but must not be a required step in any future workflow.
+- The source must never be treated as authoritative truth for product prices.
+- Full source scanning on every operation is an anti-pattern to eliminate.
+- Optional Writeback is retained as a convenience feature; it must not be a required workflow step.
+- Export and Optional Writeback are distinct: Export generates new output; Writeback modifies the original source.
 
 ---
 
@@ -252,8 +279,8 @@ The spreadsheet is a supported source, not the identity of WooPrice.
 
 | Source type | Description | Status |
 |---|---|---|
-| Nextcloud / OnlyOffice spreadsheet | XLSX file via WebDAV | Implemented (current) |
-| Excel file | .xlsx upload or direct path | Implemented (current) |
+| Nextcloud / OnlyOffice spreadsheet | XLSX file via WebDAV | Implemented — only current source adapter |
+| Excel file upload | Direct .xlsx upload without WebDAV | Future — source adapter required |
 | Apple Numbers | .numbers file via export/conversion | Future |
 | MySQL / MariaDB | Direct database query | Future |
 | Custom database | Any DB via configured adapter | Future |
@@ -351,15 +378,17 @@ brand, channel, and user scope.
 
 ### Rule precedence
 
-When multiple rules could apply to a product, precedence is:
+When multiple rules could apply to a product, precedence is (most specific wins):
 
-1. Product-level override (most specific)
-2. Brand-level rule
-3. Category-level rule
-4. Channel-level rule
-5. Global default rule (least specific)
+1. Explicit Change Set override — seller overrides the rule for this specific Change Set item, if allowed by safety policy
+2. User / seller scope rule — rule configured for this specific seller's scope (Brand/Category/Channel assignment)
+3. Brand-level rule
+4. Category-level rule
+5. Channel / store rule — rule configured for the destination channel
+6. Global default rule (least specific)
 
 The most specific rule always wins. Admin configures which rules exist and at which level.
+A seller's user-scope rule cannot exceed the bounds set by the admin's category or brand rule.
 
 ### Implementation constraints
 
@@ -416,7 +445,7 @@ Default behavior for all rules: **warn** (not block). Admin must explicitly set 
 
 In order of importance:
 
-1. **Safe pricing operations** — No channel write without dry run validation. No scope violations. No unintended mass changes. Configurable safety rules protect every write path.
+1. **Safe pricing operations** — Spreadsheet Apply and Change Set Apply require dry run validation before execution. Direct Edit, Emergency Apply, Rollback, and Undo are exempt from dry run but each has dedicated safety controls. No scope violations. No unintended mass changes. Configurable safety rules protect every write path.
 2. **Scheduling** — First-class deferred and windowed execution. Protect channel server load.
 3. **Scoped permissions** — Users operate only within their assigned Brand/Category/Channel.
 4. **Multi-source architecture** — WooPrice is not locked to one price source. Source adapter interface designed before adding source type 2.
@@ -489,7 +518,8 @@ Any code, API, or UI design that touches these areas must read the corresponding
 | Capacity contract | Change Set Capacity | Typical < 100; supported max 1,000; API must reject above 1,000 |
 | Price source contract | Price Source Strategy | Multi-source: Nextcloud/Excel now; Apple Numbers, MySQL, custom DB, native table future. Source is not the identity of WooPrice. |
 | Spreadsheet contract | Price Source Strategy → Spreadsheet subsection | Four roles: Import / Export / Event Source / Optional Writeback. Never system of record. |
-| Transformation rules contract | Transformation Rules | Rule types defined; rule engine is future (A2+); no engine code before A2 approved. |
+| Transformation rules contract | Transformation Rules | Rule types and 6-level precedence defined; rule engine is future (A2+); no engine code before A2 approved. |
+| Dry Run contract | Workflow Authority → Dry Run Contract | Spreadsheet/ChangeSet Apply require dry run; Direct Edit, Emergency Apply, Rollback, Undo are exempt with own safety controls. |
 | Safety rules contract | Safety Rules Configuration | Admin-configurable warn/block rules; defaults to warn; admin override always audited. |
 | Approval contract | Workflow Authority → Approval Policy | Seller confirmation always required. Second-party approval optional, disabled by default, not yet implemented. |
 | Scope contract | Permission Philosophy | Out-of-scope products rejected at Change Set creation. Admins implicitly global scope. |

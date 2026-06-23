@@ -4,10 +4,11 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | 1d01cd7 |
-| Last verified date | 2026-06-23 |
+| Last verified commit | 9d47728 |
+| Last verified date | 2026-06-24 |
 | Verified against code | Yes |
-| Source of truth priority | OWNER_DECISIONS > WORKFLOW > PLATFORM_MAP > ARCHITECTURE > ROADMAP > Code (for factual claims about current behavior, code always wins) |
+| Document role | Derived reference — summarizes current architecture from code and policy documents. Not authoritative over OWNER_DECISIONS, WORKFLOW, ROADMAP, or code. |
+| Authority model | Domain-based. See `docs/OWNER_DECISIONS.md` § Document Authority Matrix for conflict resolution rules. |
 
 Verified against: `frontend/src/App.tsx`, `frontend/src/auth.tsx`, `frontend/src/components/Sidebar.tsx`, `app/main.py`, `app/config.py`, `Dockerfile`. Unverifiable items are marked UNKNOWN.
 
@@ -126,7 +127,8 @@ WooPrice
 │       ├── sync_items          — per-product row within a job
 │       ├── change_history      — before/after for every WC write
 │       ├── change_tracking     — field-level drift detection
-│       ├── audit_logs          — every user action
+│       ├── audit_logs          — selected events: state-mutating + access-sensitive actions only
+│       │                         (see Section D Safety Tree for full audited/not-audited list)
 │       ├── daily_metrics       — aggregated daily counters
 │       ├── emergency_batches   — emergency batch header
 │       ├── emergency_items     — per-product emergency rows
@@ -334,12 +336,15 @@ Safety mechanisms
 │   ├── Blocks all API calls for non-super-admin users (middleware)
 │   └── /api/health and /api/auth/* always bypass maintenance mode
 │
-├── Audit logging
+├── Audit logging  (selected event coverage — not universal)
 │   ├── State-mutating and access-sensitive actions written to AuditLog before response is returned
-│   ├── Read-only API calls (/api/products, /api/dashboard, etc.) are NOT audited
 │   ├── Uses dedicated DB session — audit failure never breaks the response
-│   └── Covers: login, fetch, apply, direct_edit, emergency, rollback, undo,
-│               permission_denied, user_access_*, maintenance_*
+│   ├── Audited events: login, fetch, apply, direct_edit, emergency_apply, rollback, undo,
+│   │                   permission_denied, user_access_*, maintenance_*
+│   ├── NOT audited (read-only): /api/products, /api/dashboard, /api/analytics,
+│   │                             /api/jobs GET, /api/audit-logs GET, /api/settings GET
+│   └── NOT audited (known mutation gaps): cache clear (POST /api/cache/clear, /api/products/cache-clear),
+│                                          Emergency Cancel (DELETE /api/emergency/{id})
 │
 ├── WooCommerce write path protection
 │   ├── All WC writes gated behind JWT + permission check
@@ -518,6 +523,48 @@ The spreadsheet has four distinct roles. Do not conflate them:
 
 Scheduling is a first-class stream (S1–S4 in `docs/ROADMAP.md`).
 No scheduling code exists yet. It is blocked on A2 architecture.
+
+### Multi-Source Model (planned — blocked on A2)
+
+WooPrice supports multiple price source types. The spreadsheet is one adapter, not the identity.
+
+| Source type | Status |
+|---|---|
+| Nextcloud / OnlyOffice (XLSX via WebDAV) | Implemented — only current source adapter |
+| Excel file upload | Future — source adapter required |
+| Apple Numbers | Future |
+| MySQL / MariaDB | Future |
+| Custom database | Future |
+| WooPrice native pricing table | Future |
+
+Source selection, field mapping, and source stability validation are all blocked on the source adapter interface (A2/P1).
+
+### Expanded Channel Targets (planned)
+
+| Channel | Status |
+|---|---|
+| WooCommerce | Implemented — only current channel |
+| Digikala | Future |
+| SnapShop | Future |
+| Shopify | Future |
+| Magento | Future |
+| Amazon | Future |
+| Custom CMS | Future |
+
+Channel adapter interface must be designed in A2 before any second channel is built.
+
+### Transformation Rules Model (planned — blocked on A2/T1)
+
+Six rule types: manual price, cost+profit, cost×FX+profit, cost×FX+profit+fees,
+competitor-based, channel-specific. Rule precedence: global default → channel/store →
+category → brand → user/seller scope → explicit Change Set override.
+No transformation rule engine code before A2 approved.
+
+### Configurable Safety Policy Model (planned — blocked on A2)
+
+Admin-configurable warn/block rules per category/brand/user/channel.
+Current system (alarm thresholds, dry_run_status) remains operational.
+Future rule engine is additive — does not replace existing safety controls.
 
 ---
 

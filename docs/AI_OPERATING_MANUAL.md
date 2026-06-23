@@ -70,11 +70,19 @@ No implementation is complete until:
 
 ## Owner Decisions Rule
 
-Before implementing anything that affects workflow, permissions, channels,
-scheduling, or spreadsheet integration: read docs/OWNER_DECISIONS.md.
+Before implementing anything that affects workflow, permissions, channels, scheduling,
+price source integration, transformation rules, safety rules, or multi-channel behavior:
+read docs/OWNER_DECISIONS.md and the Contract Index within it.
 
 If the implementation would contradict an owner decision: stop and escalate.
 Do not work around owner decisions. Do not assume the owner forgot.
+
+Key contracts to check:
+- Dry Run contract (which write paths require dry run; which are exempt)
+- Price source contract (Nextcloud/OnlyOffice is the only current adapter)
+- Approval contract (seller confirmation ≠ second-party approval)
+- Capacity contract (typical < 100; max 1,000 products per Change Set)
+- Transformation rules contract (rule engine blocked on A2)
 
 ## Platform Map Rule
 
