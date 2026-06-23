@@ -1,6 +1,7 @@
 # WooPrice Development and Audit Workflow
 
-This document defines the mandatory process for all development, audit, and release work on the WooPrice frontend migration. It applies to human developers and AI agents alike.
+This document defines the mandatory process for all development, audit, and release work
+on the WooPrice platform. It applies to human developers and AI agents.
 
 ---
 
@@ -21,7 +22,11 @@ Developer / AI Agent
         │
         ▼
   Backend tests
-  pytest         →  MUST PASS (47 tests)
+  pytest         →  MUST PASS (339 tests as of 2026-06-23)
+        │
+        ▼
+  Frontend tests
+  vitest run     →  MUST PASS (74 tests as of 2026-06-23)
         │
         ▼
   Formal Audit
@@ -44,20 +49,21 @@ Developer / AI Agent
   (explicit: "approved", "proceed", or "safe to proceed: YES")
         │
         ▼
-  Stabilization Commit
+  Commit
   (single commit, one message, exact file list declared)
         │
         ▼
-  Next Phase begins
+  Next phase begins
 ```
 
-No phase is considered complete until all five gates pass:
+No phase is considered complete until all gates pass:
 
 1. `npm run build` — PASS
-2. `pytest` — PASS (all 47 tests)
-3. Audit report delivered
-4. No BLOCKER or HIGH findings
-5. Stabilization commit created
+2. `pytest` — PASS (all backend tests)
+3. `vitest run` — PASS (all frontend tests)
+4. Audit report delivered
+5. No BLOCKER or HIGH findings
+6. Commit created
 
 ---
 
@@ -65,7 +71,8 @@ No phase is considered complete until all five gates pass:
 
 ### HIGH RISK — Mandatory formal audit before approval
 
-These components touch WooCommerce write operations, scope isolation, or financial data. Any defect here can silently corrupt prices or apply unvalidated changes.
+These components touch WooCommerce write operations, scope isolation, or financial data.
+Any defect here can silently corrupt prices or apply unvalidated changes.
 
 | Component | Risk |
 |---|---|
@@ -74,6 +81,8 @@ These components touch WooCommerce write operations, scope isolation, or financi
 | Workspace / Rollback | Overwrites live WooCommerce data |
 | Apply SSE lifecycle | Disconnect handling, no-retry policy |
 | Dry Run invalidation | Must block Apply on any state change |
+| Change Set execution | Any bulk apply to WooCommerce |
+| Permission enforcement | Scope isolation, can_access_site gate |
 
 ### MEDIUM RISK — Review required, no standalone audit
 
@@ -81,7 +90,8 @@ These components touch WooCommerce write operations, scope isolation, or financi
 |---|---|
 | Auth / JWT | Token revocation, permission checks |
 | Settings | User configuration changes |
-| Permission enforcement | `can_apply`, `can_edit_price`, `can_edit_stock`, `is_admin` |
+| Bulk Edit staging | Dry run gate, stale detection |
+| Scheduling Engine | Deferred apply timing, abandonment detection |
 
 ### LOW RISK — Standard code review only
 
@@ -91,12 +101,14 @@ These components touch WooCommerce write operations, scope isolation, or financi
 | Logs | Read-only audit history |
 | Home / Dashboard | Static display |
 | Direction Layer | Visual only, no data |
+| Product Browser (read) | No write operations |
 
 ---
 
 ## Audit Requirements
 
-Every formal audit must be independent (performed after implementation is complete, not during). The audit must cover all items in the phase scope, not just changed files.
+Every formal audit must be independent (performed after implementation is complete).
+The audit must cover all items in the phase scope, not just changed files.
 
 ### Required Report Format
 
@@ -117,7 +129,7 @@ Production Readiness: YES / NO
 Safe to proceed: YES / NO
 ```
 
-### Mandatory Audit Sections for Workspace Phases
+### Mandatory Audit Sections for Workspace / Apply Phases
 
 1. Apply trigger safety — `canRunApply` logic, scope pinning
 2. Dry Run invalidation — all paths that set `dryRunInvalidated`
@@ -127,13 +139,25 @@ Safe to proceed: YES / NO
 6. Permission enforcement — all write operations behind `authFetch` with JWT
 7. Rollback safety — admin-only, invalidates dry run
 8. Reducer correctness — no impossible state transitions
-9. Regression check — Analytics / Logs / RTL unaffected; build and tests pass
+9. Regression check — Analytics / Logs / RTL unaffected; build and all tests pass
+
+### Mandatory Audit Sections for Change Set / Bulk Edit Phases
+
+1. Scope enforcement — items outside user scope must be rejected at creation
+2. Dry-run gate — Apply must be blocked unless dry_run_status ∈ {passed, warnings}
+3. Stale detection — old_value vs. current cache checked before each WC write
+4. Concurrency safety — no double-claim of the same product by two concurrent jobs
+5. Partial failure handling — one item failure must not abort the entire batch
+6. Resume correctness — completed ExecutionBatches never re-executed after crash
+7. Audit logging — every state transition recorded with actor and timestamp
+8. Permission enforcement — all Change Set endpoints check effectiveHasPerm
 
 ### Blocking Rule
 
 > **If any BLOCKER or HIGH finding exists: no merge, no deploy, no next phase.**
 
-MEDIUM and LOW findings are documented, tracked in [MIGRATION_STATUS.md](MIGRATION_STATUS.md), and addressed in a future cleanup pass. They do not block the current phase.
+MEDIUM and LOW findings are documented in `docs/MIGRATION_STATUS.md` and addressed
+in a future cleanup pass. They do not block the current phase.
 
 ---
 
@@ -141,19 +165,12 @@ MEDIUM and LOW findings are documented, tracked in [MIGRATION_STATUS.md](MIGRATI
 
 ### When to commit
 
-Only after all five completion gates pass (see Project Lifecycle above).
+Only after all completion gates pass.
 
 ### What to stage
 
-Stage only the files that were intentionally changed. Never use `git add -A` or `git add .`. Verify with `git diff --cached --stat` before committing.
-
-**Preferred workflow:**
-
-```bash
-git add frontend/src/pages/Workspace.tsx docs/WORKFLOW.md README.md
-git diff --cached --stat
-git commit -m "..."
-```
+Stage only the files that were intentionally changed. Never use `git add -A` or `git add .`.
+Verify with `git diff --cached --stat` before committing.
 
 Files that must never be committed:
 - `.env` or any file containing secrets
@@ -167,29 +184,22 @@ Files that must never be committed:
 
 <bullet list of changes — what changed and why>
 
-No backend changes.           ← include if true
-No new endpoints.             ← include if true
-No database changes.          ← include if true
-static/index.html unchanged.  ← include if true
+Validation: N backend tests passed · M frontend tests passed · build OK
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
-
-### Stabilization commits
-
-A stabilization commit preserves a known-good audited state. It is created after audit approval and before any new phase begins. The commit message must name the audit result (e.g., "WS-D stabilization audit fixes") and list the exact defects resolved.
 
 ---
 
 ## SSE Safety Rules
 
-These rules apply to all SSE streams in the Workspace and must not be weakened:
+These rules apply to all SSE streams and must not be weakened:
 
 1. **Apply SSE never auto-retries.** `handleApplyError` dispatches `APPLY_ERROR` only. No reconnect logic.
-2. **Terminal server events win over `onerror`.** `APPLY_ERROR` is a no-op when `applyPhase` is already `'error'` or `'done'`. The first error that lands is the one shown.
+2. **Terminal server events win over `onerror`.** `APPLY_ERROR` is a no-op when `applyPhase` is already `'error'` or `'done'`. The first terminal event wins.
 3. **Cache SSE `onerror` is a no-op after success.** `CACHE_ERROR` returns early when `cacheRunning` is already `false`.
 4. **On Apply disconnect, show:** `"Connection lost — check Sync History for actual outcome."`
-5. **Generation guard in `useSSEStream`.** Stale callbacks from superseded or closed `EventSource` instances are silently dropped via `genRef`.
+5. **Generation guard in `useSSEStream`.** Stale callbacks from superseded `EventSource` instances are silently dropped via `genRef`.
 
 ---
 
@@ -206,29 +216,36 @@ These rules apply to the Dry Run / Apply flow and must not be weakened:
 
 ---
 
-## Release Policy
+## Change Set Safety Rules
 
-### Phase 5 — Production Cutover Preparation
+These rules apply when the Change Set model is implemented. They extend (not replace) the Dry Run rules above.
 
-Before any production cutover is attempted:
+1. A Change Set with scope violations must be rejected at creation. No partial acceptance.
+2. Every Change Set item must store `old_value` at preview/draft time.
+3. At execution time, if `current_cache_value != item.old_value`, the item must be skipped as stale (not failed — it is still a valid product; the cached value just changed).
+4. Completed ExecutionBatches must never be re-executed. Check status before claiming.
+5. Rollback must read `old_value` from the Change Set item, not from any live system.
+6. Approval, when active, must enforce that `decided_by != changeset.created_by`. This is enforced at API and DB level.
 
-- All prior phases (WS-A through WS-D) must be committed and audited
-- The React build (`npm run build`) must produce a clean output
-- The built assets must be manually verified in a staging environment
-- The `static/index.html` replacement plan must be reviewed and approved
-- A rollback plan to the legacy frontend must exist
+---
 
-### Phase 6 — Legacy Frontend Replacement
+## Platform Map Rule
 
-- Phase 5 must be fully complete and signed off
-- The legacy `static/index.html` and associated assets are replaced by the React build output
-- Backend serving configuration is updated to serve the new frontend
-- Post-cutover smoke test required before the legacy files are archived
+Any implementation that changes architecture, routing, permissions, API contracts,
+workflow behavior, deployment behavior, or major UI modules must also update
+`docs/PLATFORM_MAP.md` in the same commit.
 
-**Never skip directly from any WS phase to Phase 6.**
+## Owner Decisions Rule
+
+Any implementation that touches workflow, permissions, channel behavior, scheduling,
+or spreadsheet integration must be reviewed against `docs/OWNER_DECISIONS.md` before
+implementation begins. If the implementation would contradict an owner decision, stop
+and escalate before writing code.
 
 ---
 
 ## Backend Stability Rule
 
-The backend (`app/main.py` and all files under `app/`) must not be modified during frontend migration phases unless a verified defect in the backend is found and documented. All 47 backend tests must pass before and after any change. No new endpoints may be added without explicit approval.
+Backend tests must pass before and after every change.
+As of 2026-06-23: 339 backend tests, 74 frontend tests.
+These counts may increase but must never decrease without explicit removal justification.

@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | 1257e29 |
+| Last verified commit | 5ead5b1 |
 | Last verified date | 2026-06-23 |
 | Verified against code | Yes |
 | Source of truth priority | Code > Database schema > Migrations > ROADMAP > PLATFORM_MAP |
@@ -268,8 +268,23 @@ Permissions  (planned — Phase 7.5B)
 │   └── Product + job rollback without full admin
 ├── can_emergency_edit  (split from is_admin)
 │   └── Emergency price batches without full admin
-└── can_bulk_edit  (new — Phase 7.7A)
-    └── Bulk edit staging + apply
+├── can_bulk_edit  (new — Phase 7.7A)
+│   └── Bulk edit staging + apply
+│
+└── Scope dimension  (planned — post A2 architecture)
+    ├── Users assigned Brand / Category / Channel scope by admin
+    ├── A user can only create Change Sets within their assigned scope
+    ├── Out-of-scope products rejected at Change Set creation time
+    ├── Scope is additive to existing flat flags — does not replace them
+    └── Admins are implicitly scoped to everything (no explicit assignment needed)
+
+Multi-channel  (planned — post A2 architecture)
+├── WooCommerce is channel 1
+├── Future: Digikala, SnapShop (3–5 channels total)
+├── Each channel has its own product catalog, credentials, and rate limits
+├── Change Set targets one channel; multi-channel = parallel Change Sets
+└── All WC-specific code moves behind a channel adapter interface in A2
+    See docs/OWNER_DECISIONS.md for authoritative decisions.
 ```
 
 ---
@@ -343,10 +358,10 @@ Safety mechanisms
 ## E. Roadmap Tree
 
 Note: This section uses 7.x/8.x feature numbering within the implementation stream.
-The repository-level roadmap (`docs/ROADMAP.md`) tracks higher-level phases (Phase 5,
-Phase 6, etc.). These are independent naming schemes — 7.x here does not mean Phase 7.
-Current repository roadmap status: Phase 6 is the next planned phase. Current work
-is the 7.x feature stream within Phase 5 (Production Cutover Preparation).
+The repository-level roadmap (`docs/ROADMAP.md`) tracks migration era phases (Phases 1–6),
+which are complete. These are independent naming schemes — 7.x here does not mean Phase 7.
+Current status: Phase 6 (legacy frontend replacement) is complete. Current work is the
+7.x feature stream in the product development phase. See `docs/ROADMAP.md` for full detail.
 
 ```
 Roadmap

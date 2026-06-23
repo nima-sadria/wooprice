@@ -5,43 +5,75 @@
 ## System Overview
 
 ```text
- Nextcloud / OnlyOffice
- (Excel price list via WebDAV)
+ External Sources
+ ├── Nextcloud / OnlyOffice  (Excel price list via WebDAV — import/change source)
+ └── WooCommerce REST API    (system of record for product prices)
         │
         ▼
- ┌──────────────────────────────────┐
- │         React Frontend           │
- │  (Vite + TypeScript + Tailwind)  │
- │                                  │
- │  AppShell                        │
- │  ├── Sidebar (navigation)        │
- │  ├── Topbar (user / status)      │
- │  └── Pages                       │
- │      ├── Workspace  ← primary    │
- │      ├── Analytics               │
- │      ├── Logs                    │
- │      ├── Home                    │
- │      ├── Settings                │
- │      └── Admin                   │
- └──────────────────┬───────────────┘
+ ┌──────────────────────────────────────┐
+ │         React Frontend               │
+ │  (Vite + TypeScript + Tailwind)      │
+ │                                      │
+ │  AppShell                            │
+ │  ├── Sidebar (permission-aware nav)  │
+ │  ├── Topbar (user / status)          │
+ │  └── Pages                           │
+ │      ├── Home (Dashboard)            │
+ │      ├── Workspace  ← sync workflow  │
+ │      ├── Products  ← product browser │
+ │      ├── Analytics                   │
+ │      ├── Audit History               │
+ │      ├── Logs                        │
+ │      ├── Settings                    │
+ │      └── Admin                       │
+ └──────────────────┬───────────────────┘
                     │ HTTP (JSON) + SSE
                     │ /api/*  (proxied in dev)
                     ▼
- ┌──────────────────────────────────┐
- │         FastAPI Backend          │
- │         (Python, port 8000)      │
- │                                  │
- │  Auth layer (JWT + Nextcloud)    │
- │  Product cache (SQLite)          │
- │  Sync engine (preview → apply)   │
- │  Writeback (Excel update)        │
- └──────────────┬───────────────────┘
+ ┌──────────────────────────────────────┐
+ │         FastAPI Backend              │
+ │         (Python 3.12, port 8000)     │
+ │                                      │
+ │  Auth layer (JWT + Nextcloud)        │
+ │  Product cache (SQLite)              │
+ │  Sync engine (preview → apply)       │
+ │  Product Browser (filter/sort/page)  │
+ │  Analytics engine                    │
+ │  Writeback (Excel update)            │
+ └──────────────┬───────────────────────┘
                 │
-       ┌────────┴────────┐
-       ▼                 ▼
-  WooCommerce        Nextcloud
-  (REST API)         (WebDAV)
+       ┌────────┴──────────┐
+       ▼                   ▼
+  WooCommerce          Nextcloud
+  (REST API)           (WebDAV)
+  system of record     import source
 ```
+
+---
+
+## Strategic Direction
+
+The following capabilities are planned but not yet implemented.
+They inform architecture decisions made today.
+
+**Change Set Platform:** All changes to WooCommerce will eventually flow through
+a Change Set model (draft → dry run → schedule → execute → rollback). The current
+sync workflow (spreadsheet → preview → apply) will be re-expressed as a Change Set
+producer. Design document: `docs/A1_CHANGESET_DESIGN.md` (architecture only).
+
+**Scoped Permissions:** Users will be assigned scope (Brand, Category, or Channel)
+by admin. Change Sets may only contain products within the user's scope.
+This is a new permission dimension, additive to current flags.
+
+**Multi-Channel:** WooCommerce is the first channel. Future channels: Digikala,
+SnapShop. All WooCommerce-specific execution code will be placed behind a
+channel adapter interface when the Execution Engine is built.
+
+**Spreadsheet Evolution:** The spreadsheet moves from workflow driver to change
+event source. Full sheet scanning is an anti-pattern to eliminate. Target:
+detect only changed rows, propose Change Set, seller reviews and schedules.
+
+See `docs/OWNER_DECISIONS.md` for authoritative rationale.
 
 ---
 
@@ -56,31 +88,56 @@ BrowserRouter
   └── DirectionProvider        (document.documentElement.dir)
         └── AuthProvider       (JWT, /api/auth/me)
               └── Routes
-                    └── AppShell (sidebar + topbar + <Outlet />)
-                          ├── /home          → Home
-                          ├── /workspace     → Workspace
-                          ├── /analytics     → RequirePermission(can_access_site) → Analytics
-                          ├── /logs          → RequirePermission(can_view_logs) → Logs
-                          ├── /settings      → Settings
-                          └── /admin         → RequirePermission(adminOnly) → Admin
+                    └── AuthGuard (auth check + maintenance overlay)
+                          └── AppShell (sidebar + topbar + <Outlet />)
+                                ├── /home      → RequirePermission(can_access_site) → Home
+                                ├── /workspace → RequirePermission(can_fetch) → Workspace
+                                ├── /products  → RequirePermission(can_fetch) → Products
+                                ├── /analytics → RequirePermission(can_access_site) → Analytics
+                                ├── /audit     → RequirePermission(can_view_logs) → Audit
+                                ├── /logs      → RequirePermission(can_view_logs) → Logs
+                                ├── /settings  → RequirePermission(can_view_settings) → Settings
+                                └── /admin     → RequirePermission(adminOnly) → Admin
 ```
 
 ### DirectionProvider (`direction.tsx`)
 
-Sets `document.documentElement.dir` to `'ltr'` or `'rtl'` based on user preference. All Tailwind utilities in the project use logical properties (`ms-`, `me-`, `ps-`, `pe-`, `start-`, `end-`) so RTL layout is automatic. No per-component direction logic.
+Sets `document.documentElement.dir` to `'ltr'` or `'rtl'` based on user preference.
+All Tailwind utilities use logical properties (`ms-`, `me-`, `ps-`, `pe-`, `start-`, `end-`)
+so RTL layout is automatic. No per-component direction logic.
 
 ### AuthProvider (`auth.tsx`)
 
 - Reads JWT from `localStorage` key `wp_token`
 - Fetches `/api/auth/me` on mount to validate token and load user profile
-- Exposes `useAuth()` hook: `{ user, status, authFetch, login, logout }`
+- Refreshes on `storage` events (cross-tab login/logout sync)
+- Exposes `useAuth()` hook: `{ user, status, refreshUser, clearAuth, authFetch }`
 - `authFetch` wraps `fetch` with `Authorization: Bearer <token>` header
-- `status`: `'loading' | 'authenticated' | 'unauthenticated' | 'error'`
-- `RequirePermission` component renders children only when the named permission is present on `user.permissions`, or when `adminOnly` and `user.is_admin === true`
+- `status`: `'loading' | 'authenticated' | 'login_required' | 'permission_denied'`
+- `RequirePermission` component: calls `effectiveHasPerm()` which mirrors backend
+  `_enforce_permission` gate order (admin bypass → can_access_site gate → specific perm)
+- `AuthContext` and `AuthContextValue` are exported for testing
+
+### effectiveHasPerm (`utils/permissions.ts`)
+
+The shared permission gate function. Must be used everywhere permission checks appear.
+
+```text
+effectiveHasPerm(user, perm)
+  │
+  ├── user is null → false
+  ├── user.is_admin || user.is_super_admin → true (bypass all)
+  ├── !user.permissions.can_access_site → false (global gate for regular users)
+  └── user.permissions[perm] === true → true / false
+```
+
+This mirrors the backend `_enforce_permission` function exactly.
+Any change to either side must be kept in sync.
 
 ### AppShell (`components/AppShell.tsx`)
 
-Responsive layout: collapsible sidebar on desktop, off-canvas drawer on mobile. Topbar shows connection status and user avatar. `<Outlet />` renders the active page.
+Responsive layout: collapsible sidebar on desktop, off-canvas drawer on mobile.
+Topbar shows connection status and user avatar. `<Outlet />` renders the active page.
 
 ### `useSSEStream` hook (`hooks/useSSEStream.ts`)
 
@@ -97,38 +154,23 @@ useSSEStream(url, onMessage, onError)
         └── onerror → close source → onError('connection_lost')
 ```
 
-The generation counter increments on every new URL, unmount, or error. Any callback that sees a different generation is silently dropped. This prevents race conditions when the URL changes rapidly (e.g., multiple cache refresh attempts).
-
-Three independent instances run in Workspace simultaneously — one each for cache SSE, preview SSE, and apply SSE — sharing no state.
+Three independent instances run in Workspace simultaneously — cache SSE,
+preview SSE, and apply SSE — sharing no state.
 
 ---
 
 ## Workspace Architecture (WS-A / WS-B / WS-C)
 
-`Workspace.tsx` is a self-contained module with its own state machine, SSE wiring, and all sub-components defined in the same file.
+`Workspace.tsx` is a self-contained module with its own state machine, SSE wiring,
+and all sub-components defined in the same file.
 
 ### WS-A — Shell and Cache Refresh
 
-**Components:** page header (action buttons), `SpreadsheetStatus`, `CacheRefreshPanel`
-
-**State managed:**
-- `cacheOp`, `cacheRunning`, `cacheSseUrl`, `cacheLog` — cache refresh state
-- `sheetLoading`, `sheetMeta`, `sheetError`, `sheetPolling` — spreadsheet freshness check
-
 **Flows:**
-- Light / Full / Deep Sync → `CACHE_START` → `cacheSseUrl` set → `useSSEStream` activates → `CACHE_LOG` / `CACHE_DONE` / `CACHE_ERROR`
+- Light / Full / Deep Sync → `CACHE_START` → `cacheSseUrl` set → `useSSEStream` activates
 - Check freshness → `GET /api/spreadsheet/meta` → `SHEET_LOADED`
-- Wait for update → polling loop every 2 s, up to 15 ticks, stops on ETag change
 
 ### WS-B — Preview Stream and Product Table
-
-**Components:** `PreFetchFilters`, `PreviewSteps`, `FilterStatsBar`, `DuplicateWarningBox`, `PreviewTable`
-
-**State managed:**
-- `previewPhase`, `previewSseUrl`, `previewError`, step indicators — stream progress
-- `previewRows`, `previewSummary`, `filterStats`, `duplicateWarnings` — result data
-- `previewPage`, `previewSelection` — pagination and row selection
-- `filterSearch`, `filterCatIds`, `categories` — pre-fetch filters
 
 **Preview SSE event sequence:**
 ```text
@@ -138,18 +180,32 @@ calc.running  → calc.done
 preview.done  (carries rows, summary, filter_stats, duplicate_warnings)
 ```
 
-**Selection model:** `previewSelection` is a `Set<number>` of product IDs. All mutation actions (`PREVIEW_TOGGLE`, `PREVIEW_SELECT_PAGE`, `PREVIEW_DESELECT_PAGE`, `PREVIEW_CLEAR_SELECTION`) call `invalidateDryRun()` which sets `dryRunInvalidated: true` if a dry run is complete.
+**Selection model:** `previewSelection` is a `Set<number>` of product IDs.
+All selection mutations call `invalidateDryRun()`.
 
 ### WS-C — Dry Run / Apply / Writeback / Cancel / Inline / Rollback
 
-**Components:** `SyncActionBar`, `DryRunPanel`, `ApplyProgress`
+**Apply is blocked when:**
+- `dryRunPhase !== 'done'`
+- `dryRunResult === null`
+- `dry_run_status === 'blocked'`
+- `dryRunInvalidated === true`
 
-**State managed:**
-- `dryRunPhase`, `dryRunError`, `dryRunResult`, `dryRunInvalidated`
-- `applyPhase`, `applySseUrl`, `applyError`, `applyStalePreview`, `applyTotal`, `applyCompleted`, `applyItems`, `applyDone`
-- `writebackPhase`, `writebackMsg`
-- `cancelPhase`, `jobCancelled`
-- `rollbackAdvisory`
+**Apply scope:** Always sends `dryRunResult.dry_run_scope` (server-computed normalized IDs),
+not the raw UI selection. This is an invariant — never weaken it.
+
+---
+
+## Product Browser Architecture
+
+`Products.tsx` — server-side filter/sort/paginate with the following features:
+
+- Search, category multi-select, type filter, stock filter, price range filter
+- Quality flag filters (no-price, stale, no-image)
+- Sort: newest / oldest / name_asc / name_desc (all deterministic via secondary wc_id key)
+- Page sizes: 10, 20, 50 (persisted in sessionStorage)
+- Thumbnail lazy loading via `/api/products/{id}/thumb`
+- Inline price and stock editing (PUT /api/products/{id}/price, PUT /api/products/{id}/stock)
 
 ---
 
@@ -165,35 +221,6 @@ preview.done  (carries rows, summary, filter_stats, duplicate_warnings)
 /api/fetch/full?token=<jwt>
 ```
 
-The token is read from `localStorage` at the moment the URL is constructed (not at mount time), ensuring it reflects any token refresh.
-
-### Cache SSE (`/api/fetch/{full|light|deep-variations}`)
-
-```text
-CACHE_START  →  cacheSseUrl set  →  EventSource opens
-  │
-  ├── data: { step, status, msg }  →  CACHE_LOG
-  ├── data: { step: 'done' }       →  CACHE_LOG + CACHE_DONE  (cacheRunning → false)
-  ├── data: { status: 'error' }    →  CACHE_LOG + CACHE_ERROR (guard: if !cacheRunning → no-op)
-  └── onerror                      →  CACHE_ERROR             (guard: if !cacheRunning → no-op)
-```
-
-The `!cacheRunning` guard (MD-2 fix) prevents a false "Failed" state after a normal SSE close following `CACHE_DONE`.
-
-### Preview SSE (`/api/preview/stream`)
-
-```text
-PREVIEW_START  →  WS_C_RESET applied  →  previewSseUrl set  →  EventSource opens
-  │
-  ├── excel/wc/calc step events  →  PREVIEW_STEP
-  ├── duplicate_warnings event   →  PREVIEW_DUP_WARNING
-  ├── preview.done               →  PREVIEW_READY  (phase → 'ready', rows + summary loaded)
-  ├── status: 'error'            →  PREVIEW_ERROR
-  └── onerror                    →  PREVIEW_ERROR
-```
-
-`WS_C_RESET` is a constant partial state object applied atomically at `PREVIEW_START` that clears all WS-C fields (dry run, apply, writeback, cancel, rollback) to their idle defaults.
-
 ### Apply SSE (`/api/sync/{job_id}/apply-stream`)
 
 ```text
@@ -208,54 +235,18 @@ APPLY_START  →  applySseUrl set  →  EventSource opens
   ├── type: 'dry_run_invalidated'      →  APPLY_ERROR + DRY_RUN_CLEARED_BY_SERVER ← terminal
   ├── type: 'error'                    →  APPLY_ERROR ← terminal
   │
-  └── onerror                          →  APPLY_ERROR (connection_lost) ← no-op if already error/done
+  └── onerror                          →  APPLY_ERROR (connection_lost) ← no-op if already done
 ```
 
-**First-write-wins rule (H-D1 fix):** `APPLY_ERROR` is a no-op when `applyPhase` is already `'error'` or `'done'`. The first terminal server event always wins over a subsequent `onerror`.
-
-**No auto-retry:** `handleApplyError` dispatches `APPLY_ERROR` only. `useSSEStream` does not reconnect after `onerror`.
-
-### Scope Pinning
-
-Apply always sends `dryRunResult.dry_run_scope` (the server-computed and stored IDs from the dry run), not the raw `previewSelection`. This ensures the exact scope validated during dry run is the scope applied — even when selection was empty at dry-run time (server normalizes to all changed items).
-
----
-
-## State Machine Overview
-
-```text
-Workspace state machine (simplified)
-
-previewPhase:  idle → streaming → ready | error
-dryRunPhase:   idle → running → done | failed   (reset to idle by DRY_RUN_CLEARED_BY_SERVER)
-applyPhase:    idle → streaming → done | error
-
-Transitions that reset all WS-C state:
-  PREVIEW_START → applies WS_C_RESET (dry run, apply, writeback, cancel all → idle)
-
-Transitions that invalidate dry run (set dryRunInvalidated: true):
-  PREVIEW_TOGGLE, PREVIEW_SELECT_PAGE, PREVIEW_DESELECT_PAGE, PREVIEW_CLEAR_SELECTION
-  DRY_RUN_INVALIDATE  (from inline price edit, inline stock edit, rollback)
-
-Transitions that clear dry run state entirely:
-  DRY_RUN_CLEARED_BY_SERVER  (from server dry_run_invalidated event during apply)
-    → dryRunPhase: 'idle', dryRunResult: null, dryRunInvalidated: false
-
-Apply is blocked when:
-  dryRunPhase !== 'done'     OR
-  dryRunResult === null      OR
-  dry_run_status === 'blocked' OR
-  dryRunInvalidated === true
-
-SyncActionBar renders only when:
-  previewPhase === 'ready' AND canApply AND applyPhase !== 'streaming'
-```
+**First-write-wins rule:** `APPLY_ERROR` is a no-op when `applyPhase` is already `'error'` or `'done'`.
+**No auto-retry:** `handleApplyError` dispatches `APPLY_ERROR` only. `useSSEStream` never reconnects after `onerror`.
 
 ---
 
 ## Critical Safety Invariants
 
-These invariants must be maintained by all future changes. Any change that weakens them is a HIGH or BLOCKER finding.
+These invariants must be maintained by all future changes.
+Any change that weakens them is a HIGH or BLOCKER finding.
 
 | # | Invariant | Implementation |
 |---|---|---|
@@ -271,33 +262,112 @@ These invariants must be maintained by all future changes. Any change that weake
 | 10 | Rollback is admin-only | `canRollback = isAdmin`, all rollback calls use `authFetch` |
 | 11 | All write operations use JWT | `authFetch` adds `Authorization: Bearer` to every request |
 | 12 | Per-component SSE isolation | Three independent `useSSEStream` instances; generation guard prevents cross-stream interference |
+| 13 | can_access_site is global gate | `effectiveHasPerm` checks `can_access_site` before any specific permission for non-admin users |
 
 ---
 
 ## Permission Model
 
-Permissions are carried in the JWT and verified at `/api/auth/me`. Frontend checks are convenience gates; backend enforces all permissions independently.
+Backend enforces permissions on every authenticated request. Frontend checks are
+convenience gates that mirror backend logic via `effectiveHasPerm`. Both sides must
+be kept in sync.
 
 | Field | Controls |
 |---|---|
-| `is_admin` | Deep Sync button, rollback buttons, Admin page, overrides all `can_*` checks |
-| `can_fetch` | Light Refresh, Full Refresh, Fetch Preview button, Pre-Fetch Filters |
-| `can_apply` | SyncActionBar (Dry Run, Apply, Cancel, Writeback) |
-| `can_edit_price` | Inline price edit (P button and pencil icon) |
-| `can_edit_stock` | Inline stock edit (S button and pencil icon) |
-| `can_access_site` | Analytics page access |
-| `can_view_logs` | Logs page access |
+| `is_super_admin` | Determined by `SUPER_ADMIN_USERS` env var (not DB). Bypasses all permission checks. Access to maintenance mode, diagnostics. |
+| `is_admin` | DB flag. Bypasses all `can_*` checks. Access to Admin page, rollback, emergency apply, deep sync, user management. |
+| `can_access_site` | Global gate. All non-admin routes require this before any other check. Dashboard, Analytics pages. |
+| `can_fetch` | Workspace, Product Browser, all fetch and preview endpoints. |
+| `can_apply` | Dry Run, Apply, Writeback, Cancel sync job. |
+| `can_edit_price` | Inline price edit (PUT /api/products/{id}/price). |
+| `can_edit_stock` | Inline stock edit (PUT /api/products/{id}/stock). |
+| `can_view_logs` | Audit History, Logs pages, audit log and job history endpoints. |
+| `can_view_settings` | Settings page, alarm settings read. |
+| `can_bulk_edit` | Planned (7.7A): bulk edit staging and apply. |
+
+**Planned additions (future):**
+- `can_browse_products` — split from `can_fetch` (read-only Product Browser)
+- `can_dry_run` — split from `can_apply` (propose changes without applying)
+- `can_schedule_changes` — deferred and windowed execution
+- `can_approve_changes` — approval workflow (optional, non-default)
+- `can_rollback` — split from `is_admin` (rollback without full admin)
+- Scope dimension: `(permission, scope)` pairs replacing flat global flags
 
 ---
 
-## Backend API Surface (WS-C Relevant)
+## Backend API Surface
+
+### Auth
 
 | Method | Path | Permission | Description |
 |---|---|---|---|
-| `POST` | `/api/sync/{job_id}/dry-run` | `can_apply` | Run validation; returns `dry_run_scope`, `dry_run_status`, `critical_errors`, `warnings` |
-| `GET` | `/api/sync/{job_id}/apply-stream` | `can_apply` + `token=` | SSE apply stream; events: `start`, `item`, `done`, `error`, `stale_preview`, `freshness_unverifiable`, `dry_run_invalidated` |
-| `POST` | `/api/jobs/{job_id}/writeback` | `can_apply` | Write confirmed prices back to spreadsheet |
-| `DELETE` | `/api/sync/{job_id}` | `can_apply` | Cancel a preview-status job |
-| `POST` | `/api/rollback/product/{pid}` | `is_admin` | Rollback product to last known price/stock |
-| `PUT` | `/api/products/{pid}/price` | `can_edit_price` | Inline price override; invalidates dry runs server-side |
-| `PUT` | `/api/products/{pid}/stock` | `can_edit_stock` | Inline stock override; invalidates dry runs server-side |
+| POST | /api/auth/login | public | Nextcloud verify → JWT issue |
+| GET | /api/auth/me | JWT | Token validate + permission snapshot |
+
+### Sync Engine
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| POST | /api/preview | can_fetch | Download XLSX, parse, create SyncJob |
+| GET | /api/preview/stream | can_fetch + token= | SSE: classify rows vs cache |
+| POST | /api/sync/{id}/dry-run | can_apply | Validate; set dry_run_status |
+| POST | /api/sync/{id}/confirm | can_apply | Guard-check → confirm apply |
+| GET | /api/sync/{id}/apply-stream | can_apply + token= | SSE: WC writes |
+| DELETE | /api/sync/{id} | can_apply | Cancel preview-status job |
+
+### Product Cache
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET | /api/products | can_fetch | Paginated, filtered, sorted |
+| GET | /api/products/categories | can_fetch | Category list |
+| GET | /api/products/{id}/lookup | can_fetch | Cache-first, WC fallback |
+| GET | /api/products/{id}/thumb | public | JPEG thumbnail |
+| PUT | /api/products/{id}/price | can_edit_price | Inline price override |
+| PUT | /api/products/{id}/stock | can_edit_stock | Inline stock override |
+
+### Fetch Engine
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET | /api/fetch/full | can_fetch | Full WC catalog sync (SSE) |
+| GET | /api/fetch/light | can_fetch | Incremental sync (SSE) |
+| GET | /api/fetch/deep-variations | is_admin | All variation pages (SSE) |
+
+### Analytics and Audit
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET | /api/dashboard | can_access_site | Stat cards, chart |
+| GET | /api/analytics | can_access_site | Seller issue lists |
+| GET | /api/analytics/admin/* | is_admin | Admin overview/trends |
+| GET | /api/audit-logs | can_view_logs | Action log |
+| GET | /api/audit/history | can_view_logs | Change history |
+| POST | /api/audit/undo | is_admin | Restore from history |
+| GET | /api/jobs | can_view_logs | Job list |
+| GET | /api/jobs/{id} | can_view_logs | Job detail |
+
+### Admin
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET/POST/PATCH/DELETE | /api/admin/app-users* | is_admin | User CRUD |
+| GET/POST | /api/admin/maintenance | is_super_admin | Maintenance mode |
+| GET | /api/system/diagnostics | is_super_admin | System info |
+| POST | /api/rollback/product/{id} | is_admin | Restore last change |
+| POST | /api/rollback/job/{id} | is_admin | Restore all changes for job |
+
+### Utilities
+
+| Method | Path | Permission | Description |
+|---|---|---|---|
+| GET | /api/health | public | Service health |
+| GET | /api/currency | public | IRR rates proxy (5-min cache) |
+| GET | /api/categories | can_access_site | WC category list |
+| GET | /api/settings | can_view_settings | Masked config |
+| GET | /api/alarm-settings | can_view_settings | Thresholds |
+| PUT | /api/alarm-settings | is_admin | Write thresholds |
+| POST | /api/cache/clear | is_admin | Flush memory cache |
+| POST | /api/products/cache-clear | is_admin | Flush DB cache |
+| GET | /api/spreadsheet/meta | can_fetch | Sheet HEAD metadata |
+| POST | /api/jobs/{id}/writeback | can_apply | Write results to sheet |

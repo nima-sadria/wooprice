@@ -2,100 +2,129 @@
 
 ## Current Status
 
-Current Stable Tag:
+Current branch: main
+Current feature stream: 7.x
 
-react-wsd-stable
-
-Current Branch:
-
-main
-
-Latest Stable Commit:
-
-5a2eeff
+---
 
 ## Completed
 
-* Phase 1
-* Phase 2
-* Phase 3
-* Analytics Migration
-* Auth Integration
-* Direction Layer
-* Logs Migration
-* WS-A
-* WS-B
-* WS-C
-* WS-D
-* Documentation System
-* AI Operating Manual
-* Agent path fix (docs/agents/)
+### Migration Era (Phases 1–6)
 
-## Current Phase
+| Phase | Description | Commit |
+|---|---|---|
+| Phase 1–3 | Core backend: FastAPI, product cache, sync engine, auth | — |
+| Analytics Sprint A | Analytics page | `f4ab6cb` |
+| Auth Integration | AuthProvider, JWT, RequirePermission | bundled |
+| Direction Layer | RTL/LTR support, Tailwind logical properties | `585373e` |
+| Phase 4c | Logs page migration | `bf1d458` |
+| WS-A | Workspace shell, cache refresh, spreadsheet status | `4b38182` |
+| WS-B | Preview SSE, pre-fetch filters, product table | `4b38182` |
+| WS-C | Dry Run, Apply SSE, Writeback, Inline edit, Rollback | `6bb8342` |
+| WS-D | Integration audit: H-D1 and MD-2 found and resolved | `6bb8342` |
+| Phase 5 | Production cutover preparation, documentation | `377acae` |
+| Phase 6 | Legacy frontend replacement, React SPA cutover | shipped |
 
-Phase 6
+### 7.x Feature Stream (completed)
 
-Legacy Frontend Replacement
+| Item | Description | Notes |
+|---|---|---|
+| 7.4A | Product Browser | Server-side filter, sort, paginate, category multi-select |
+| 7.4A R1 | Bug fixes | stock_status=all, enum validation |
+| 7.4A R2 | Remediation | Page size persistence, price filter parity, deterministic sort |
+| 7.4B | Permission Architecture Review | Analysis only |
+| 7.5A | Route Security Hardening | /workspace, /settings guards; permission-aware sidebar |
+| 7.5A R1 | Permission Inheritance Remediation | effectiveHasPerm, can_access_site gate, 24 tests |
+| 7.5A R2 | /home Route Guard + Component Tests | 50 component tests, PLATFORM_MAP accuracy fixes |
+| A1 | Change Set Platform Architecture Design | Design only — no implementation |
 
-Status:
+---
 
-Implementation complete — pending Codex audit
+## Current Phase: 7.x Feature Stream
 
-Goals achieved:
+The 7.x numbering is an implementation-level feature stream running within the broader product development effort. It is separate from the Phase 1–6 migration era numbering.
 
-* `.gitignore`: `static/assets/` excluded
-* `Dockerfile`: two targeted COPY lines (dist/assets → static/assets; dist/index.html → static/index.html)
-* `app/main.py`: `/assets/` static mount added
-* `app/main.py`: SPA catch-all route appended (last route in file)
-* `static/index.html`: replaced with React SPA entry point (700 bytes)
-* Build verified: PASS — 0 TS errors
-* Tests verified: 47 passed
+See `docs/PLATFORM_MAP.md` Section E for the detailed 7.x roadmap tree.
 
-Not performed (Phase 6 constraint — no deployment):
+Near-term items:
 
-* `docker compose up -d --build`
-* Production cutover
-* Smoke test execution
+| Item | Description | Status |
+|---|---|---|
+| 7.5B | Permission Model V2 (can_browse_products, can_dry_run splits) | Planned |
+| 7.5C | Admin UX Rebuild | Planned |
+| 7.6A | Settings Center | Planned |
+| 7.6B | Product Browser Advanced Filters | Planned |
+| 7.7A | Bulk Edit Framework | Design complete (A1); implementation pending |
+| 7.7B | Inline Editing in Product Browser | Planned |
+| 7.8A | Dashboard Redesign | Planned |
+| 7.9A | Saved Views | Planned |
 
-Pending:
+---
 
-* Codex audit of Phase 6 stabilization commit
-* Project owner approval for deployment
+## Strategic Direction (Owner Decisions)
 
-## Completed Phases (summary)
+The following represents the owner-authorized product direction. These items require
+architecture design before implementation. See `docs/OWNER_DECISIONS.md` for rationale.
 
-* Phase 5 — Production Cutover Preparation: Complete (commit 377acae)
+### Priority order
 
-## Upcoming
+1. Safe pricing operations
+2. Scheduling (first-class deferred and windowed execution)
+3. Scoped permissions (Brand / Category / Channel scope assignments)
+4. Multi-channel foundation (WooCommerce + Digikala + SnapShop)
+5. Lightweight synchronization (delta detection, not full sheet scans)
+6. AI Pricing (future — not scheduled)
 
-Phase 6 deployment
+### Change Set Platform
 
-Prerequisites:
+Architecture design: A1 complete.
+Next: A2 architecture (scoped permissions + channel adapter layer).
+Implementation: after A2 approved.
 
-* Codex audit of Phase 6 changes passed
-* Project owner approval
+### Scoped Permissions
+
+Users will be assigned scope (Brand, Category, or Channel) by admin.
+Change Sets may only contain products within the user's assigned scope.
+This is a new permission dimension, not a replacement for existing flags.
+
+### Multi-Channel
+
+Target: 3–5 channels (WooCommerce, Digikala, SnapShop).
+Channel adapter interface to be designed in A2.
+No implementation until interface is approved.
+
+### Spreadsheet Evolution
+
+Spreadsheet moves from workflow driver to change event source.
+Delta detection: detect changed rows vs. products_cache; propose Change Set.
+Full sheet scanning is an anti-pattern to eliminate.
+
+---
 
 ## Open Findings
 
-### Medium
+### Medium (from WS-C audit — tracked, non-blocking)
 
-* WS-C M1
-* WS-C M2
-* WS-C M3
+- WS-C M1: CANCEL_ERROR stores error in writebackMsg (field collision)
+- WS-C M2: Apply button enabled after applyPhase=error but startApply no-ops
+- WS-C M3: Header checkbox has no indeterminate state
 
-### Low
+### Low (from WS-C audit)
 
-* WS-C L1
-* WS-C L2
-* WS-C L3
-* WS-C L4
+- WS-C L1: applyRunning constant dead code
+- WS-C L2: inline edit icon buttons missing group class
+- WS-C L3: rollbackAdvisory banner has no dismiss button
+- WS-C L4: applyItems array accumulates without cap
+
+---
 
 ## Stable Checkpoints
 
-* react-wsd-stable
-* 75c4be2
-* 6fdd894
-* 6bb8342
-* 4ef73a8
-* 5a2eeff (Phase 5 documentation stabilization)
-* 377acae (Phase 5 Codex remediation — all findings resolved)
+- `react-wsd-stable`
+- `75c4be2`
+- `6fdd894`
+- `6bb8342`
+- `4ef73a8`
+- `5a2eeff` (Phase 5 documentation stabilization)
+- `377acae` (Phase 5 Codex remediation — all findings resolved)
+- `5ead5b1` (7.5A R2: /home route guard, component tests, PLATFORM_MAP accuracy)
