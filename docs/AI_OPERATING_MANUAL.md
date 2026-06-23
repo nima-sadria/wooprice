@@ -51,6 +51,7 @@ README.md
 docs/WORKFLOW.md
 docs/ARCHITECTURE.md
 docs/MIGRATION_STATUS.md
+docs/PLATFORM_MAP.md
 
 And the role-specific agent file from the docs/agents/ directory.
 
@@ -62,6 +63,14 @@ No implementation is complete until:
 * Tests pass
 * Audit passes
 * Stabilization commit created
+
+## Platform Map Rule
+
+Any AI implementation that changes architecture, routing, permissions, API contracts, workflow behavior, deployment behavior, or major UI modules must also update docs/PLATFORM_MAP.md in the same commit.
+
+## Codex Audit Rule
+
+Codex must verify whether docs/PLATFORM_MAP.md was updated when a change affects architecture, routes, permissions, workflows, API contracts, major UI modules, or deployment behavior.
 
 ## Current State
 
