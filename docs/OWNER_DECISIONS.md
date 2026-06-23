@@ -220,3 +220,11 @@ AI will never auto-apply prices without human confirmation. It proposes; humans 
 | 2026-06-23 | Multi-channel: 3–5 channels target | Digikala and SnapShop are planned; channel adapter pattern prevents future rewrites |
 | 2026-06-23 | Scheduling is first-class | WooCommerce on shared hosting; overnight bulk runs reduce customer-visible disruption |
 | 2026-06-23 | AI Pricing is future-only | Current priority is operational reliability; AI suggestions require clean data foundation first |
+
+## AI Resource Policy
+
+- Prefer single-agent execution.
+- Avoid parallel agent spawning.
+- Avoid subagent-heavy workflows.
+- Keep implementation, audit, and architecture work separated into dedicated conversations.
+- Use concise context snapshots instead of extremely long sessions.

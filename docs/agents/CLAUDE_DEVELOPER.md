@@ -29,3 +29,13 @@ Required Report
 7. Test result
 8. Known limitations
 9. Recommended next step
+
+# WooPrice Rules
+
+- Single agent only.
+- No subagents.
+- No parallel agents.
+- No delegation.
+- No autonomous task splitting.
+
+Unless explicitly requested by the project owner.

@@ -115,3 +115,16 @@ The following transitions require explicit human approval:
 
 AI systems may prepare reports and audits but must stop and wait for approval
 before proceeding past any of the above gates.
+## Claude Resource Usage Rules
+
+For WooPrice:
+
+- Do not spawn subagents.
+- Do not use parallel agents.
+- Do not delegate work to additional agents.
+- Work as a single agent by default.
+- Use additional agents only when explicitly requested by the project owner.
+
+Reason:
+
+WooPrice prioritizes predictable resource usage, auditability, and reproducible execution over parallel exploration.
