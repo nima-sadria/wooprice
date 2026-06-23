@@ -263,17 +263,17 @@ function Chip({ label, onRemove, amber }: { label: string; onRemove: () => void;
 function SkeletonRow() {
   return (
     <tr className="border-b border-border/50">
-      <td className="px-3 py-2.5"><div className="w-9 h-9 bg-border/40 rounded-lg animate-pulse" /></td>
-      <td className="px-3 py-2.5">
-        <div className="h-3.5 bg-border/40 rounded animate-pulse w-36 mb-1.5" />
+      <td className="px-3 py-2"><div className="w-8 h-8 bg-border/40 rounded-lg animate-pulse" /></td>
+      <td className="px-3 py-2">
+        <div className="h-3 bg-border/40 rounded animate-pulse w-36 mb-1.5" />
         <div className="h-2.5 bg-border/30 rounded animate-pulse w-20" />
       </td>
-      <td className="px-3 py-2.5"><div className="h-3 bg-border/40 rounded animate-pulse w-10" /></td>
-      <td className="px-3 py-2.5"><div className="h-5 bg-border/40 rounded animate-pulse w-16" /></td>
-      <td className="px-3 py-2.5"><div className="h-5 bg-border/40 rounded animate-pulse w-20" /></td>
-      <td className="px-3 py-2.5"><div className="h-3 bg-border/40 rounded animate-pulse w-20" /></td>
-      <td className="px-3 py-2.5"><div className="h-3 bg-border/40 rounded animate-pulse w-24" /></td>
-      <td className="px-3 py-2.5"><div className="h-3 bg-border/40 rounded animate-pulse w-12" /></td>
+      <td className="px-3 py-2"><div className="h-3 bg-border/40 rounded animate-pulse w-10" /></td>
+      <td className="px-3 py-2"><div className="h-4.5 bg-border/40 rounded animate-pulse w-16" /></td>
+      <td className="px-3 py-2"><div className="h-4.5 bg-border/40 rounded animate-pulse w-20" /></td>
+      <td className="px-3 py-2"><div className="h-3 bg-border/40 rounded animate-pulse w-20" /></td>
+      <td className="px-3 py-2"><div className="h-3 bg-border/40 rounded animate-pulse w-24" /></td>
+      <td className="px-3 py-2"><div className="h-3 bg-border/40 rounded animate-pulse w-12" /></td>
     </tr>
   )
 }
@@ -285,7 +285,7 @@ function ProductRow({ p }: { p: Product }) {
   return (
     <tr className="border-b border-border/50 hover:bg-bg-base/60 transition-colors">
       <td className="px-3 py-2">
-        <div className="w-9 h-9 rounded-lg bg-bg-base border border-border overflow-hidden flex-shrink-0 flex items-center justify-center">
+        <div className="w-8 h-8 rounded-lg bg-bg-base border border-border overflow-hidden flex-shrink-0 flex items-center justify-center">
           <img
             src={`/api/products/${p.wc_id}/thumb?size=40`}
             alt=""
@@ -296,14 +296,14 @@ function ProductRow({ p }: { p: Product }) {
               el.style.display = 'none'
               const parent = el.parentElement
               if (parent && !parent.querySelector('svg')) {
-                parent.innerHTML = '<svg viewBox="0 0 24 24" class="w-5 h-5 text-border" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
+                parent.innerHTML = '<svg viewBox="0 0 24 24" class="w-4 h-4 text-border" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>'
               }
             }}
           />
         </div>
       </td>
 
-      <td className="px-3 py-2 min-w-0 max-w-[240px]">
+      <td className="px-3 py-2 min-w-0 max-w-[220px]">
         <div className="font-medium text-text-base text-[13px] truncate" title={p.name}>{p.name || '—'}</div>
         {p.sku && <div className="text-[11px] text-wp-muted font-mono mt-0.5 truncate">{p.sku}</div>}
       </td>
@@ -313,13 +313,13 @@ function ProductRow({ p }: { p: Product }) {
       </td>
 
       <td className="px-3 py-2">
-        <span className={['text-[11px] px-1.5 py-0.5 rounded-md font-medium capitalize', typeCls(p.product_type)].join(' ')}>
+        <span className={['text-[11px] px-1.5 py-0.5 rounded font-medium capitalize', typeCls(p.product_type)].join(' ')}>
           {p.product_type}
         </span>
       </td>
 
       <td className="px-3 py-2">
-        <span className={['text-[11px] px-1.5 py-0.5 rounded-md font-medium', stock.cls].join(' ')}>
+        <span className={['text-[11px] px-1.5 py-0.5 rounded font-medium', stock.cls].join(' ')}>
           {stock.label}
         </span>
         {p.stock_quantity != null && (
@@ -341,7 +341,7 @@ function ProductRow({ p }: { p: Product }) {
       <td className="px-3 py-2 max-w-[160px]">
         <div className="flex flex-wrap gap-0.5">
           {p.categories.slice(0, 2).map(c => (
-            <span key={c.id} className="text-[11px] px-1.5 py-0.5 bg-bg-base border border-border rounded-md text-wp-muted whitespace-nowrap">
+            <span key={c.id} className="text-[11px] px-1.5 py-0.5 bg-bg-base border border-border rounded text-wp-muted whitespace-nowrap">
               {c.name}
             </span>
           ))}
@@ -508,6 +508,17 @@ export default function Products() {
 
   const hasFilters = !!(debouncedSearch || stockFilter || priceFilter || typeFilter || categoryIds.length || qualityFilter)
 
+  // Summary stats for header
+  const filterCount = [debouncedSearch, stockFilter, priceFilter, typeFilter, categoryIds.length > 0, qualityFilter].filter(Boolean).length
+  const quickSummary = [
+    debouncedSearch && `"${debouncedSearch}"`,
+    stockFilter && STOCK_OPTS.find(o => o.value === stockFilter)?.label,
+    priceFilter && PRICE_OPTS.find(o => o.value === priceFilter)?.label,
+    typeFilter && TYPE_OPTS.find(o => o.value === typeFilter)?.label,
+    categoryIds.length > 0 && `${categoryIds.length} categor${categoryIds.length === 1 ? 'y' : 'ies'}`,
+    qualityFilter && QUALITY_OPTS.find(q => q.key === qualityFilter)?.label,
+  ].filter(Boolean).join(' · ')
+
   const start = total === 0 ? 0 : (page - 1) * limit + 1
   const end = Math.min(page * limit, total)
 
@@ -520,177 +531,223 @@ export default function Products() {
   }
 
   return (
-    <div className="min-h-full bg-bg-base">
-      <div className="max-w-screen-2xl mx-auto px-5 py-5">
+    <div className="p-4 sm:p-7 flex flex-col gap-5">
 
-        {/* ── Page header ── */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0">
-            <svg viewBox="0 0 24 24" className="w-5 h-5 text-accent" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <path d="M8 21h8M12 17v4" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-[20px] font-bold text-text-base leading-tight">Products</h1>
-            <p className="text-[12px] text-wp-muted">
-              {total > 0 ? `${total.toLocaleString()} cached products` : 'Browse and filter your WooCommerce product cache'}
-            </p>
-          </div>
+      {/* ── 1. Page header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-[22px] font-bold text-text-base">Products</h1>
+          <p className="text-[13px] text-wp-muted mt-0.5">WooCommerce product cache</p>
         </div>
 
-        {/* ── Filter bar ── */}
-        <div className="bg-bg-card border border-border rounded-xl p-3 mb-4 space-y-2">
-
-          {/* Row 1: controls */}
-          <div className="flex flex-wrap items-center gap-2">
-
-            {/* Search */}
-            <div className="relative">
-              <svg viewBox="0 0 24 24" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-wp-muted pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-              </svg>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search name or SKU…"
-                className="pl-8 pr-8 py-1.5 w-52 rounded-lg border border-border bg-bg-base text-[13px] placeholder:text-wp-muted focus:outline-none focus:border-accent transition-colors"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-wp-muted hover:text-text-base">
-                  <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                </button>
-              )}
+        {/* Summary stats */}
+        <div className="flex items-stretch gap-5">
+          <div>
+            <div className="text-[22px] font-bold text-text-base leading-tight" lang="en">
+              {loading && total === 0
+                ? <span className="text-wp-muted">—</span>
+                : total.toLocaleString()
+              }
             </div>
-
-            {/* Dropdowns */}
-            <MiniSelect value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTS} />
-            <MiniSelect value={stockFilter} onChange={setStockFilter} options={STOCK_OPTS} />
-            <MiniSelect value={priceFilter} onChange={setPriceFilter} options={PRICE_OPTS} />
-
-            {/* Category multi-select */}
-            <CategoryPicker all={categories} selected={categoryIds} onChange={setCategoryIds} />
-
-            {/* Separator */}
-            <div className="h-7 w-px bg-border mx-1 hidden sm:block" />
-
-            {/* Quality filters */}
-            {QUALITY_OPTS.map(q => (
-              <button
-                key={q.key}
-                onClick={() => setQualityFilter(qualityFilter === q.key ? '' : q.key)}
-                title={q.key === 'missing_sku' ? 'Products with no SKU' : 'Products with no image'}
-                className={[
-                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium transition-colors',
-                  qualityFilter === q.key
-                    ? 'bg-amber-50 border-amber-400 text-amber-700'
-                    : 'border-border text-wp-muted hover:border-amber-400 hover:text-amber-700 bg-bg-card',
-                ].join(' ')}
-              >
-                <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                {q.label}
-              </button>
-            ))}
-
-            {/* Right side: sort + page size */}
-            <div className="flex items-center gap-2 ml-auto">
-              <MiniSelect value={sort} onChange={setSort} options={SORT_OPTIONS} />
-              <select
-                value={limit}
-                onChange={e => { const n = Number(e.target.value); setLimit(n); writePageSize(n) }}
-                className="px-2.5 py-1.5 rounded-lg border border-border bg-bg-card text-[13px] text-text-base focus:outline-none focus:border-accent transition-colors cursor-pointer"
-              >
-                {PAGE_SIZES.map(n => <option key={n} value={n}>{n} / page</option>)}
-              </select>
+            <div className="text-[12px] text-wp-muted">
+              {hasFilters ? 'matching' : 'cached products'}
             </div>
           </div>
 
-          {/* Row 2: active filter chips */}
           {hasFilters && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-border">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-wp-muted mr-1">Filters:</span>
-              {debouncedSearch && <Chip label={`"${debouncedSearch}"`} onRemove={() => setSearch('')} />}
-              {typeFilter && <Chip label={TYPE_OPTS.find(o => o.value === typeFilter)?.label ?? typeFilter} onRemove={() => setTypeFilter('')} />}
-              {stockFilter && <Chip label={STOCK_OPTS.find(o => o.value === stockFilter)?.label ?? stockFilter} onRemove={() => setStockFilter('')} />}
-              {priceFilter && <Chip label={PRICE_OPTS.find(o => o.value === priceFilter)?.label ?? priceFilter} onRemove={() => setPriceFilter('')} />}
-              {categoryIds.length > 0 && (
-                <Chip label={`${categoryIds.length} categor${categoryIds.length === 1 ? 'y' : 'ies'}`} onRemove={clearCatIds} />
-              )}
-              {qualityFilter && (
-                <Chip label={QUALITY_OPTS.find(q => q.key === qualityFilter)?.label ?? qualityFilter} onRemove={() => setQualityFilter('')} amber />
-              )}
-              <button onClick={clearAll} className="ml-auto text-[12px] text-wp-muted hover:text-wp-red transition-colors">
-                Clear all
-              </button>
+            <>
+              <div className="w-px bg-border self-stretch" />
+              <div>
+                <div className="text-[22px] font-bold text-accent leading-tight">{filterCount}</div>
+                <div className="text-[12px] text-wp-muted">active filters</div>
+              </div>
+            </>
+          )}
+
+          {hasFilters && quickSummary && (
+            <>
+              <div className="w-px bg-border self-stretch hidden sm:block" />
+              <div className="hidden sm:block max-w-[240px]">
+                <div className="text-[11px] text-wp-muted font-semibold uppercase tracking-[.7px] mb-0.5">Applied</div>
+                <div className="text-[12px] text-text-base truncate">{quickSummary}</div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── 2. Filter card ── */}
+      <div className="bg-bg-card border border-border rounded-card shadow-card p-[22px]">
+
+        {/* Card header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-md bg-accent/10 flex items-center justify-center flex-shrink-0">
+              <svg viewBox="0 0 24 24" className="w-[14px] h-[14px]" fill="none" stroke="#4880FF" strokeWidth="2">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
             </div>
+            <span className="text-[11.5px] uppercase tracking-[.7px] text-wp-muted font-semibold">Filters</span>
+          </div>
+          {hasFilters && (
+            <button onClick={clearAll} className="text-[12px] text-wp-muted hover:text-wp-red transition-colors">
+              Clear all
+            </button>
           )}
         </div>
 
-        {/* ── Table card ── */}
-        <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+        {/* Row 1: primary filters + quality flags + view controls */}
+        <div className="flex flex-wrap items-center gap-2">
 
-          {/* Table toolbar */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-base/30">
-            <span className="text-[12px] text-wp-muted">
-              {loading ? 'Loading…' : total === 0 ? 'No products found' : `Showing ${start}–${end} of ${total.toLocaleString()}`}
-            </span>
+          {/* Search */}
+          <div className="relative">
+            <svg viewBox="0 0 24 24" className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-wp-muted pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search name or SKU…"
+              className="pl-8 pr-8 py-1.5 w-52 rounded-lg border border-border bg-bg-base text-[13px] placeholder:text-wp-muted focus:outline-none focus:border-accent transition-colors"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-wp-muted hover:text-text-base">
+                <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            )}
+          </div>
+
+          {/* Type · Stock · Price */}
+          <MiniSelect value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTS} />
+          <MiniSelect value={stockFilter} onChange={setStockFilter} options={STOCK_OPTS} />
+          <MiniSelect value={priceFilter} onChange={setPriceFilter} options={PRICE_OPTS} />
+
+          {/* Divider */}
+          <div className="h-6 w-px bg-border mx-0.5 hidden sm:block" />
+
+          {/* Quality flags */}
+          {QUALITY_OPTS.map(q => (
+            <button
+              key={q.key}
+              onClick={() => setQualityFilter(qualityFilter === q.key ? '' : q.key)}
+              title={q.key === 'missing_sku' ? 'Products with no SKU' : 'Products with no image'}
+              className={[
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] font-medium transition-colors',
+                qualityFilter === q.key
+                  ? 'bg-amber-50 border-amber-400 text-amber-700'
+                  : 'border-border text-wp-muted hover:border-amber-400 hover:text-amber-700 bg-bg-card',
+              ].join(' ')}
+            >
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              {q.label}
+            </button>
+          ))}
+
+          {/* View controls — sort + page size, pinned right */}
+          <div className="flex items-center gap-2 ml-auto">
+            <MiniSelect value={sort} onChange={setSort} options={SORT_OPTIONS} />
+            <select
+              value={limit}
+              onChange={e => { const n = Number(e.target.value); setLimit(n); writePageSize(n) }}
+              className="px-2.5 py-1.5 rounded-lg border border-border bg-bg-card text-[13px] text-text-base focus:outline-none focus:border-accent transition-colors cursor-pointer"
+            >
+              {PAGE_SIZES.map(n => <option key={n} value={n}>{n} / page</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Row 2: category picker */}
+        <div className="mt-3 pt-3 border-t border-border">
+          <CategoryPicker all={categories} selected={categoryIds} onChange={setCategoryIds} />
+        </div>
+
+        {/* Active filter chips */}
+        {hasFilters && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-border">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-wp-muted mr-1">Active:</span>
+            {debouncedSearch && <Chip label={`"${debouncedSearch}"`} onRemove={() => setSearch('')} />}
+            {typeFilter && <Chip label={TYPE_OPTS.find(o => o.value === typeFilter)?.label ?? typeFilter} onRemove={() => setTypeFilter('')} />}
+            {stockFilter && <Chip label={STOCK_OPTS.find(o => o.value === stockFilter)?.label ?? stockFilter} onRemove={() => setStockFilter('')} />}
+            {priceFilter && <Chip label={PRICE_OPTS.find(o => o.value === priceFilter)?.label ?? priceFilter} onRemove={() => setPriceFilter('')} />}
+            {categoryIds.length > 0 && (
+              <Chip label={`${categoryIds.length} categor${categoryIds.length === 1 ? 'y' : 'ies'}`} onRemove={clearCatIds} />
+            )}
+            {qualityFilter && (
+              <Chip label={QUALITY_OPTS.find(q => q.key === qualityFilter)?.label ?? qualityFilter} onRemove={() => setQualityFilter('')} amber />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── 3. Product results card ── */}
+      <div className="bg-bg-card border border-border rounded-card shadow-card overflow-hidden">
+
+        {/* Toolbar */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <span className="text-[13px] font-semibold text-text-base">
+            {loading
+              ? 'Loading…'
+              : total === 0
+                ? 'No products found'
+                : `Showing ${start}–${end} of ${total.toLocaleString()}`
+            }
+          </span>
+          <Pagination page={page} totalPages={totalPages} onPage={setPage} />
+        </div>
+
+        {error && (
+          <div className="px-4 py-3 text-[13px] text-[#dc2626] bg-[#fee2e2] border-b border-[#ef4444]/30">
+            Failed to load products: {error}
+          </div>
+        )}
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[780px]">
+            <thead>
+              <tr className="border-b border-border bg-bg-base">
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide w-12"></th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Product</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide w-16">ID</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Type</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Stock</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Price</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide">Categories</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold text-wp-muted uppercase tracking-wide w-20">Synced</th>
+              </tr>
+            </thead>
+            <tbody className={loading ? 'opacity-40 pointer-events-none' : ''}>
+              {loading && products.length === 0
+                ? Array.from({ length: limit }).map((_, i) => <SkeletonRow key={i} />)
+                : products.length === 0
+                  ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-14 text-center text-[13px] text-wp-muted">
+                        {hasFilters
+                          ? 'No products match the current filters.'
+                          : 'Product cache is empty. Run a Full Refresh from the Workspace first.'}
+                      </td>
+                    </tr>
+                  )
+                  : products.map(p => <ProductRow key={p.wc_id} p={p} />)
+              }
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
+            <span className="text-[12px] text-wp-muted">{start}–{end} of {total.toLocaleString()}</span>
             <Pagination page={page} totalPages={totalPages} onPage={setPage} />
           </div>
-
-          {error && (
-            <div className="px-4 py-3 text-[13px] text-wp-red bg-wp-red/5 border-b border-border">
-              Failed to load products: {error}
-            </div>
-          )}
-
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[780px]">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide w-12"></th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide">Product</th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide w-16">ID</th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide w-22">Type</th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide w-28">Stock</th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide w-28">Price</th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide">Categories</th>
-                  <th className="px-3 py-2.5 text-left text-[10px] font-semibold text-wp-muted uppercase tracking-wide w-20">Synced</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? 'opacity-40 pointer-events-none' : ''}>
-                {loading && products.length === 0
-                  ? Array.from({ length: limit }).map((_, i) => <SkeletonRow key={i} />)
-                  : products.length === 0
-                    ? (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-14 text-center text-[13px] text-wp-muted">
-                          {hasFilters
-                            ? 'No products match the current filters.'
-                            : 'Product cache is empty. Run a Full Refresh from the Workspace first.'}
-                        </td>
-                      </tr>
-                    )
-                    : products.map(p => <ProductRow key={p.wc_id} p={p} />)
-                }
-              </tbody>
-            </table>
-          </div>
-
-          {/* Bottom pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-2 border-t border-border">
-              <span className="text-[12px] text-wp-muted">{start}–{end} of {total.toLocaleString()}</span>
-              <Pagination page={page} totalPages={totalPages} onPage={setPage} />
-            </div>
-          )}
-        </div>
-
+        )}
       </div>
+
     </div>
   )
 }
