@@ -96,3 +96,5 @@ The following transitions require explicit human approval:
 * Major Architecture Changes
 
 AI systems may prepare reports and audits but must stop and wait for approval before proceeding.
+# Update Docs
+Update docs/PLATFORM_MAP.md if architecture, permissions, routes, workflows, APIs, deployment behavior, or major UI modules change.
