@@ -471,7 +471,11 @@ These principles constrain all architectural decisions. They override convenienc
 
 5. **Transformation rules are explicit and visible.** The user must be able to see exactly how a source value becomes a final channel price. No hidden transformations.
 
-6. **All writes are auditable.** Every price change sent to a channel must be traceable to a source row, a transformation rule, a user, and a Change Set.
+6. **Writes are auditable with provenance appropriate to the operation:**
+   - Bulk / Change Set / Scheduled Apply writes must be traceable to a source row, a transformation rule, a user, and a Change Set.
+   - Direct Edit writes must be traceable to a user and a product; no Change Set or transformation rule required.
+   - Emergency Apply writes must be traceable to a user and an emergency batch; no Change Set required.
+   - Rollback and Undo writes must be traceable to a user and the ChangeHistory entry being restored; no source row or transformation required.
 
 ---
 
@@ -482,7 +486,7 @@ AI Pricing is a future capability, not a current project.
 When designed, it will:
 - Suggest optimal prices based on sales velocity, competition, and cost inputs
 - Surface suggestions as proposed Change Sets (not auto-apply)
-- Require seller review and approval before any Change Set is submitted
+- Require seller review and confirmation before any Change Set is submitted
 - Be scoped to the seller's assigned brands and categories
 
 AI will never auto-apply prices without human confirmation. It proposes; humans decide.
@@ -517,7 +521,7 @@ Any code, API, or UI design that touches these areas must read the corresponding
 | Contract | Section in this file | Key constraint |
 |---|---|---|
 | Capacity contract | Change Set Capacity | Typical < 100; supported max 1,000; API must reject above 1,000 |
-| Price source contract | Price Source Strategy | Multi-source: Nextcloud/Excel now; Apple Numbers, MySQL, custom DB, native table future. Source is not the identity of WooPrice. |
+| Price source contract | Price Source Strategy | Only current adapter: Nextcloud/OnlyOffice XLSX via WebDAV. Excel upload, Numbers, MySQL, custom DB, native table are all future. Source is not the identity of WooPrice. |
 | Spreadsheet contract | Price Source Strategy → Spreadsheet subsection | Four roles: Import / Export / Event Source / Optional Writeback. Never system of record. |
 | Transformation rules contract | Transformation Rules | Rule types and 6-level precedence defined; rule engine is future (A2+); no engine code before A2 approved. |
 | Dry Run contract | Workflow Authority → Dry Run Contract | Spreadsheet/ChangeSet Apply require dry run; Direct Edit, Emergency Apply, Rollback, Undo are exempt with own safety controls. |

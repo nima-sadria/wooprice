@@ -508,16 +508,20 @@ Two distinct concepts — do not conflate:
 
 Any bulk operation design (7.7A+) must enforce the 1,000-product ceiling at the API layer.
 
-### Spreadsheet Contract
+### Spreadsheet / Source Contract
 
-The spreadsheet has four distinct roles. Do not conflate them:
+The spreadsheet or source has four distinct roles. Do not conflate them:
 
-| Role | Current state |
-|---|---|
-| Import | Supported (Workspace flow) |
-| Export (Optional Writeback) | Supported, optional |
-| Event Source (delta detection) | Not yet implemented |
-| System of record | **Never** — WooCommerce is the system of record |
+| Role | Definition | Current state |
+|---|---|---|
+| **Import** | Read source data (prices, stock, rows) into WooPrice to create a preview or Change Set | Supported (current Workspace flow reads Nextcloud XLSX) |
+| **Export** | Generate an outbound file or table *from* WooPrice for an external system (e.g., accounting, archive). The original source file is not modified. | Not yet implemented |
+| **Optional Writeback** | Write WooPrice-calculated results back to the *same source file* after Apply, only when explicitly enabled | Supported (current writeback feature — off by default; never a required step) |
+| **Event Source** | WooPrice monitors source for row-level changes and automatically proposes a Change Set for changed rows only | Target state — not yet implemented |
+
+**The spreadsheet/source is NOT the system of record.**
+WooCommerce is the system of record for product prices and stock.
+If source data and WooCommerce disagree, WooCommerce wins.
 
 ### Scheduling
 

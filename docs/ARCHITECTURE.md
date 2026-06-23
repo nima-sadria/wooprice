@@ -59,8 +59,12 @@ They inform architecture decisions made today.
 **Change Set Platform:** All changes will eventually flow through a Change Set model
 (draft → dry run → seller confirmation → schedule → execute → rollback). The current
 sync workflow (source → preview → dry run → apply) will be re-expressed as a Change Set
-producer. A1 architecture design was completed in session history (not a committed doc).
-A2 architecture is the next required design step before any implementation.
+producer.
+
+A1 status: session-derived design only. No committed design document exists.
+A1 is not an auditable artifact — it is background context for the A2 design task.
+A2 architecture is the next required design step and must produce a committed document
+before any implementation begins.
 
 **A2 architecture scope** (must be designed before any of the following is implemented):
 - Change Set execution engine and state machine

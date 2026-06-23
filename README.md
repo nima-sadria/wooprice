@@ -185,7 +185,7 @@ wooprice/
 │       ├── product_cache.py    # Local product cache management
 │       └── woocommerce.py      # WooCommerce REST API client
 │
-├── frontend/                   # React SPA (migration in progress)
+├── frontend/                   # React SPA (deployed — Phase 6 complete)
 │   ├── src/
 │   │   ├── App.tsx             # Router + providers
 │   │   ├── auth.tsx            # AuthProvider, useAuth, RequirePermission

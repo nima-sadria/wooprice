@@ -36,7 +36,7 @@ Current feature stream: 7.x
 | 7.5A | Route Security Hardening | /workspace, /settings guards; permission-aware sidebar |
 | 7.5A R1 | Permission Inheritance Remediation | effectiveHasPerm, can_access_site gate, 24 tests |
 | 7.5A R2 | /home Route Guard + Component Tests | 50 component tests, PLATFORM_MAP accuracy fixes |
-| A1 | Change Set Platform Architecture Design | Design only — no implementation |
+| A1 | Change Set Platform Architecture Design | Session-derived design only — no committed design document exists. A2 will formalize. |
 
 ---
 

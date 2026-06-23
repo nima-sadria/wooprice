@@ -23,22 +23,23 @@ Full role definitions: `docs/AI_OPERATING_MANUAL.md`
 
 ## What "Approval" Means
 
-An AI agent may proceed past a gate only when the human owner has sent a message
-in the current session containing one of the following phrases (case-insensitive):
+Approval is operation-specific. Generic phrases like "approved" or "proceed" are not
+sufficient — the owner's instruction must name the operation or scope being authorized.
 
-- `approved`
-- `proceed`
-- `safe to proceed: YES`
-- `deploy` (for production deployment gates only)
-- An explicit instruction that names the gated operation (e.g., "push to production",
-  "apply this to WooCommerce", "enable maintenance mode")
+| Approval type | Required phrasing (examples) | Applies to |
+|---|---|---|
+| **Owner approval to implement** | "implement X", "add Y", "fix Z", "do this task" | Implementation gates (2–6, 8) — granted when the owner assigns the task |
+| **Owner approval to modify safety-critical workflow** | "change the dry run logic", "modify apply", "update Emergency Apply", "change auth" | Gates 2, 3, 4, 6 when scope is safety-critical |
+| **Owner approval to deploy** | "deploy", "push to production", "build and deploy", "run docker compose up" | Gate 1 — Production Deployment |
+| **Owner approval to run production action** | "enable maintenance mode", "disable maintenance mode", "run this on production" | Gate 7 — Maintenance Mode |
+| **Owner approval to change safety policy** | "change the alarm threshold", "update block_enabled", "change this safety rule" | Gate 8 — Safety-Policy Changes |
 
 **Approval does not carry across sessions.** A gate approved in session A is not
 approved in session B. Each session starts with all gates closed.
 
-**Approval does not carry across scope.** Approving "run dry run" does not approve
-"run apply". Approving one endpoint change does not approve a second endpoint change
-in the same category.
+**Approval does not carry across scope.** Approving "implement the dry run fix" does
+not approve "also modify the apply path". Approving one operation does not implicitly
+approve related operations — each must be named explicitly.
 
 ---
 
@@ -52,11 +53,19 @@ Every implementation session follows this sequence:
    docs/ARCHITECTURE.md, docs/PLATFORM_MAP.md, docs/ROADMAP.md,
    docs/OWNER_AGENT_WORKFLOW.md (this file)
 
-2. Understand the task scope
-   Identify which Human Approval Gates apply to this task (see below).
-   If a gate applies: confirm with owner before beginning implementation.
+2. Identify applicable Human Approval Gates
+   Review the gate list below. Determine which gates (if any) apply to this task.
+
+   Gate behavior depends on gate type:
+   - Implementation gates (Gates 2–6, 8): owner must approve the implementation scope
+     before coding begins. The owner approving the task at the start of a session
+     ("do X", "implement Y") is sufficient. No additional mid-session approval needed
+     unless scope changes.
+   - Production/run-action gates (Gates 1, 7): owner must give explicit approval
+     AFTER audit has passed, immediately before the production action executes.
 
 3. Implement
+   Proceed once task scope is owner-approved.
    Code only — no commits yet.
 
 4. Validate
@@ -65,11 +74,15 @@ Every implementation session follows this sequence:
    vitest run → MUST PASS (74 frontend tests)
 
 5. Audit
-   Formal audit before commit. Report BLOCKERS / HIGH / MEDIUM / LOW.
-   Any BLOCKER or HIGH: stop. No commit. No next step.
+   Formal audit after implementation, before commit.
+   Report BLOCKERS / HIGH / MEDIUM / LOW.
+   Any BLOCKER or HIGH: stop. Fix, re-validate, re-audit before proceeding.
 
-6. Wait for human approval
-   "Safe to proceed: YES" from owner — or an equivalent approval phrase.
+6. For production/run-action gates only — await explicit owner approval
+   If the task touches Gate 1 (deployment) or Gate 7 (maintenance mode):
+   stop after audit PASS and await "Owner approval to deploy" or
+   "Owner approval to run production action" before executing.
+   For all other gates: proceed to commit after audit PASS.
 
 7. Commit
    Stage only intentionally changed files. Never git add -A.
@@ -100,8 +113,9 @@ Each gate below defines:
 - Updating Nginx Proxy Manager config
 - Any `git push` intended to update a live environment
 
-**Required approval text:** Owner must explicitly say "deploy", "push to production",
-or name the deployment action in the current session.
+**Required approval:** "Owner approval to deploy" — owner must explicitly name the
+deployment action (e.g., "deploy", "push to production", "run docker compose up")
+in the current session, after audit has passed.
 
 **AI must not:**
 - Auto-deploy based on a passing test suite
@@ -121,14 +135,16 @@ or name the deployment action in the current session.
 - `dryRunResult.dry_run_scope` usage (scope pinning)
 - Any new code that triggers a WooCommerce write during an Apply operation
 
-**Required approval text:** `approved` or `safe to proceed: YES` after a formal audit.
+**Required approval:** "Owner approval to modify safety-critical workflow" — owner must
+name the Apply path change in the task assignment. Audit runs after implementation;
+commit requires audit PASS with no BLOCKER or HIGH findings.
 
 **AI must not:**
-- Change Apply path code without a completed formal audit
+- Change Apply path code without explicit task assignment from owner
 - Weaken any of the four Apply pre-conditions (dry run done, result not null, status not blocked, not invalidated)
 - Change scope pinning behavior
 
-**After approval:** Implement the change, validate, audit again if scope expands.
+**After approval:** Implement, validate, audit. Audit PASS required before commit.
 
 ---
 
@@ -141,14 +157,15 @@ or name the deployment action in the current session.
 - Frontend `dryRunPhase` state machine transitions
 - Any new action that should (or should not) invalidate a dry run
 
-**Required approval text:** `approved` or `safe to proceed: YES` after formal audit.
+**Required approval:** "Owner approval to modify safety-critical workflow" — owner must
+name the dry run change in the task assignment. Audit runs after implementation;
+commit requires audit PASS with no BLOCKER or HIGH findings.
 
 **AI must not:**
-- Add invalidation triggers without approval
-- Remove invalidation triggers without approval
-- Change what dry_run_status values are possible
+- Add or remove invalidation triggers without explicit task assignment from owner
+- Change what dry_run_status values are possible without explicit task assignment
 
-**After approval:** Implement, validate, audit. Any BLOCKER or HIGH blocks the commit.
+**After approval:** Implement, validate, audit. Audit PASS required before commit.
 
 ---
 
@@ -161,14 +178,15 @@ or name the deployment action in the current session.
 - The three-checkpoint commit sequence (applying → wc_succeeded → applied)
 - The per-item freshness check before WC write
 
-**Required approval text:** Explicit owner instruction naming Emergency Apply.
+**Required approval:** "Owner approval to modify safety-critical workflow" — owner must
+name the Emergency Apply change in the task assignment.
 
 **AI must not:**
 - Remove or reorder the three checkpoint commits
 - Weaken the atomic SQL claim (single UPDATE WHERE status='pending')
 - Remove or weaken the per-item freshness check
 
-**After approval:** Implement, validate, full audit of atomic claim + checkpoint sequence.
+**After approval:** Implement, validate, full audit of atomic claim + checkpoint sequence. Audit PASS required before commit.
 
 ---
 
@@ -180,14 +198,15 @@ or name the deployment action in the current session.
 - Changes to the WC batch API call logic
 - Changes to how failed WC writes are handled
 
-**Required approval text:** Explicit owner instruction naming the write operation.
+**Required approval:** "Owner approval to implement" — owner must explicitly name the
+new write operation in the task assignment.
 
 **AI must not:**
-- Add any new WC write path without a gate approval
-- Change error handling on WC writes without approval (HTTP 502 behavior must be preserved)
-- Change retry logic on WC writes
+- Add any new WC write path without explicit task assignment from owner
+- Change error handling on WC writes without explicit task assignment (HTTP 502 behavior must be preserved)
+- Change retry logic on WC writes without explicit task assignment
 
-**After approval:** Implement, validate, formal audit focused on write-path safety invariants.
+**After approval:** Implement, validate, formal audit focused on write-path safety invariants. Audit PASS required before commit.
 
 ---
 
@@ -202,14 +221,15 @@ or name the deployment action in the current session.
 - `AuthProvider` on-mount fetch or storage event handling
 - Any change to `is_admin` or `is_super_admin` resolution
 
-**Required approval text:** Explicit owner instruction naming the auth component.
+**Required approval:** "Owner approval to implement" — owner must explicitly name the
+auth component change in the task assignment.
 
 **AI must not:**
-- Change JWT structure without approval (token format changes break all active sessions)
-- Change pv validation without approval (could allow stale tokens)
+- Change JWT structure without explicit task assignment (token format changes break all active sessions)
+- Change pv validation without explicit task assignment (could allow stale tokens)
 - Weaken super-admin detection
 
-**After approval:** Implement, validate all 339 backend tests pass, audit auth paths.
+**After approval:** Implement, validate all 339 backend tests pass, audit auth paths. Audit PASS required before commit.
 
 ---
 
@@ -221,12 +241,14 @@ or name the deployment action in the current session.
 - Changes to the maintenance mode middleware (which endpoints bypass it)
 - Any change to who can enable/disable maintenance mode
 
-**Required approval text:** Explicit owner instruction naming maintenance mode.
+**Required approval:** "Owner approval to run production action" — owner must explicitly
+instruct the agent to enable or disable maintenance mode in the current session.
+This approval is given immediately before execution, not at task assignment time.
 
 **AI must not:**
-- Enable maintenance mode without explicit owner instruction
-- Disable maintenance mode without explicit owner instruction
-- Change which endpoints bypass maintenance mode without approval
+- Enable maintenance mode without "Owner approval to run production action" in the current session
+- Disable maintenance mode without "Owner approval to run production action" in the current session
+- Change which endpoints bypass maintenance mode without explicit task assignment from owner
 
 **After approval:** Execute the maintenance mode change, report the result immediately.
 
@@ -241,14 +263,15 @@ or name the deployment action in the current session.
 - Changes to which rule types exist or their default behavior
 - Any change to `dry_run_status` resolution logic
 
-**Required approval text:** Explicit owner instruction naming the safety rule or threshold.
+**Required approval:** "Owner approval to change safety policy" — owner must explicitly
+name the safety rule or threshold change in the task assignment.
 
 **AI must not:**
-- Change default safety rule behavior from warn to block without approval
-- Add new block rules that could freeze the Apply path without approval
+- Change default safety rule behavior from warn to block without explicit task assignment
+- Add new block rules that could freeze the Apply path without explicit task assignment
 - Remove or weaken existing alarm threshold enforcement
 
-**After approval:** Implement, validate, audit with focus on dry run outcome correctness.
+**After approval:** Implement, validate, audit with focus on dry run outcome correctness. Audit PASS required before commit.
 
 ---
 
