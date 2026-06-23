@@ -85,7 +85,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route element={<AuthGuard><AppShell /></AuthGuard>}>
               <Route path="/home" element={<Home />} />
-              <Route path="/workspace" element={<Workspace />} />
+              <Route path="/workspace" element={<RequirePermission permission="can_fetch"><Workspace /></RequirePermission>} />
               <Route path="/products" element={<RequirePermission permission="can_fetch"><Products /></RequirePermission>} />
               <Route
                 path="/analytics"
@@ -93,7 +93,7 @@ export default function App() {
               />
               <Route path="/audit" element={<RequirePermission permission="can_view_logs"><Audit /></RequirePermission>} />
               <Route path="/logs" element={<RequirePermission permission="can_view_logs"><Logs /></RequirePermission>} />
-              <Route path="/settings" element={<Settings />} />
+              <Route path="/settings" element={<RequirePermission permission="can_view_settings"><Settings /></RequirePermission>} />
               <Route path="/admin" element={<RequirePermission adminOnly><Admin /></RequirePermission>} />
             </Route>
           </Routes>
