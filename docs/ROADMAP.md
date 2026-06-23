@@ -37,6 +37,7 @@ Current feature stream: 7.x
 | 7.5A R1 | Permission Inheritance Remediation | effectiveHasPerm, can_access_site gate, 24 tests |
 | 7.5A R2 | /home Route Guard + Component Tests | 50 component tests, PLATFORM_MAP accuracy fixes |
 | A1 | Change Set Platform Architecture Design | Session-derived design only — no committed design document exists. A2 will formalize. |
+| A2 | WooPrice A2 Architecture Design | Committed: `docs/A2_ARCHITECTURE.md`. Covers all 7 layers. Pending owner approval before implementation begins. |
 
 ---
 
@@ -96,18 +97,18 @@ No S1–S4 implementation begins before A2 architecture is approved.
 ### Change Set Platform
 
 A1 architecture design: complete (session history — no committed design doc).
-A2 architecture: next required design step before any implementation.
+A2 architecture: committed to `docs/A2_ARCHITECTURE.md`. Pending owner approval.
 
-**A2 must cover:**
-- Change Set execution engine and state machine
-- Change Set scheduling (Now / Deferred / Low-traffic window)
-- Scoped permissions (Brand / Category / Channel)
-- Source adapter interface and field mapping
-- Channel adapter interface (WooCommerce abstraction + future channel pattern)
-- Transformation rules engine
-- Configurable safety rules architecture
+**A2 covers (see `docs/A2_ARCHITECTURE.md` for full design):**
+- Source adapter layer (interface + implementations)
+- Transformation rule engine (6 rule types, 6-level precedence)
+- Safety policy engine (12 rule types, warn/block model)
+- Change Set engine (state machine, entities, dry run contract)
+- Scheduling engine (Now / Deferred / Low-traffic window)
+- Channel adapter layer (interface + WooCommerce + future channels)
+- AI layer (error detection, freshness, competitor awareness, trusted automation)
 
-Implementation: zero implementation before A2 is approved.
+Implementation: zero implementation before A2 is approved by owner.
 
 ### Scoped Permissions
 
@@ -182,3 +183,5 @@ Full source scanning is an anti-pattern to eliminate.
 - `377acae` (Phase 5 Codex remediation — all findings resolved)
 - `5ead5b1` (7.5A R2: /home route guard, component tests, PLATFORM_MAP accuracy)
 - `e1c3b94` (Governance R2: audit claims, scheduling terminology, domain authority matrix)
+- `63b6a2e` (Governance R5: final audit line findings resolved)
+- A2 architecture design committed — awaiting owner approval

@@ -63,8 +63,10 @@ producer.
 
 A1 status: session-derived design only. No committed design document exists.
 A1 is not an auditable artifact — it is background context for the A2 design task.
-A2 architecture is the next required design step and must produce a committed document
-before any implementation begins.
+
+A2 architecture: committed to `docs/A2_ARCHITECTURE.md`. Covers all 7 layers (source
+adapter, transformation rules, safety policy, Change Set engine, scheduling, channel
+adapter, AI layer). Pending owner approval before any implementation begins.
 
 **A2 architecture scope** (must be designed before any of the following is implemented):
 - Change Set execution engine and state machine
