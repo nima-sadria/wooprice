@@ -202,33 +202,121 @@ predictable (< 2 minutes at WC batch API rate limits).
 
 ## Multi-Channel Strategy
 
-WooPrice will support 3–5 sales channels. WooCommerce is the first. Future channels include:
+WooPrice is a channel-agnostic pricing platform. WooCommerce is the first supported channel.
 
-- Digikala
-- SnapShop
+### Target channel list
+
+| Channel | Priority | Type |
+|---|---|---|
+| WooCommerce | Now — implemented | E-commerce platform |
+| Digikala | Next — near-term | Iranian marketplace |
+| SnapShop | Near-term | Iranian marketplace |
+| Shopify | Future | E-commerce platform |
+| Magento | Future | E-commerce platform |
+| Amazon | Future | Global marketplace |
+| Custom CMS | Future | Any store via adapter |
+
+WooPrice must not be architecturally locked to WooCommerce. Every WooCommerce-specific
+operation must be behind a channel adapter interface so future channels can be added
+without modifying core logic.
+
+### Channel model
 
 Each channel:
 - Has its own product catalog (may differ from WooCommerce)
-- Has its own API credentials and rate limits
+- Has its own API credentials, rate limits, and field schema
+- Has its own price validation rules and submission format
 - Receives its own Change Set execution
-- Is represented in the Permission model (scope can be channel-specific)
+- Is represented in the permission scope model (scope can be channel-specific)
 
-The Change Set model must be channel-aware from A2 forward. A Change Set targets one channel. Multi-channel updates use parallel Change Sets, one per channel.
+### Execution model
 
-All WooCommerce-specific code must be behind a channel adapter interface so future adapters can be added without touching core logic.
+A Change Set targets one channel. Multi-channel price updates use parallel Change Sets,
+one per channel. There is no cross-channel transaction — each channel's execution is
+independent.
+
+### Implementation constraint
+
+All WooCommerce-specific code must be behind a channel adapter interface before any
+second channel is built. The interface must be designed in A2 and approved before
+implementation begins.
 
 ---
 
-## Spreadsheet Strategy
+## Price Source Strategy
 
-### Target state
+**Strategic principle:** WooPrice must ask where the price source is, not assume one exists.
+The spreadsheet is a supported source, not the identity of WooPrice.
+
+### Supported source types
+
+| Source type | Description | Status |
+|---|---|---|
+| Nextcloud / OnlyOffice spreadsheet | XLSX file via WebDAV | Implemented (current) |
+| Excel file | .xlsx upload or direct path | Implemented (current) |
+| Apple Numbers | .numbers file via export/conversion | Future |
+| MySQL / MariaDB | Direct database query | Future |
+| Custom database | Any DB via configured adapter | Future |
+| WooPrice native pricing table | Built-in table within WooPrice | Future |
+
+### Source selection model
+
+WooPrice must present a source selection step before any sync or Change Set workflow.
+The system should not silently assume Nextcloud or any other specific source.
+
+If the user already has an external source (spreadsheet or database):
+- WooPrice connects to it using the appropriate adapter
+- Admin performs a one-time field mapping: source columns → WooPrice fields
+
+**Example field mapping:**
+
+| Source field | WooPrice field |
+|---|---|
+| Column A (or `product_name`) | Product Name |
+| Column B (or `price`) | Price |
+| Column C (or `cost`) | Cost |
+| Column D (or `currency`) | Currency |
+| Column E (or `stock`) | Stock |
+
+Field mapping is saved per source. It must be re-validated when the source schema changes.
+
+If the user does not have an external source:
+- WooPrice provides a **native pricing table** with:
+  - Product name, Product ID / SKU, Price, Cost, Currency, Stock
+  - Simple formulas (cost + margin, cost × rate)
+  - Percentage calculations
+  - Basic formatting (highlight, sort, filter)
+  - No external dependency
+
+### Source stability validation
+
+Before accepting data from any source, WooPrice must validate:
+
+| Rule | Description |
+|---|---|
+| Stable product IDs | Product IDs or SKUs do not change between reads |
+| Stable column mapping | Source schema has not changed since last mapping |
+| No missing required values | Price, product ID, and currency fields are populated |
+| No currency / unit mismatch | Rial vs. Toman vs. USD detected and flagged |
+| No duplicate conflicting product IDs | Same product ID appears with different prices in the same source |
+| No unexpected schema change | New columns, removed columns, or reordered columns must trigger a re-mapping prompt |
+
+Validation failures must block Change Set creation, not produce silent data errors.
+
+### Spreadsheet subsection (current implementation)
+
+The current Workspace (Nextcloud XLSX scan → preview → dry run → apply) remains
+operational. It is the only implemented source path. It is not removed in the 7.x stream.
+It is gradually wrapped into the multi-source model as the source adapter layer matures.
+
+**Delta detection target state:**
 
 ```
 Full Fetch at 12:00
   ↓
 WooPrice updates products_cache (prices, stock, categories)
   ↓
-Spreadsheet row is changed by a user (one row)
+Source row is changed by a user (one row, any source)
   ↓
 WooPrice detects the changed row (delta vs. current cache)
   ↓
@@ -237,15 +325,90 @@ Proposes a Change Set for the changed row only
 Seller reviews, schedules, applies
 ```
 
-### Principles
+**Principles:**
+1. Do not re-read the entire source repeatedly. One full read per scheduled cycle. Delta detection for changes.
+2. Source changes are proposals, not commands. A changed row creates a Change Set in draft state. Humans review and schedule before execution.
+3. Writeback is optional. The writeback feature (writing confirmed prices back to the source) is retained for record-keeping but must not be a required workflow step. Default: off.
 
-1. **Do not re-read the entire spreadsheet repeatedly.** One full read per scheduled cycle. Delta detection for incremental changes.
-2. **Spreadsheet changes are proposals, not commands.** A changed spreadsheet row creates a Change Set in draft state. Humans review and schedule before execution.
-3. **Writeback is optional.** The writeback feature is retained for record-keeping convenience but must not be a required step in any workflow. Default: off.
+---
 
-### Short-term
+## Transformation Rules
 
-The current Workspace (spreadsheet scan → preview → dry run → apply) remains operational. It is not removed in the 7.x stream. It is gradually replaced as the Change Set model matures.
+Price transformation rules define how WooPrice converts a source value (cost, import price,
+or raw field) into a final channel price. Rules must be adjustable per product, category,
+brand, channel, and user scope.
+
+### Supported rule types
+
+| Rule type | Description |
+|---|---|
+| Manual price | Use the source price value directly with no transformation |
+| Cost + profit | `final_price = cost + profit_amount` |
+| Cost × FX rate + profit | `final_price = cost × fx_rate + profit_amount` |
+| Cost × FX rate + profit + fees | `final_price = cost × fx_rate + profit_amount + channel_fee` |
+| Competitor-based | `final_price = competitor_price ± adjustment` (future, requires competitor data source) |
+| Channel-specific | Override any rule with a channel-specific value or formula |
+
+### Rule precedence
+
+When multiple rules could apply to a product, precedence is:
+
+1. Product-level override (most specific)
+2. Brand-level rule
+3. Category-level rule
+4. Channel-level rule
+5. Global default rule (least specific)
+
+The most specific rule always wins. Admin configures which rules exist and at which level.
+
+### Implementation constraints
+
+- Transformation rules are not implemented yet. They are a future capability.
+- Rule engine design must be part of A2+ architecture.
+- No rule engine code before A2 is approved.
+- FX rate sourcing must be separate from rule evaluation (rules reference an FX rate source, they do not embed it).
+
+---
+
+## Safety Rules Configuration
+
+Safety rules protect against unintended price changes. They must be configurable by
+store admin, not hardcoded.
+
+### Admin-configurable rule types
+
+| Rule | Description |
+|---|---|
+| Maximum price-change percentage | Block or warn when a price changes by more than N% vs. last known value |
+| Category-specific limits | Different max-change rules per product category |
+| Brand-specific limits | Different max-change rules per brand |
+| User-specific limits | Different max-change rules per seller user |
+| Channel-specific limits | Different limits for WooCommerce vs. Digikala vs. other channels |
+| Minimum price bound | Reject prices below an absolute floor |
+| Maximum price bound | Reject prices above an absolute ceiling |
+| Zero / missing detection | Flag products with price = 0 or price = missing |
+| Rial / Toman anomaly detection | Detect price values that appear to be in the wrong unit (e.g., 10 vs. 10,000,000) |
+| Historical deviation detection | Flag prices that deviate significantly from the product's own price history |
+| Bulk anomaly detection | Flag when a batch contains an unusual proportion of large changes |
+| Admin override | Admin can bypass any rule with explicit confirmation and audit log entry |
+
+### Rule behavior model
+
+Each rule has two configurable actions:
+
+| Action | Description |
+|---|---|
+| **warn** | Change Set proceeds; admin sees a warning; audit log records the warning |
+| **block** | Change Set creation is rejected until the rule violation is resolved |
+
+Default behavior for all rules: **warn** (not block). Admin must explicitly set a rule to block.
+
+### Implementation constraints
+
+- Current safety rules (alarm thresholds, dry_run_status blocked/warnings) remain operational.
+- The configurable rule system described above is a future capability, designed in A2+.
+- Any new safety rule implementation must not weaken existing dry run or apply protections.
+- Admin override must always produce an audit log entry — it must never be silent.
 
 ---
 
@@ -253,12 +416,32 @@ The current Workspace (spreadsheet scan → preview → dry run → apply) remai
 
 In order of importance:
 
-1. **Safe pricing operations** — No WC write without dry run validation. No scope violations. No unintended mass changes.
-2. **Scheduling** — First-class deferred and windowed execution. Protect WC server.
+1. **Safe pricing operations** — No channel write without dry run validation. No scope violations. No unintended mass changes. Configurable safety rules protect every write path.
+2. **Scheduling** — First-class deferred and windowed execution. Protect channel server load.
 3. **Scoped permissions** — Users operate only within their assigned Brand/Category/Channel.
-4. **Multi-channel foundation** — Channel adapter interface designed before second channel is built.
-5. **Lightweight synchronization** — Delta detection replaces full sheet scanning.
-6. **AI Pricing** — Future. AI-suggested price recommendations based on market data, competition, and sales velocity. Not scheduled for current roadmap.
+4. **Multi-source architecture** — WooPrice is not locked to one price source. Source adapter interface designed before adding source type 2.
+5. **Multi-channel foundation** — Channel adapter interface designed before second channel is built.
+6. **Transformation rules engine** — Adjustable per-product, per-category, per-brand, per-channel price calculation rules.
+7. **Lightweight synchronization** — Delta detection replaces full source scanning.
+8. **AI Pricing** — Future. AI-suggested price recommendations based on market data, competition, and sales velocity. Not scheduled for current roadmap.
+
+---
+
+## Strategic Principles
+
+These principles constrain all architectural decisions. They override convenience choices.
+
+1. **WooPrice is not a spreadsheet tool.** The spreadsheet is one supported source type among many. Architecture must not assume a spreadsheet exists.
+
+2. **WooPrice is not a WooCommerce plugin.** WooCommerce is one supported channel. Architecture must not assume WooCommerce is the only destination.
+
+3. **The source adapter and channel adapter are independent.** Changing the price source does not change the destination channel, and vice versa. These are separate layers.
+
+4. **Safety rules are configurable, not hardcoded.** Admin defines what constitutes an anomaly for their store. WooPrice provides the rule engine; the store provides the thresholds.
+
+5. **Transformation rules are explicit and visible.** The user must be able to see exactly how a source value becomes a final channel price. No hidden transformations.
+
+6. **All writes are auditable.** Every price change sent to a channel must be traceable to a source row, a transformation rule, a user, and a Change Set.
 
 ---
 
@@ -289,6 +472,12 @@ AI will never auto-apply prices without human confirmation. It proposes; humans 
 | 2026-06-23 | Change Set capacity: typical <100, supported up to 1000 | Reflects internal team size and WC batch API practical ceiling |
 | 2026-06-23 | Spreadsheet contract: Import / Export / Event Source / Optional Writeback | Four distinct roles defined; prevents role confusion in future implementation |
 | 2026-06-23 | Document authority matrix established | Resolves conflicts without escalating every disagreement to the owner |
+| 2026-06-24 | Multi-source architecture: WooPrice is not locked to one spreadsheet provider | Spreadsheet is a supported source type; architecture must support Excel, OnlyOffice, Numbers, MySQL, custom DB, native table |
+| 2026-06-24 | Multi-channel expanded: target includes Shopify, Magento, Amazon, custom CMS | WooPrice is a channel-agnostic platform, not a WooCommerce plugin |
+| 2026-06-24 | Transformation rules are adjustable per product/brand/category/channel | Internal pricing logic varies by team and channel; hardcoded rules prevent adoption |
+| 2026-06-24 | Safety rules are admin-configurable, not hardcoded | Store admin defines anomaly thresholds; WooPrice provides the rule engine |
+| 2026-06-24 | Native pricing table: WooPrice must support users with no external source | Not all users have a spreadsheet or external DB |
+| 2026-06-24 | Source stability validation required before Change Set creation | Silent schema drift causes data corruption; explicit validation gates catch it early |
 
 ## Contract Index
 
@@ -298,7 +487,10 @@ Any code, API, or UI design that touches these areas must read the corresponding
 | Contract | Section in this file | Key constraint |
 |---|---|---|
 | Capacity contract | Change Set Capacity | Typical < 100; supported max 1,000; API must reject above 1,000 |
-| Spreadsheet contract | Spreadsheet Strategy → Spreadsheet contract | Four roles: Import / Export / Event Source / Optional Writeback. Never system of record. |
+| Price source contract | Price Source Strategy | Multi-source: Nextcloud/Excel now; Apple Numbers, MySQL, custom DB, native table future. Source is not the identity of WooPrice. |
+| Spreadsheet contract | Price Source Strategy → Spreadsheet subsection | Four roles: Import / Export / Event Source / Optional Writeback. Never system of record. |
+| Transformation rules contract | Transformation Rules | Rule types defined; rule engine is future (A2+); no engine code before A2 approved. |
+| Safety rules contract | Safety Rules Configuration | Admin-configurable warn/block rules; defaults to warn; admin override always audited. |
 | Approval contract | Workflow Authority → Approval Policy | Seller confirmation always required. Second-party approval optional, disabled by default, not yet implemented. |
 | Scope contract | Permission Philosophy | Out-of-scope products rejected at Change Set creation. Admins implicitly global scope. |
 | Scheduling contract | Scheduling Philosophy + Change Set Capacity | Three modes (Now / Deferred / Low-traffic). No scheduling code until A2 approved. |

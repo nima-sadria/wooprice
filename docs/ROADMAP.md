@@ -68,12 +68,14 @@ architecture design before implementation. See `docs/OWNER_DECISIONS.md` for rat
 
 ### Priority order
 
-1. Safe pricing operations
+1. Safe pricing operations (dry run, configurable safety rules, no silent writes)
 2. Scheduling (first-class deferred and windowed execution)
 3. Scoped permissions (Brand / Category / Channel scope assignments)
-4. Multi-channel foundation (WooCommerce + Digikala + SnapShop)
-5. Lightweight synchronization (delta detection, not full sheet scans)
-6. AI Pricing (future — not scheduled)
+4. Multi-source architecture (source adapter layer; WooPrice is not locked to one spreadsheet)
+5. Multi-channel foundation (channel adapter layer; WooCommerce + Digikala + SnapShop + Shopify + Magento + Amazon + custom CMS)
+6. Transformation rules engine (adjustable per product / brand / category / channel)
+7. Lightweight synchronization (delta detection, not full source scanning)
+8. AI Pricing (future — not scheduled)
 
 ### Change Set Scheduling Stream (S1–S4)
 
@@ -103,17 +105,42 @@ Users will be assigned scope (Brand, Category, or Channel) by admin.
 Change Sets may only contain products within the user's assigned scope.
 This is a new permission dimension, not a replacement for existing flags.
 
+### Multi-Source Architecture
+
+WooPrice supports multiple price source types. The spreadsheet is one source, not the identity.
+
+| Item | Description | Status |
+|---|---|---|
+| P1 | Source adapter interface design | Blocked on A2 |
+| P2 | Field mapping UI (source columns → WooPrice fields) | Blocked on P1 |
+| P3 | Source stability validation (schema, IDs, currency, duplicates) | Blocked on P1 |
+| P4 | Native pricing table (built-in source for users with no external source) | Blocked on P1 |
+| P5 | MySQL / custom DB adapter | Blocked on P1 |
+
+No P1–P5 implementation begins before A2 architecture is approved.
+
 ### Multi-Channel
 
-Target: 3–5 channels (WooCommerce, Digikala, SnapShop).
-Channel adapter interface to be designed in A2.
-No implementation until interface is approved.
+Target channels (in priority order): WooCommerce (implemented), Digikala, SnapShop,
+Shopify, Magento, Amazon, custom CMS.
 
-### Spreadsheet Evolution
+Channel adapter interface to be designed in A2. No second channel implementation
+until interface is approved.
 
-Spreadsheet moves from workflow driver to change event source.
+### Transformation Rules Engine
+
+| Item | Description | Status |
+|---|---|---|
+| T1 | Rule engine architecture (rule types, precedence model) | Blocked on A2 |
+| T2 | Manual price / cost+profit / cost×FX+profit rules | Blocked on T1 |
+| T3 | Channel-specific rule overrides | Blocked on T1 |
+| T4 | Competitor-based pricing (requires external data source) | Future |
+
+### Source Evolution
+
+Source moves from workflow driver to change event source.
 Delta detection: detect changed rows vs. products_cache; propose Change Set.
-Full sheet scanning is an anti-pattern to eliminate.
+Full source scanning is an anti-pattern to eliminate.
 
 ---
 
@@ -144,3 +171,4 @@ Full sheet scanning is an anti-pattern to eliminate.
 - `5a2eeff` (Phase 5 documentation stabilization)
 - `377acae` (Phase 5 Codex remediation — all findings resolved)
 - `5ead5b1` (7.5A R2: /home route guard, component tests, PLATFORM_MAP accuracy)
+- `e1c3b94` (Governance R2: audit claims, scheduling terminology, domain authority matrix)
