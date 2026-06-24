@@ -39,6 +39,7 @@ Current feature stream: 7.x
 | A1 | Change Set Platform Architecture Design | Session-derived design only — no committed design document exists. A2 will formalize. |
 | A2 | WooPrice A2 Architecture Design | Committed: `docs/A2_ARCHITECTURE.md`. Pending Codex re-audit. |
 | A2 R1 | A2 Architecture Revision R1 | Owner decisions incorporated: canonical product model, live freshness, intersection scope, PostgreSQL, trusted automation deferred, workspace compatibility. Pending Codex re-audit. |
+| A2.1 | Canonical Product Model + PostgreSQL Foundation | app/a2/ package: CanonicalProduct, ChannelListing, ChannelCredential models; repositories; service scaffolding; alembic_a2.ini + a2_migrations/; tests/a2/. Additive only. In progress. |
 
 ---
 

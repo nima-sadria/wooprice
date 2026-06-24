@@ -66,7 +66,11 @@ A1 is not an auditable artifact — it is background context for the A2 design t
 
 A2 architecture: committed to `docs/A2_ARCHITECTURE.md`. Covers all 7 layers (source
 adapter, transformation rules, safety policy, Change Set engine, scheduling, channel
-adapter, AI layer). Pending owner approval before any implementation begins.
+adapter, AI layer). Owner-approved for implementation.
+
+A2.1 (Phase 1 — Canonical Product Model and PostgreSQL Foundation): implementation
+underway. Additive only — existing app/ package untouched. See `docs/A2_MIGRATION_STRATEGY.md`
+for migration plan, schema, and cutover rules.
 
 **A2 architecture scope** (must be designed before any of the following is implemented):
 - Change Set execution engine and state machine

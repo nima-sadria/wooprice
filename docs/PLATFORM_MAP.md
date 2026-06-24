@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | 150b120 |
+| Last verified commit | A2.1 in progress — commit pending |
 | Last verified date | 2026-06-24 |
 | Verified against code | Yes |
 | Document role | Derived reference — summarizes current architecture from code and policy documents. Not authoritative over OWNER_DECISIONS, WORKFLOW, ROADMAP, or code. |
@@ -120,19 +120,26 @@ WooPrice
 │   │   ├── GET /api/jobs/{id}              — job detail [can_view_logs]
 │   │   ├── GET /api/spreadsheet/meta       — sheet HEAD metadata [can_fetch]
 │   │   └── POST /api/jobs/{id}/writeback   — write results to sheet [can_apply]
-│   └── Database  (SQLite, single file)
-│       ├── app_users           — username, permissions, is_admin, is_active, pv
-│       ├── products_cache      — WC product snapshot
-│       ├── sync_jobs           — job state machine
-│       ├── sync_items          — per-product row within a job
-│       ├── change_history      — before/after for every WC write
-│       ├── change_tracking     — field-level drift detection
-│       ├── audit_logs          — selected events: state-mutating + access-sensitive actions only
-│       │                         (see Section D Safety Tree for full audited/not-audited list)
-│       ├── daily_metrics       — aggregated daily counters
-│       ├── emergency_batches   — emergency batch header
-│       ├── emergency_items     — per-product emergency rows
-│       └── app_settings        — key/value store (maintenance_mode, etc.)
+│   ├── Database  (SQLite, single file) — existing production stack, untouched by A2
+│   │   ├── app_users           — username, permissions, is_admin, is_active, pv
+│   │   ├── products_cache      — WC product snapshot
+│   │   ├── sync_jobs           — job state machine
+│   │   ├── sync_items          — per-product row within a job
+│   │   ├── change_history      — before/after for every WC write
+│   │   ├── change_tracking     — field-level drift detection
+│   │   ├── audit_logs          — selected events: state-mutating + access-sensitive actions only
+│   │   │                         (see Section D Safety Tree for full audited/not-audited list)
+│   │   ├── daily_metrics       — aggregated daily counters
+│   │   ├── emergency_batches   — emergency batch header
+│   │   ├── emergency_items     — per-product emergency rows
+│   │   └── app_settings        — key/value store (maintenance_mode, etc.)
+│   └── A2 Platform Package  (app/a2/) — additive, parallel, no shared code with app/
+│       ├── PostgreSQL (wooprice_a2 database) — A2.1 foundation, separate from SQLite
+│       ├── canonical_products  — UUID PK + SKU; platform-level product identity
+│       ├── channel_listings    — per-channel representation; WC IDs demoted here
+│       ├── channel_credentials — encrypted channel credentials (AES-256-GCM, deferred to Phase 2)
+│       ├── Migrations: alembic_a2.ini + a2_migrations/ (separate from alembic/)
+│       └── Status: A2.1 implemented (additive foundation). No cutover until Phases 1–9 complete.
 │
 ├── External Services
 │   ├── WooCommerce REST API  — product read/write, stock sync
@@ -141,10 +148,12 @@ WooPrice
 │
 └── Deployment  (Docker)
     ├── Container: wooprice  — FastAPI app + React static build
+    ├── Container: postgres  — PostgreSQL 15-alpine (wooprice_a2 database, A2.1 additive)
     ├── Port: 8000 (internal)
     ├── Nginx Proxy Manager  — TLS termination, reverse proxy
     ├── Production URL: woo.softpple.business
-    └── Database: /app/data/wooprice.db (volume-mounted)
+    ├── SQLite Database: /app/data/wooprice.db (volume-mounted, existing stack)
+    └── PostgreSQL Data: postgres_data volume (A2 platform, separate from SQLite)
 ```
 
 ---
