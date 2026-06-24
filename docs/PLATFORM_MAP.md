@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | 9d47728 |
+| Last verified commit | 150b120 |
 | Last verified date | 2026-06-24 |
 | Verified against code | Yes |
 | Document role | Derived reference — summarizes current architecture from code and policy documents. Not authoritative over OWNER_DECISIONS, WORKFLOW, ROADMAP, or code. |
@@ -520,8 +520,15 @@ The spreadsheet or source has four distinct roles. Do not conflate them:
 | **Event Source** | WooPrice monitors source for row-level changes and automatically proposes a Change Set for changed rows only | Target state — not yet implemented |
 
 **The spreadsheet/source is NOT the system of record.**
-WooCommerce is the system of record for product prices and stock.
-If source data and WooCommerce disagree, WooCommerce wins.
+
+Current state: WooCommerce is the de facto reference for product prices and stock.
+If source data and WooCommerce disagree, WooCommerce wins in the current architecture.
+
+Target state (A2 Canonical Product Model, owner-approved): WooPrice owns canonical
+product identity (`products` table with UUID + SKU). WooCommerce is a channel with
+its own `channel_listings` entry. The "system of record" concept shifts — WooPrice
+owns the product; each channel maintains its own price/stock state independently.
+This change is not yet implemented. Do not annotate current code as if it is.
 
 ### Scheduling
 
@@ -556,6 +563,35 @@ Source selection, field mapping, and source stability validation are all blocked
 | Custom CMS | Future |
 
 Channel adapter interface must be designed in A2 before any second channel is built.
+
+### Canonical Product Model (target — A2, owner-approved)
+
+WooCommerce IDs must not be used as the primary product identity in A2.
+Target model: `products` (UUID + SKU) with `channel_listings` per channel.
+See `docs/A2_ARCHITECTURE.md` Section 2 for full design.
+This is not yet implemented. Current code uses `products_cache` with `wc_id`.
+
+### Scope Semantics (target — A2, owner-approved)
+
+A2 scope enforcement uses INTERSECTION semantics:
+A product must satisfy ALL assigned scope dimensions simultaneously (Channel AND Category AND Brand AND User Scope).
+`scope = null` on all dimensions is admin/super-admin only.
+See `docs/A2_ARCHITECTURE.md` Section 11.
+
+### Database Direction (owner-approved)
+
+PostgreSQL is the strategic production database target.
+SQLite acceptable for local development and transition phases.
+Production architecture must target PostgreSQL from A2 Phase 9.
+See `docs/A2_ARCHITECTURE.md` Section 13.
+
+### AI Layer Boundary (owner-approved)
+
+The Deterministic Safety Policy Engine owns all safety validation.
+AI may: detect, recommend, explain.
+AI may NOT: override safety policy rules, modify thresholds, auto-schedule, auto-apply.
+Trusted Automation (auto-scheduling) is explicitly deferred; not in A2.
+Seller confirmation is mandatory for every execution without exception.
 
 ### Transformation Rules Model (planned — blocked on A2/T1)
 

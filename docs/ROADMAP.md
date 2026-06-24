@@ -37,7 +37,8 @@ Current feature stream: 7.x
 | 7.5A R1 | Permission Inheritance Remediation | effectiveHasPerm, can_access_site gate, 24 tests |
 | 7.5A R2 | /home Route Guard + Component Tests | 50 component tests, PLATFORM_MAP accuracy fixes |
 | A1 | Change Set Platform Architecture Design | Session-derived design only — no committed design document exists. A2 will formalize. |
-| A2 | WooPrice A2 Architecture Design | Committed: `docs/A2_ARCHITECTURE.md`. Covers all 7 layers. Pending owner approval before implementation begins. |
+| A2 | WooPrice A2 Architecture Design | Committed: `docs/A2_ARCHITECTURE.md`. Pending Codex re-audit. |
+| A2 R1 | A2 Architecture Revision R1 | Owner decisions incorporated: canonical product model, live freshness, intersection scope, PostgreSQL, trusted automation deferred, workspace compatibility. Pending Codex re-audit. |
 
 ---
 
@@ -87,28 +88,45 @@ This is distinct from multi-channel automation sync schedules (see 8.0 below).
 
 | Item | Description | Status |
 |---|---|---|
-| S1 | Scheduling architecture (modes: Now / Deferred / Low-traffic window) | Blocked on A2 |
-| S2 | Scheduler backend (queue executor, heartbeat, abandonment detection) | Blocked on S1 |
+| S1 | Scheduling architecture (modes: Now / Deferred / Low-traffic window) | Blocked on A2 Phases 1–7 |
+| S2 | Scheduler backend (queue executor, heartbeat, abandonment, DST, per-channel concurrency) | Blocked on S1 |
 | S3 | Schedule UI (mode selector, time picker, low-traffic recommendation) | Blocked on S2 |
 | S4 | Scheduled Change Set history and cancellation | Blocked on S2 |
 
-No S1–S4 implementation begins before A2 architecture is approved.
+Per owner decision (A2 R1): S1–S4 may not begin until ALL of the following are in production:
+Channel abstraction (Phase 2), Scoped permissions (Phase 3), Safety engine (Phase 4),
+Rule engine (Phase 5), Canonical product model (Phase 1), Change Set engine (Phase 6),
+Source adapter layer (Phase 7).
 
 ### Change Set Platform
 
 A1 architecture design: complete (session history — no committed design doc).
 A2 architecture: committed to `docs/A2_ARCHITECTURE.md`. Pending owner approval.
 
-**A2 covers (see `docs/A2_ARCHITECTURE.md` for full design):**
-- Source adapter layer (interface + implementations)
-- Transformation rule engine (6 rule types, 6-level precedence)
-- Safety policy engine (12 rule types, warn/block model)
-- Change Set engine (state machine, entities, dry run contract)
-- Scheduling engine (Now / Deferred / Low-traffic window)
-- Channel adapter layer (interface + WooCommerce + future channels)
-- AI layer (error detection, freshness, competitor awareness, trusted automation)
+**A2 R1 covers (see `docs/A2_ARCHITECTURE.md` for full design):**
+- Canonical Product Model: products + channel_listings; WC IDs demoted to channel-specific
+- Source adapter layer: capability flags, streaming, stable row identity, snapshots
+- Transformation rule engine: 5 rule types, 6-level precedence, versioned
+- Safety policy engine: 12 rule types, warn/block, versioned, AI cannot override
+- Change Set engine: immutable DryRunDigest, full state machine, durable execution
+- Scheduling engine: hardened (cancellation, retry/backoff, DST, per-channel concurrency)
+- Channel adapter: live freshness verification (mandatory, blocks if unverifiable), batch model
+- AI layer: error detection, freshness monitor, anomaly explainer; trusted automation DEFERRED
+- Database: PostgreSQL strategic target; full schema with constraints, FKs, concurrency model
+- Implementation sequence: scheduling blocked on 7 prior phases
 
-Implementation: zero implementation before A2 is approved by owner.
+Implementation sequence (owner-mandated):
+  Phase 1: Canonical Product Model
+  Phase 2: Channel Adapter Layer
+  Phase 3: Scoped Permissions
+  Phase 4: Safety Policy Engine
+  Phase 5: Transformation Rule Engine
+  Phase 6: Change Set Engine + Immutable Dry Run
+  Phase 7: Source Adapter Layer
+  Phase 8: Scheduling Engine  ← first unlock; requires all above in production
+  Phase 9: PostgreSQL Migration (can run in parallel)
+
+Zero implementation before A2 R1 clears Codex re-audit and owner approves.
 
 ### Scoped Permissions
 
@@ -147,6 +165,17 @@ until interface is approved.
 | T3 | Channel-specific rule overrides | Blocked on T1 |
 | T4 | Competitor-based pricing (requires external data source) | Future |
 
+### PostgreSQL Migration
+
+| Item | Description | Status |
+|---|---|---|
+| DB1 | Deploy A2 tables to PostgreSQL on staging | Blocked on A2 approval |
+| DB2 | pg_migrate.py: SQLite → PostgreSQL data migration | Blocked on DB1 |
+| DB3 | Reconciliation: row counts + spot-check | Blocked on DB2 |
+| DB4 | Production PostgreSQL cutover (maintenance window) | Blocked on DB3 + owner approval |
+
+SQLite acceptable for local dev and transition. Production target: PostgreSQL from A2.
+
 ### Source Evolution
 
 Source moves from workflow driver to change event source.
@@ -184,4 +213,4 @@ Full source scanning is an anti-pattern to eliminate.
 - `5ead5b1` (7.5A R2: /home route guard, component tests, PLATFORM_MAP accuracy)
 - `e1c3b94` (Governance R2: audit claims, scheduling terminology, domain authority matrix)
 - `63b6a2e` (Governance R5: final audit line findings resolved)
-- A2 architecture design committed — awaiting owner approval
+- A2 R1 committed — pending Codex re-audit
