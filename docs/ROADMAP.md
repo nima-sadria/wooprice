@@ -39,7 +39,8 @@ Current feature stream: 7.x
 | A1 | Change Set Platform Architecture Design | Session-derived design only — no committed design document exists. A2 will formalize. |
 | A2 | WooPrice A2 Architecture Design | Committed: `docs/A2_ARCHITECTURE.md`. Pending Codex re-audit. |
 | A2 R1 | A2 Architecture Revision R1 | Owner decisions incorporated: canonical product model, live freshness, intersection scope, PostgreSQL, trusted automation deferred, workspace compatibility. Pending Codex re-audit. |
-| A2.1 | Canonical Product Model + PostgreSQL Foundation | app/a2/ package: CanonicalProduct, ChannelListing, ChannelCredential models; repositories; service scaffolding; alembic_a2.ini + a2_migrations/; tests/a2/. Additive only. Committed: `7e64e17`. Pending Codex audit. |
+| A2.1 | Canonical Product Model + PostgreSQL Foundation | app/a2/ package: CanonicalProduct, ChannelListing, ChannelCredential models; repositories; service scaffolding; alembic_a2.ini + a2_migrations/; tests/a2/. Additive only. Commits: `7e64e17` (impl), `cfabd7a` (remediation). **Codex PASS. Complete.** |
+| A2.2 | Source Adapter Framework | Planned — spec pending. |
 
 ---
 
@@ -214,4 +215,5 @@ Full source scanning is an anti-pattern to eliminate.
 - `5ead5b1` (7.5A R2: /home route guard, component tests, PLATFORM_MAP accuracy)
 - `e1c3b94` (Governance R2: audit claims, scheduling terminology, domain authority matrix)
 - `63b6a2e` (Governance R5: final audit line findings resolved)
-- A2 R1 committed — pending Codex re-audit
+- A2 R1 committed — pending Codex re-audit (architecture document)
+- `cfabd7a` (A2.1 Codex PASS — canonical product model, PostgreSQL foundation, isolation verified)

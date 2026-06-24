@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | 7e64e17 |
+| Last verified commit | cfabd7a |
 | Last verified date | 2026-06-24 |
 | Verified against code | Yes |
 | Document role | Derived reference — summarizes current architecture from code and policy documents. Not authoritative over OWNER_DECISIONS, WORKFLOW, ROADMAP, or code. |
@@ -139,7 +139,7 @@ WooPrice
 │       ├── channel_listings    — per-channel representation; WC IDs demoted here
 │       ├── channel_credentials — encrypted channel credentials (AES-256-GCM, deferred to Phase 2)
 │       ├── Migrations: alembic_a2.ini + a2_migrations/ (separate from alembic/)
-│       └── Status: A2.1 implemented (additive foundation). No cutover until Phases 1–9 complete.
+│       └── Status: A2.1 complete, Codex PASS (`cfabd7a`). No cutover until Phases 1–9 complete.
 │
 ├── External Services
 │   ├── WooCommerce REST API  — product read/write, stock sync
