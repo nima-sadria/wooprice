@@ -53,12 +53,14 @@ docs/OWNER_AGENT_WORKFLOW.md
 docs/WORKFLOW.md
 docs/ARCHITECTURE.md
 docs/PLATFORM_MAP.md
+docs/PROJECT_OPERATING_MODEL.md
 
 And the role-specific agent file from the docs/agents/ directory.
 
 Every AI session must also read:
 
 docs/ROADMAP.md
+docs/A2_ARCHITECTURE.md
 
 ## Core Rule
 
