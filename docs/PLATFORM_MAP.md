@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Last verified commit | A2.1 in progress — commit pending |
+| Last verified commit | 7e64e17 |
 | Last verified date | 2026-06-24 |
 | Verified against code | Yes |
 | Document role | Derived reference — summarizes current architecture from code and policy documents. Not authoritative over OWNER_DECISIONS, WORKFLOW, ROADMAP, or code. |
