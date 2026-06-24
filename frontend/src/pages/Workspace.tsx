@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { AccessState, useAuth } from '../auth'
 import { useSSEStream, type SSEErrorReason } from '../hooks/useSSEStream'
 import { fmtPrice } from '../utils/price'
+import { isAutoSelectEligible } from '../utils/previewEligibility'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -292,6 +293,7 @@ function reducer(s: WorkspaceState, a: Action): WorkspaceState {
         stepExcel: 'done', stepWC: 'done', stepCalc: 'done',
         previewRows: a.rows, previewSummary: a.summary,
         filterStats: a.filterStats, duplicateWarnings: a.dupWarnings,
+        previewSelection: new Set(a.rows.filter(isAutoSelectEligible).map(r => r.product_id)),
       }
     case 'PREVIEW_ERROR':
       if (s.previewPhase === 'ready') return s
