@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, LargeBinary, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, LargeBinary, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -53,6 +53,7 @@ class ChannelListing(A2Base):
             "status IN ('active', 'inactive', 'pending')",
             name="channel_listings_status_check",
         ),
+        Index("ix_channel_listings_product_id", "product_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

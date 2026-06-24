@@ -18,6 +18,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Ensure gen_random_uuid() is available. pgcrypto provides it on PostgreSQL < 13;
+    # on PG 13+ it is built-in and this is a no-op that succeeds without side effects.
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+
     op.create_table(
         "canonical_products",
         sa.Column(
@@ -88,6 +92,11 @@ def upgrade() -> None:
             name="channel_listings_status_check",
         ),
     )
+    op.create_index(
+        "ix_channel_listings_product_id",
+        "channel_listings",
+        ["product_id"],
+    )
 
     op.create_table(
         "channel_credentials",
@@ -117,5 +126,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("channel_credentials")
+    op.drop_index("ix_channel_listings_product_id", table_name="channel_listings")
     op.drop_table("channel_listings")
     op.drop_table("canonical_products")

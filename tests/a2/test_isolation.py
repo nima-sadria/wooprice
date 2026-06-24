@@ -4,7 +4,15 @@ These tests do NOT require PostgreSQL. They import both the existing app modules
 and the A2 modules to confirm complete separation at the metadata and object level.
 The existing tests/conftest.py sets DATABASE_URL=sqlite:///:memory: so importing
 app.database works cleanly without a real SQLite file.
+
+The subprocess test (test_app_main_does_not_import_a2_subprocess) runs a fresh Python
+interpreter to rule out sys.modules cache pollution from the test process itself.
 """
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 
 def test_a2_base_is_separate_from_existing_base():
@@ -57,24 +65,44 @@ def test_a2_database_import_does_not_require_postgres_env(monkeypatch):
     importlib.reload(app.a2.database)  # re-import without env var — must not raise
 
 
-def test_existing_app_main_does_not_import_a2(monkeypatch):
-    """app.main must not pull in any A2 modules at import time."""
-    import sys
+def test_app_main_does_not_import_a2_subprocess():
+    """Verify via a fresh Python process that importing app.main does not pull in app.a2.
 
-    # Remove cached A2 modules to get a clean read of what main imports
-    a2_keys = [k for k in sys.modules if k.startswith("app.a2")]
-    for key in a2_keys:
-        del sys.modules[key]
+    Uses subprocess so the check is immune to sys.modules pollution from the test runner
+    itself (which may have already imported app.a2 modules during test collection).
+    """
+    project_root = str(Path(__file__).parent.parent.parent)
 
-    # Re-import app.main (already imported; this checks the cached module's attributes)
-    import app.main  # noqa: F401
+    # Minimal env required for app.main to import without errors
+    env = os.environ.copy()
+    env["PYTHONPATH"] = project_root
+    env["DATABASE_URL"] = "sqlite:///:memory:"
+    env["NEXTCLOUD_URL"] = "http://example.invalid"
+    env["NEXTCLOUD_USER"] = "x"
+    env["NEXTCLOUD_PASSWORD"] = "x"
+    env["NEXTCLOUD_FILE_PATH"] = "/x.xlsx"
+    env["WC_URL"] = "http://example.invalid"
+    env["WC_KEY"] = "x"
+    env["WC_SECRET"] = "x"
+    env["SUPER_ADMIN_USERS"] = "testadmin"
 
-    # If A2 is now in sys.modules, it was imported transitively by main — that's the failure
-    imported_by_main = [k for k in sys.modules if k.startswith("app.a2")]
-    # Allow the re-import we did above (the del + re-add in this test)
-    # The assertion is that main itself does not add new a2 keys beyond what we deleted
-    # Since we deleted them all, if main doesn't import a2, the list stays empty
-    assert imported_by_main == [], (
-        f"app.main transitively imported A2 modules: {imported_by_main}. "
-        "A2 must be a standalone additive package."
+    script = (
+        "import sys, json\n"
+        "import app.main\n"
+        "print(json.dumps([k for k in sys.modules if k.startswith('app.a2')]))\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"subprocess failed (exit {result.returncode}):\n{result.stderr}"
+    )
+    a2_modules = json.loads(result.stdout.strip())
+    assert a2_modules == [], (
+        f"app.main transitively imported A2 modules in a fresh process: {a2_modules}. "
+        "A2 must be a standalone additive package — app.main must not depend on app.a2."
     )
