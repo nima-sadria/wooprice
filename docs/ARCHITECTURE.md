@@ -302,7 +302,7 @@ Full specification: `docs/A2_ARCHITECTURE.md`.
 | Governance | PASS |
 | A2 Architecture | APPROVED |
 | A2.1 — Canonical Product Model + PostgreSQL Foundation | COMPLETE |
-| A2.2 — Source Adapter Framework | NOT STARTED |
+| A2.2 — Source Adapter Framework | COMPLETE |
 
 ### A2 Phase Sequence
 
