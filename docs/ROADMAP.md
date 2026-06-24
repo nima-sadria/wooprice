@@ -90,6 +90,48 @@ Prerequisites:
 * WS-C L3
 * WS-C L4
 
+## A2 Track
+
+A2 is the multi-phase data platform extension. It runs in parallel with the frontend
+feature stream (7.x/8.x) and has its own governance gate.
+
+### A2 Governance
+
+| Area | Status |
+|---|---|
+| Governance | PASS |
+| A2 Architecture | APPROVED |
+
+### A2 Phase Status
+
+| Phase | Name | Status |
+|---|---|---|
+| A2.1 | Canonical Product Model + PostgreSQL Foundation | COMPLETE |
+| A2.2 | Source Adapter Framework | NOT STARTED |
+| A2.3 | Transformation Rule Engine | NOT STARTED |
+| A2.4 | Safety Policy Engine | NOT STARTED |
+| A2.5 | Change Set Engine | NOT STARTED |
+| A2.6 | Dry Run Engine | NOT STARTED |
+| A2.7 | Execution Engine | NOT STARTED |
+| A2.8 | Scheduling Engine | NOT STARTED |
+| A2.9 | AI Foundation | NOT STARTED |
+
+Architecture reference: `docs/A2_ARCHITECTURE.md`
+
+### A2 PostgreSQL Compose Path
+
+The default production stack does **not** include A2 PostgreSQL services.
+
+```
+# Default production stack (no PostgreSQL)
+docker compose up -d
+
+# A2 stack (includes PostgreSQL)
+docker compose -f docker-compose.yml -f docker-compose.a2.yml up -d
+```
+
+---
+
 ## Stable Checkpoints
 
 * react-wsd-stable

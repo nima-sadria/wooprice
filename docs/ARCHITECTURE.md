@@ -290,6 +290,49 @@ Permissions are carried in the JWT and verified at `/api/auth/me`. Frontend chec
 
 ---
 
+## A2 Track
+
+The A2 track introduces a structured multi-phase data platform extension to WooPrice.
+Full specification: `docs/A2_ARCHITECTURE.md`.
+
+### A2 Governance Status
+
+| Area | Status |
+|---|---|
+| Governance | PASS |
+| A2 Architecture | APPROVED |
+| A2.1 — Canonical Product Model + PostgreSQL Foundation | COMPLETE |
+| A2.2 — Source Adapter Framework | NOT STARTED |
+
+### A2 Phase Sequence
+
+| Phase | Name |
+|---|---|
+| A2.1 | Canonical Product Model + PostgreSQL Foundation |
+| A2.2 | Source Adapter Framework |
+| A2.3 | Transformation Rule Engine |
+| A2.4 | Safety Policy Engine |
+| A2.5 | Change Set Engine |
+| A2.6 | Dry Run Engine |
+| A2.7 | Execution Engine |
+| A2.8 | Scheduling Engine |
+| A2.9 | AI Foundation |
+
+### A2 PostgreSQL Compose Path
+
+A2 PostgreSQL services are isolated in an override file. The default production stack
+does **not** include PostgreSQL.
+
+```
+# Default production stack (no PostgreSQL)
+docker compose up -d
+
+# A2 stack (includes PostgreSQL)
+docker compose -f docker-compose.yml -f docker-compose.a2.yml up -d
+```
+
+---
+
 ## Backend API Surface (WS-C Relevant)
 
 | Method | Path | Permission | Description |

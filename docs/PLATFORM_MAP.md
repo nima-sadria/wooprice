@@ -138,7 +138,10 @@ WooPrice
     ├── Port: 8000 (internal)
     ├── Nginx Proxy Manager  — TLS termination, reverse proxy
     ├── Production URL: woo.softpple.business
-    └── Database: /app/data/wooprice.db (volume-mounted)
+    ├── Database: /app/data/wooprice.db (volume-mounted)
+    └── A2 PostgreSQL  — NOT included in default stack; requires override file
+        ├── Default stack:  docker compose up -d
+        └── A2 stack:       docker compose -f docker-compose.yml -f docker-compose.a2.yml up -d
 ```
 
 ---
@@ -448,6 +451,48 @@ Known gaps  (as of 7.5A + Audit Remediation 2026-06-23)
 └── Saved Views
     └── No persistent filter presets in Product Browser
         → Planned: 7.9A
+```
+
+---
+
+## H. A2 Track
+
+Architecture reference: `docs/A2_ARCHITECTURE.md`
+
+### H1. A2 Governance
+
+| Area | Status |
+|---|---|
+| Governance | PASS |
+| A2 Architecture | APPROVED |
+| A2.1 — Canonical Product Model + PostgreSQL Foundation | COMPLETE |
+| A2.2 — Source Adapter Framework | NOT STARTED |
+
+### H2. A2 Phase Sequence
+
+| Phase | Name | Status |
+|---|---|---|
+| A2.1 | Canonical Product Model + PostgreSQL Foundation | COMPLETE |
+| A2.2 | Source Adapter Framework | NOT STARTED |
+| A2.3 | Transformation Rule Engine | NOT STARTED |
+| A2.4 | Safety Policy Engine | NOT STARTED |
+| A2.5 | Change Set Engine | NOT STARTED |
+| A2.6 | Dry Run Engine | NOT STARTED |
+| A2.7 | Execution Engine | NOT STARTED |
+| A2.8 | Scheduling Engine | NOT STARTED |
+| A2.9 | AI Foundation | NOT STARTED |
+
+### H3. A2 PostgreSQL Compose Path
+
+The default production stack (`docker compose up -d`) does **not** include A2 PostgreSQL
+services. PostgreSQL is introduced via an override file:
+
+```
+# Default production stack (no PostgreSQL)
+docker compose up -d
+
+# A2 stack (includes PostgreSQL)
+docker compose -f docker-compose.yml -f docker-compose.a2.yml up -d
 ```
 
 ---
