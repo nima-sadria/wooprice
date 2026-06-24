@@ -7,7 +7,7 @@
 | Governance | PASS |
 | A2 Architecture | APPROVED |
 | A2.1 — Canonical Product Model + PostgreSQL Foundation | COMPLETE |
-| A2.2 — Source Adapter Framework | COMPLETE |
+| A2.2 — Source Adapter Framework | IN PROGRESS |
 
 ---
 
@@ -16,7 +16,7 @@
 | Phase | Name | Status |
 |---|---|---|
 | A2.1 | Canonical Product Model + PostgreSQL Foundation | COMPLETE |
-| A2.2 | Source Adapter Framework | COMPLETE |
+| A2.2 | Source Adapter Framework | IN PROGRESS |
 | A2.3 | Transformation Rule Engine | NOT STARTED |
 | A2.4 | Safety Policy Engine | NOT STARTED |
 | A2.5 | Change Set Engine | NOT STARTED |
@@ -41,7 +41,7 @@ Deliverables:
 - Migration tooling and seed scripts
 - Verification that the default stack (`docker compose up -d`) remains unaffected
 
-### A2.2 — Source Adapter Framework (COMPLETE)
+### A2.2 — Source Adapter Framework (IN PROGRESS)
 
 Defines the adapter interface for ingesting product data from heterogeneous sources
 (WooCommerce REST API, spreadsheet, direct DB) into the canonical product model.

@@ -2,6 +2,7 @@
 Database tests — A2.2 migration and repository persistence.
 
 All tests use an in-memory SQLite database; no PostgreSQL required.
+Real Alembic upgrade/downgrade tests use a file-based SQLite (tmp_path fixture).
 """
 import os
 os.environ.setdefault("A2_DATABASE_URL", "sqlite:///:memory:")
@@ -15,6 +16,7 @@ os.environ.setdefault("WC_KEY", "x")
 os.environ.setdefault("WC_SECRET", "x")
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from alembic import command
@@ -24,6 +26,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.a2.database import A2Base
+import app.a2.models.canonical_product  # noqa: F401 — registers with A2Base
 from app.a2.models.checkpoint import SourceCheckpointRecord  # noqa: F401
 from app.a2.models.provenance import SourceRowProvenanceRecord  # noqa: F401
 from app.a2.models.snapshot import SourceSnapshotRecord  # noqa: F401
@@ -88,51 +91,97 @@ def seeded_source(source_repo, db):
     return record
 
 
-# ── Migration tests ────────────────────────────────────────────────────────────
+# ── Alembic real migration tests (HIGH 2) ─────────────────────────────────────
 
-def test_migration_upgrade_creates_all_tables():
-    """Alembic upgrade head must create all four A2.2 tables."""
+def test_alembic_upgrade_creates_all_expected_tables(tmp_path):
+    """
+    Real Alembic `upgrade head` must create all tables from both a2_000 and a2_001.
+    This tests the actual migration path, not just SQLAlchemy metadata.
+    """
+    db_url = "sqlite:///" + str(tmp_path / "a2_upgrade_test.db").replace("\\", "/")
+    with patch.dict(os.environ, {"A2_DATABASE_URL": db_url}):
+        cfg = Config("alembic_a2.ini")
+        cfg.set_main_option("sqlalchemy.url", db_url)
+        command.upgrade(cfg, "head")
+
+    eng = create_engine(db_url)
+    tables = set(inspect(eng).get_table_names())
+    eng.dispose()
+
+    # a2_000: canonical product foundation
+    assert "canonical_products" in tables
+    assert "channel_listings" in tables
+    assert "channel_credentials" in tables
+    # a2_001: source adapter framework
+    assert "source_definitions" in tables
+    assert "source_snapshots" in tables
+    assert "source_row_provenance" in tables
+    assert "source_checkpoints" in tables
+
+
+def test_alembic_downgrade_removes_all_tables(tmp_path):
+    """
+    Real Alembic `downgrade base` must remove all A2 tables after `upgrade head`.
+    """
+    db_url = "sqlite:///" + str(tmp_path / "a2_downgrade_test.db").replace("\\", "/")
+    with patch.dict(os.environ, {"A2_DATABASE_URL": db_url}):
+        cfg = Config("alembic_a2.ini")
+        cfg.set_main_option("sqlalchemy.url", db_url)
+        command.upgrade(cfg, "head")
+        command.downgrade(cfg, "base")
+
+    eng = create_engine(db_url)
+    tables = set(inspect(eng).get_table_names())
+    eng.dispose()
+
+    assert "canonical_products" not in tables
+    assert "source_definitions" not in tables
+    assert "source_snapshots" not in tables
+    assert "source_row_provenance" not in tables
+    assert "source_checkpoints" not in tables
+
+
+def test_alembic_migration_lineage_is_chained(tmp_path):
+    """
+    a2_001 must depend on a2_000 (not be a root revision).
+    Upgrading to a2_000 only must not create source_definitions.
+    """
+    db_url = "sqlite:///" + str(tmp_path / "a2_lineage_test.db").replace("\\", "/")
+    with patch.dict(os.environ, {"A2_DATABASE_URL": db_url}):
+        cfg = Config("alembic_a2.ini")
+        cfg.set_main_option("sqlalchemy.url", db_url)
+        command.upgrade(cfg, "a2_000")
+
+    eng = create_engine(db_url)
+    tables = set(inspect(eng).get_table_names())
+    eng.dispose()
+
+    assert "canonical_products" in tables
+    assert "source_definitions" not in tables  # belongs to a2_001, not yet applied
+
+
+# ── SQLAlchemy metadata smoke tests ──────────────────────────────────────────
+
+def test_metadata_create_all_creates_tables():
+    """A2Base.metadata.create_all must create all registered tables."""
     eng = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    cfg = Config("alembic_a2.ini")
-    cfg.set_main_option("sqlalchemy.url", "sqlite:///:memory:")
-    # Supply a fresh connection so Alembic uses our in-memory engine.
-    with eng.begin() as conn:
-        cfg.attributes["connection"] = conn
-        cfg.set_main_option("script_location", "alembic_a2")
-        # Run upgrade programmatically via env.py online path.
-        with eng.connect() as connection:
-            from alembic.runtime.migration import MigrationContext
-            from alembic.script import ScriptDirectory
-            script = ScriptDirectory.from_config(cfg)
-            mc = MigrationContext.configure(
-                connection,
-                opts={"target_metadata": A2Base.metadata, "render_as_batch": True},
-            )
-            # Apply all revisions manually using SQLAlchemy metadata as a proxy.
-            pass  # The create_all call below validates table existence.
-
-    # Use metadata.create_all as canonical upgrade test (Alembic env tested separately).
-    eng2 = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    A2Base.metadata.create_all(eng2)
-    inspector = inspect(eng2)
+    A2Base.metadata.create_all(eng)
+    inspector = inspect(eng)
     tables = set(inspector.get_table_names())
     assert "source_definitions" in tables
     assert "source_snapshots" in tables
     assert "source_row_provenance" in tables
     assert "source_checkpoints" in tables
-    eng2.dispose()
+    assert "canonical_products" in tables
+    eng.dispose()
 
 
-def test_migration_downgrade_removes_all_tables():
-    """drop_all (downgrade equivalent) must remove all A2.2 tables."""
+def test_metadata_drop_all_removes_tables():
+    """drop_all must remove all A2 tables."""
     eng = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -149,8 +198,8 @@ def test_migration_downgrade_removes_all_tables():
     eng.dispose()
 
 
-def test_migration_table_columns():
-    """source_definitions table must have the required columns."""
+def test_source_definitions_has_expected_columns():
+    """source_definitions table must use non_secret_config_json (not config_json)."""
     eng = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -159,8 +208,9 @@ def test_migration_table_columns():
     A2Base.metadata.create_all(eng)
     inspector = inspect(eng)
     cols = {c["name"] for c in inspector.get_columns("source_definitions")}
-    assert {"source_id", "source_type", "display_name", "config_json",
+    assert {"source_id", "source_type", "display_name", "non_secret_config_json",
             "is_active", "created_at", "updated_at"} <= cols
+    assert "config_json" not in cols  # old name must not exist
     eng.dispose()
 
 
@@ -171,7 +221,7 @@ def test_source_create_and_get(source_repo, db):
         source_id="src-001",
         source_type="nextcloud_xlsx",
         display_name="My Source",
-        config_json='{"url": "http://nc.example"}',
+        non_secret_config_json='{"url": "http://nc.example"}',
     )
     db.commit()
     fetched = source_repo.get("src-001")
@@ -222,7 +272,7 @@ def test_snapshot_save_and_get(snapshot_repo, seeded_source, db):
         row_count=5,
         source_fingerprint="fp-xyz",
     )
-    record = snapshot_repo.save_snapshot(snap)
+    snapshot_repo.save_snapshot(snap)
     db.commit()
     fetched = snapshot_repo.get_snapshot("snap-001")
     assert fetched is not None

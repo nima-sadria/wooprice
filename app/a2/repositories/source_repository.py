@@ -26,14 +26,14 @@ class SourceRepository:
         source_id: str,
         source_type: str,
         display_name: str,
-        config_json: str = "{}",
+        non_secret_config_json: str = "{}",
     ) -> SourceDefinition:
         now = datetime.now(tz=timezone.utc)
         record = SourceDefinition(
             source_id=source_id,
             source_type=source_type,
             display_name=display_name,
-            config_json=config_json,
+            non_secret_config_json=non_secret_config_json,
             is_active=True,
             created_at=now,
             updated_at=now,

@@ -14,7 +14,7 @@ if config.config_file_name is not None:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.a2.database import A2Base  # noqa: E402
-from app.a2.models import source, snapshot, provenance, checkpoint  # noqa: F401,E402
+from app.a2.models import canonical_product, source, snapshot, provenance, checkpoint  # noqa: F401,E402
 
 target_metadata = A2Base.metadata
 

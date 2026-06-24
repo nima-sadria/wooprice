@@ -15,12 +15,14 @@ os.environ.setdefault("WC_KEY", "x")
 os.environ.setdefault("WC_SECRET", "x")
 
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.a2.sources.adapters.nextcloud import NextcloudSourceAdapter
-from tests.a2.helpers import _make_xlsx
+from app.a2.sources.checkpoint import SourceCheckpoint
+from tests.a2.helpers import _make_xlsx, _make_xlsx_multisheet, _make_xlsx_with_late_duplicate
 
 
 def _adapter(**kwargs):
@@ -43,10 +45,15 @@ def _mock_response(xlsx_bytes: bytes, etag: str = '"etag-abc"'):
     return resp
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _run(coro):
     return asyncio.run(coro)
+
+
+async def _collect_stream(adapter):
+    rows = []
+    async for row in adapter.stream_rows():
+        rows.append(row)
+    return rows
 
 
 # ── connect() ─────────────────────────────────────────────────────────────────
@@ -158,21 +165,26 @@ def test_snapshot_ids_are_unique():
     assert s1.snapshot_id != s2.snapshot_id
 
 
-# ── stream_rows (via _stream_rows_impl) ───────────────────────────────────────
+def test_fetch_snapshot_stores_snapshot_internally():
+    """fetch_snapshot() must bind the snapshot so stream_rows() can use it."""
+    xlsx = _make_xlsx([("A", 1, "100")])
+    adapter = _adapter()
+    adapter._xlsx_bytes = xlsx
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    assert adapter._current_snapshot is None
+    snap = _run(adapter.fetch_snapshot())
+    assert adapter._current_snapshot is snap
 
-async def _collect_rows(adapter, snapshot_id):
-    rows = []
-    async for row in adapter._stream_rows_impl(snapshot_id):
-        rows.append(row)
-    return rows
 
+# ── stream_rows() — public contract ───────────────────────────────────────────
 
 def test_stream_rows_yields_correct_count():
     xlsx = _make_xlsx([("A", 10, "100"), ("B", 20, "200"), ("C", 30, "300")])
     adapter = _adapter()
     adapter._xlsx_bytes = xlsx
-    adapter._meta = {}
-    rows = asyncio.run(_collect_rows(adapter, "snap-001"))
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    _run(adapter.fetch_snapshot())
+    rows = asyncio.run(_collect_stream(adapter))
     assert len(rows) == 3
 
 
@@ -180,8 +192,9 @@ def test_stream_rows_stable_row_ref():
     xlsx = _make_xlsx([("A", 42, "100")])
     adapter = _adapter()
     adapter._xlsx_bytes = xlsx
-    adapter._meta = {}
-    rows = asyncio.run(_collect_rows(adapter, "snap-001"))
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    _run(adapter.fetch_snapshot())
+    rows = asyncio.run(_collect_stream(adapter))
     assert rows[0].row_ref == "42"
 
 
@@ -189,52 +202,163 @@ def test_stream_rows_provenance_attached():
     xlsx = _make_xlsx([("A", 42, "100")])
     adapter = _adapter()
     adapter._xlsx_bytes = xlsx
-    adapter._meta = {}
-    rows = asyncio.run(_collect_rows(adapter, "snap-XYZ"))
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    snapshot = _run(adapter.fetch_snapshot())
+    rows = asyncio.run(_collect_stream(adapter))
     row = rows[0]
     assert row.provenance.source_id == "test-src"
     assert row.provenance.source_row_ref == "42"
-    assert row.provenance.source_snapshot_id == "snap-XYZ"
+    assert row.provenance.source_snapshot_id == snapshot.snapshot_id
     assert len(row.provenance.source_row_hash) == 64
+
+
+def test_stream_rows_provenance_bound_to_adapter_snapshot():
+    """Row provenance must reference the adapter-generated snapshot_id, not an injected one."""
+    xlsx = _make_xlsx([("A", 1, "100"), ("B", 2, "200")])
+    adapter = _adapter()
+    adapter._xlsx_bytes = xlsx
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    snapshot = _run(adapter.fetch_snapshot())
+    rows = asyncio.run(_collect_stream(adapter))
+    for row in rows:
+        assert row.provenance.source_snapshot_id == snapshot.snapshot_id
 
 
 def test_stream_rows_hash_stable():
     xlsx = _make_xlsx([("A", 42, "100")])
     adapter = _adapter()
     adapter._xlsx_bytes = xlsx
-    adapter._meta = {}
-    r1 = asyncio.run(_collect_rows(adapter, "snap-001"))
-    r2 = asyncio.run(_collect_rows(adapter, "snap-001"))
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    _run(adapter.fetch_snapshot())
+    r1 = asyncio.run(_collect_stream(adapter))
+    # Calling stream_rows again on the same snapshot yields same hashes
+    r2 = asyncio.run(_collect_stream(adapter))
     assert r1[0].row_hash == r2[0].row_hash
 
 
 def test_stream_rows_raises_before_connect():
     adapter = _adapter()
-
-    async def _try():
-        rows = []
-        async for row in adapter._stream_rows_impl("snap-001"):
-            rows.append(row)
-        return rows
-
     with pytest.raises(RuntimeError, match="connect()"):
-        asyncio.run(_try())
+        asyncio.run(_collect_stream(adapter))
+
+
+def test_stream_rows_raises_before_fetch_snapshot():
+    """stream_rows() must fail if fetch_snapshot() was never called."""
+    xlsx = _make_xlsx([("A", 1, "100")])
+    adapter = _adapter()
+    adapter._xlsx_bytes = xlsx
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    # connect() done (simulated), but fetch_snapshot() not called
+    with pytest.raises(RuntimeError, match="fetch_snapshot()"):
+        asyncio.run(_collect_stream(adapter))
 
 
 def test_stream_rows_raises_on_duplicate_ids():
+    """A source with duplicate IDs must raise before streaming begins."""
     xlsx = _make_xlsx([("A", 7, "100"), ("B", 7, "200")])
     adapter = _adapter()
     adapter._xlsx_bytes = xlsx
     adapter._meta = {}
+    with pytest.raises(ValueError, match="validation error"):
+        _run(adapter.fetch_snapshot())
 
-    async def _try():
-        rows = []
-        async for row in adapter._stream_rows_impl("snap-001"):
-            rows.append(row)
-        return rows
 
-    with pytest.raises(ValueError, match="invalid source"):
-        asyncio.run(_try())
+# ── HIGH 4: no silent row cap ─────────────────────────────────────────────────
+
+def test_duplicate_detected_at_high_row_number():
+    """
+    A duplicate product ID at a high row number must NOT be silently skipped.
+    Previously a _MAX_ROW cap silently ignored rows above position ~1000.
+    """
+    xlsx = _make_xlsx_with_late_duplicate(early_pid=42, late_row=1050)
+    adapter = _adapter()
+    adapter._xlsx_bytes = xlsx
+    adapter._meta = {}
+    result = _run(adapter.validate_source())
+    assert result.is_valid is False
+    assert any("42" in e for e in result.errors)
+
+
+def test_all_rows_returned_when_no_duplicates():
+    """With 1000+ valid rows (no duplicates), all should be returned."""
+    rows = [(f"Prod {i}", i, f"{i * 100}") for i in range(1, 1001)]
+    xlsx = _make_xlsx(rows)
+    adapter = _adapter()
+    adapter._xlsx_bytes = xlsx
+    adapter._meta = {"etag": '"e"', "last_modified": ""}
+    _run(adapter.fetch_snapshot())
+    streamed = asyncio.run(_collect_stream(adapter))
+    assert len(streamed) == 1000
+
+
+# ── MEDIUM 1: schema_hash covers all worksheets ───────────────────────────────
+
+def test_schema_hash_differs_when_second_sheet_header_changes():
+    """
+    Changing a column header on a non-first worksheet must change schema_hash.
+    Previously only the first sheet header was hashed.
+    """
+    # Two sheets with identical headers
+    sheets_v1 = [
+        [("A", 1, "100")],
+        [("B", 2, "200")],
+    ]
+    # Second sheet gets a different header (we'll manipulate via openpyxl directly)
+    import io
+    from openpyxl import Workbook
+
+    def _build(sheet2_header: str) -> bytes:
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.cell(row=1, column=1).value = "Label"
+        ws1.cell(row=1, column=2).value = "Product ID"
+        ws1.cell(row=1, column=3).value = "Price"
+        ws1.cell(row=3, column=1).value = "A"
+        ws1.cell(row=3, column=2).value = 1
+        ws1.cell(row=3, column=3).value = "100"
+
+        ws2 = wb.create_sheet()
+        ws2.cell(row=1, column=1).value = "Label"
+        ws2.cell(row=1, column=2).value = sheet2_header  # vary this
+        ws2.cell(row=1, column=3).value = "Price"
+        ws2.cell(row=3, column=1).value = "B"
+        ws2.cell(row=3, column=2).value = 2
+        ws2.cell(row=3, column=3).value = "200"
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    xlsx_v1 = _build("Product ID")
+    xlsx_v2 = _build("CHANGED_HEADER")
+
+    adapter = _adapter()
+    adapter._xlsx_bytes = xlsx_v1
+    adapter._meta = {"etag": '"e1"', "last_modified": ""}
+    snap1 = _run(adapter.fetch_snapshot())
+
+    adapter2 = _adapter()
+    adapter2._xlsx_bytes = xlsx_v2
+    adapter2._meta = {"etag": '"e2"', "last_modified": ""}
+    snap2 = _run(adapter2.fetch_snapshot())
+
+    assert snap1.schema_hash != snap2.schema_hash
+
+
+def test_schema_hash_stable_across_same_content():
+    """Same XLSX content must produce the same schema_hash."""
+    xlsx = _make_xlsx([("A", 1, "100")])
+    adapter1 = _adapter()
+    adapter1._xlsx_bytes = xlsx
+    adapter1._meta = {"etag": '"e"', "last_modified": ""}
+    snap1 = _run(adapter1.fetch_snapshot())
+
+    adapter2 = _adapter()
+    adapter2._xlsx_bytes = xlsx
+    adapter2._meta = {"etag": '"e"', "last_modified": ""}
+    snap2 = _run(adapter2.fetch_snapshot())
+
+    assert snap1.schema_hash == snap2.schema_hash
 
 
 # ── get_capabilities() ────────────────────────────────────────────────────────
@@ -242,7 +366,7 @@ def test_stream_rows_raises_on_duplicate_ids():
 def test_capabilities():
     adapter = _adapter()
     caps = adapter.get_capabilities()
-    assert caps.supports_streaming is True
+    assert caps.supports_streaming is False   # XLSX reads full workbook into memory
     assert caps.supports_snapshots is True
     assert caps.supports_checkpointing is True
     assert caps.supports_incremental_sync is False
@@ -271,19 +395,88 @@ def test_get_checkpoint_returns_none_when_no_etag():
     assert cp is None
 
 
-# ── advance_checkpoint() ──────────────────────────────────────────────────────
+# ── HIGH 1: advance_checkpoint() persists via CheckpointRepository ────────────
 
-def test_advance_checkpoint_accepted():
-    from datetime import datetime, timezone
-    from app.a2.sources.checkpoint import SourceCheckpoint
+def test_advance_checkpoint_persists_to_db():
+    """advance_checkpoint(cp, db=session) must durably persist via CheckpointRepository."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.a2.database import A2Base
+    from app.a2.repositories.checkpoint_repository import CheckpointRepository
+    from app.a2.repositories.source_repository import SourceRepository
+    import app.a2.models.canonical_product  # noqa: F401
+    import app.a2.models.source  # noqa: F401
+    import app.a2.models.snapshot  # noqa: F401
+    import app.a2.models.provenance  # noqa: F401
+    import app.a2.models.checkpoint  # noqa: F401
+
+    eng = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    A2Base.metadata.create_all(eng)
+    Session = sessionmaker(bind=eng)
+    db = Session()
+
+    src_repo = SourceRepository(db)
+    src_repo.create(
+        source_id="test-src",
+        source_type="nextcloud_xlsx",
+        display_name="Test Source",
+    )
+    db.commit()
+
     adapter = _adapter()
     cp = SourceCheckpoint(
         source_id="test-src",
-        checkpoint_value='"new-etag"',
+        checkpoint_value='"etag-persist"',
         checkpointed_at=datetime.now(tz=timezone.utc),
         checkpoint_type="etag",
     )
-    _run(adapter.advance_checkpoint(cp))
+    _run(adapter.advance_checkpoint(cp, db=db))
+
+    cp_repo = CheckpointRepository(db)
+    saved = cp_repo.get("test-src")
+    assert saved is not None
+    assert saved.checkpoint_value == '"etag-persist"'
+    assert saved.checkpoint_type == "etag"
+
+    db.close()
+    eng.dispose()
+
+
+def test_advance_checkpoint_without_db_does_not_raise():
+    """advance_checkpoint(cp, db=None) must log a warning but not raise."""
+    adapter = _adapter()
+    cp = SourceCheckpoint(
+        source_id="test-src",
+        checkpoint_value='"etag-nodb"',
+        checkpointed_at=datetime.now(tz=timezone.utc),
+        checkpoint_type="etag",
+    )
+    _run(adapter.advance_checkpoint(cp, db=None))  # must not raise
+
+
+def test_advance_checkpoint_rollback_on_error():
+    """advance_checkpoint must not silently swallow DB errors."""
+    from unittest.mock import MagicMock
+    from sqlalchemy.exc import SQLAlchemyError
+
+    adapter = _adapter()
+    cp = SourceCheckpoint(
+        source_id="test-src",
+        checkpoint_value='"etag-err"',
+        checkpointed_at=datetime.now(tz=timezone.utc),
+        checkpoint_type="etag",
+    )
+    mock_db = MagicMock()
+    mock_db.get.side_effect = SQLAlchemyError("db error")
+
+    with pytest.raises(SQLAlchemyError):
+        _run(adapter.advance_checkpoint(cp, db=mock_db))
 
 
 # ── SOURCE_TYPE constant ──────────────────────────────────────────────────────
