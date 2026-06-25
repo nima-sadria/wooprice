@@ -6,8 +6,9 @@
 |---|---|
 | Governance | PASS |
 | A2 Architecture | APPROVED |
-| A2.1 — Canonical Product Model + PostgreSQL Foundation | COMPLETE |
-| A2.2 — Source Adapter Framework | COMPLETE |
+| A2.1 — Canonical Product Model + PostgreSQL Foundation | CLOSED |
+| A2.2 — Source Adapter Framework | CLOSED |
+| A2.3 — Transformation Rule Engine | READY FOR OWNER REVIEW |
 
 ---
 
@@ -15,9 +16,9 @@
 
 | Phase | Name | Status |
 |---|---|---|
-| A2.1 | Canonical Product Model + PostgreSQL Foundation | COMPLETE |
-| A2.2 | Source Adapter Framework | COMPLETE |
-| A2.3 | Transformation Rule Engine | NOT STARTED |
+| A2.1 | Canonical Product Model + PostgreSQL Foundation | CLOSED |
+| A2.2 | Source Adapter Framework | CLOSED |
+| A2.3 | Transformation Rule Engine | READY FOR OWNER REVIEW |
 | A2.4 | Safety Policy Engine | NOT STARTED |
 | A2.5 | Change Set Engine | NOT STARTED |
 | A2.6 | Dry Run Engine | NOT STARTED |
@@ -29,7 +30,7 @@
 
 ## A2 Phase Descriptions
 
-### A2.1 — Canonical Product Model + PostgreSQL Foundation (COMPLETE)
+### A2.1 — Canonical Product Model + PostgreSQL Foundation (CLOSED)
 
 Establishes the normalized product schema in PostgreSQL and the migration tooling required
 by all subsequent A2 phases. This is the foundational layer on which A2.2 through A2.9 are
@@ -41,15 +42,31 @@ Deliverables:
 - Migration tooling and seed scripts
 - Verification that the default stack (`docker compose up -d`) remains unaffected
 
-### A2.2 — Source Adapter Framework (COMPLETE)
+### A2.2 — Source Adapter Framework (CLOSED)
 
 Defines the adapter interface for ingesting product data from heterogeneous sources
 (WooCommerce REST API, spreadsheet, direct DB) into the canonical product model.
 
-### A2.3 — Transformation Rule Engine (NOT STARTED)
+### A2.3 — Transformation Rule Engine (READY FOR OWNER REVIEW)
 
-Implements the rule pipeline that transforms raw source data into normalized canonical
-records, applying field mappings, type coercions, and enrichment logic.
+Implements the deterministic, reproducible price proposal pipeline. The Rule Engine
+accepts published RuleVersions and source inputs (cost + currency), evaluates the
+Cost + Profit formula, and persists a PriceProposal with full ProposalProvenance and
+ExecutionTrace. Identical inputs always produce the same computation_digest (determinism
+guarantee). Every proposal is fully re-derivable from stored provenance (reproducibility
+guarantee). Rule versions are immutable once published; parameter changes create new
+versions. Competitor price is future-ready as an input only — autonomous collection
+is explicitly out of scope until Owner approves a dedicated source adapter.
+
+Deliverables:
+- `app/a2/engines/formula.py` — CostPlusProfitFormula (Decimal arithmetic, 3-mode rounding)
+- `app/a2/engines/rule_engine.py` — RuleEngine with determinism cache and full provenance
+- `app/a2/models/rule.py` — RuleDefinition, RuleVersion (immutable once published)
+- `app/a2/models/proposal.py` — PriceProposal, ProposalProvenance, ExecutionTraceEntry
+- `app/a2/repositories/rule_repository.py` — CRUD + publish enforcement + priority ordering
+- `app/a2/repositories/proposal_repository.py` — digest lookup + snapshot listing
+- `alembic_a2/versions/a2_002_transformation_rule_engine.py` — 5 new A2 tables
+- `tests/a2/test_a2_rule_engine.py` — 62 tests (formula, repo, engine, determinism, migration)
 
 ### A2.4 — Safety Policy Engine (NOT STARTED)
 
