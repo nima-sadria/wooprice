@@ -108,7 +108,7 @@ feature stream (7.x/8.x) and has its own governance gate.
 |---|---|---|
 | A2.1 | Canonical Product Model + PostgreSQL Foundation | CLOSED |
 | A2.2 | Source Adapter Framework | CLOSED |
-| A2.3 | Transformation Rule Engine | READY FOR OWNER REVIEW |
+| A2.3 | Transformation Rule Engine | CLOSED |
 | A2.4 | Safety Policy Engine | NOT STARTED |
 | A2.5 | Change Set Engine | NOT STARTED |
 | A2.6 | Dry Run Engine | NOT STARTED |
