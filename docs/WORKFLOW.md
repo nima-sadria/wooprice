@@ -2,6 +2,8 @@
 
 This document defines the mandatory process for all development, audit, and release work on the WooPrice frontend migration. It applies to human developers and AI agents alike.
 
+The complete 9-step governance workflow (including CHAT2 specification, Independent Review, Phase Completion Report, CHAT2 Architecture/Governance review, and Owner approval) is defined in `.claude/WORKFLOW.md`. That document takes precedence for all WooPrice phases.
+
 ---
 
 ## Project Lifecycle
@@ -9,7 +11,7 @@ This document defines the mandatory process for all development, audit, and rele
 Every feature phase follows this sequence without exception:
 
 ```text
-Developer / AI Agent
+Claude (Developer)
         │
         ▼
   Implementation
@@ -21,26 +23,30 @@ Developer / AI Agent
         │
         ▼
   Backend tests
-  pytest         →  MUST PASS (47 tests)
+  pytest         →  MUST PASS (all tests)
         │
         ▼
-  Formal Audit
-  (independent review — see Audit Requirements)
+  Independent Review
+  (Claude reviews own implementation — see .claude/WORKFLOW.md Step 3)
         │
         ▼
-  Audit result: BLOCKERS / HIGH / MEDIUM / LOW
+  Review result: BLOCKERS / HIGH / MEDIUM / LOW
         │
         ├─ Any BLOCKER or HIGH found?
         │       │
         │       ├─ YES → Stop. No merge. No deploy. No next phase.
         │       │         Produce remediation plan.
         │       │         Fix only the flagged items.
-        │       │         Re-audit after fix.
+        │       │         Re-run build and tests after fix.
         │       │
-        │       └─ NO  → Proceed to approval
+        │       └─ NO  → Phase Completion Report → CHAT2 Review → Owner Approval
         │
         ▼
-  Approval
+  CHAT2 Architecture and Governance Review
+  (CHAT2 returns APPROVE / REVISE / HOLD — see .claude/WORKFLOW.md Step 6)
+        │
+        ▼
+  Owner Approval
   (explicit: "approved", "proceed", or "safe to proceed: YES")
         │
         ▼
@@ -51,13 +57,14 @@ Developer / AI Agent
   Next Phase begins
 ```
 
-No phase is considered complete until all five gates pass:
+No phase is considered complete until all six gates pass:
 
 1. `npm run build` — PASS
-2. `pytest` — PASS (all 47 tests)
-3. Audit report delivered
+2. `pytest` — PASS (all tests)
+3. Independent Review complete (Step 3 of `.claude/WORKFLOW.md`)
 4. No BLOCKER or HIGH findings
-5. Stabilization commit created
+5. CHAT2 review: APPROVE
+6. Stabilization commit created
 
 ---
 
@@ -96,7 +103,9 @@ These components touch WooCommerce write operations, scope isolation, or financi
 
 ## Audit Requirements
 
-Every formal audit must be independent (performed after implementation is complete, not during). The audit must cover all items in the phase scope, not just changed files.
+Every formal review must be independent (performed after implementation is complete, not during). The review must cover all items in the phase scope, not just changed files.
+
+The mandatory reviewer is CHAT2 (Step 6 of `.claude/WORKFLOW.md`). Codex may optionally be engaged by Owner decision as an additional external auditor on high-risk phases; it is not a required step.
 
 ### Required Report Format
 
