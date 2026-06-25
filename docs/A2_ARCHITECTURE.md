@@ -19,7 +19,7 @@
 | A2.1 | Canonical Product Model + PostgreSQL Foundation | CLOSED |
 | A2.2 | Source Adapter Framework | CLOSED |
 | A2.3 | Transformation Rule Engine | CLOSED |
-| A2.4 | Safety Policy Engine | NOT STARTED |
+| A2.4 | Safety Policy Engine | READY FOR OWNER REVIEW |
 | A2.5 | Change Set Engine | NOT STARTED |
 | A2.6 | Dry Run Engine | NOT STARTED |
 | A2.7 | Execution Engine | NOT STARTED |
@@ -68,7 +68,7 @@ Deliverables:
 - `alembic_a2/versions/a2_002_transformation_rule_engine.py` — 5 new A2 tables
 - `tests/a2/test_a2_rule_engine.py` — 62 tests (formula, repo, engine, determinism, migration)
 
-### A2.4 — Safety Policy Engine (NOT STARTED)
+### A2.4 — Safety Policy Engine (READY FOR OWNER REVIEW)
 
 Enforces business safety policies at the canonical model level: price change thresholds,
 stock floor rules, alarm conditions, and operator-configurable block conditions.

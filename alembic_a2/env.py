@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.a2.database import A2Base  # noqa: E402
 from app.a2.models import canonical_product, source, snapshot, provenance, checkpoint  # noqa: F401,E402
 from app.a2.models import rule, proposal  # noqa: F401,E402  — A2.3 models
+from app.a2.models import safety  # noqa: F401,E402  — A2.4 models
 
 target_metadata = A2Base.metadata
 
