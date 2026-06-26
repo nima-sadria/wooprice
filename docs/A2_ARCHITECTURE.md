@@ -21,7 +21,7 @@
 | A2.3 | Transformation Rule Engine | CLOSED |
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
 | A2.5 | Change Set Engine | CLOSED |
-| A2.6 | Dry Run Engine | NOT STARTED |
+| A2.6 | Dry Run Engine | READY FOR OWNER REVIEW |
 | A2.7 | Execution Engine | NOT STARTED |
 | A2.8 | Scheduling Engine | NOT STARTED |
 | A2.9 | AI Foundation | NOT STARTED |
@@ -100,10 +100,23 @@ Deliverables:
 - `alembic_a2/versions/a2_004_change_set_engine.py` — 3 a2_-prefixed tables (a2_change_sets, a2_change_set_revisions, a2_change_set_items); Numeric(14,4) for prices
 - `tests/a2/test_a2_change_set.py` — 71 tests (digest determinism, revision immutability, state machine, repository CRUD, migration lineage, isolation)
 
-### A2.6 — Dry Run Engine (NOT STARTED)
+### A2.6 — Dry Run Engine (READY FOR OWNER REVIEW)
 
-Validates a change set against safety policies and returns a structured dry-run result
-(passed / warnings / blocked) without writing to any external system.
+Validates a Change Set against safety policies and returns a structured dry-run result
+(PASS / WARN / BLOCK) without writing to any external system.
+
+The Dry Run Engine is completely read-only with respect to destination systems. It consumes
+an immutable Change Set, verifies the Change Set digest, validates each item for completeness
+and consistency, and produces an advisory DryRunReport. Seller confirmation is bound to the
+exact Change Set digest; any change to proposals, safety results, rule versions, destination
+channel, scope, or source snapshot invalidates the confirmation.
+
+Deliverables:
+- `app/a2/models/dry_run.py` — DryRun, DryRunResult, SellerConfirmation ORM models
+- `app/a2/repositories/dry_run_repository.py` — DryRunRepository: CRUD, confirmation management
+- `app/a2/services/dry_run_service.py` — DryRunService: execute/generate_report/confirm/invalidate; DryRunItemInput + DryRunReport dataclasses
+- `alembic_a2/versions/a2_005_dry_run_engine.py` — migration a2_005 (3 a2_-prefixed tables; down_revision=a2_004)
+- `tests/a2/test_a2_dry_run.py` — 73 tests (digest verification, item validation, confirmation invalidation scenarios, migration lineage, isolation)
 
 ### A2.7 — Execution Engine (NOT STARTED)
 
