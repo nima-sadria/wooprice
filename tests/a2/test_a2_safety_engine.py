@@ -44,9 +44,10 @@ import app.a2.models.source  # noqa: F401
 import app.a2.models.snapshot  # noqa: F401
 import app.a2.models.provenance  # noqa: F401
 import app.a2.models.checkpoint  # noqa: F401
-import app.a2.models.rule  # noqa: F401
-import app.a2.models.proposal  # noqa: F401
-import app.a2.models.safety  # noqa: F401
+import app.a2.models.pricing_rule          # noqa: F401 — A2.3-R2
+import app.a2.models.pricing_rule_version  # noqa: F401 — A2.3-R2
+import app.a2.models.price_proposal        # noqa: F401 — A2.3-R2
+import app.a2.models.safety                # noqa: F401
 
 from app.a2.engines.safety_engine import EvaluationContext, SafetyEngine
 from app.a2.repositories.safety_repository import SafetyRepository
@@ -703,7 +704,7 @@ class TestAlembicMigrationA2003:
         assert "a2_safety_results" in tables
         assert "a2_override_logs" in tables
         # Earlier tables must also be present
-        assert "a2_rule_definitions" in tables
+        assert "a2_pricing_rules" in tables
         assert "source_definitions" in tables
 
     def test_downgrade_from_a2_003_removes_safety_tables(self, tmp_path):
@@ -712,7 +713,7 @@ class TestAlembicMigrationA2003:
             cfg = Config("alembic_a2.ini")
             cfg.set_main_option("sqlalchemy.url", db_url)
             command.upgrade(cfg, "head")
-            command.downgrade(cfg, "a2_002")
+            command.downgrade(cfg, "a2_002_r2")
 
         eng = create_engine(db_url)
         tables = set(inspect(eng).get_table_names())
@@ -722,20 +723,20 @@ class TestAlembicMigrationA2003:
         assert "a2_policy_versions" not in tables
         assert "a2_safety_results" not in tables
         assert "a2_override_logs" not in tables
-        assert "a2_rule_definitions" in tables
+        assert "a2_pricing_rules" in tables
 
-    def test_upgrade_to_a2_002_does_not_create_safety_tables(self, tmp_path):
-        db_url = "sqlite:///" + str(tmp_path / "a2_002_only.db").replace("\\", "/")
+    def test_upgrade_to_a2_002_r2_does_not_create_safety_tables(self, tmp_path):
+        db_url = "sqlite:///" + str(tmp_path / "a2_002_r2_only.db").replace("\\", "/")
         with patch.dict(os.environ, {"A2_DATABASE_URL": db_url}):
             cfg = Config("alembic_a2.ini")
             cfg.set_main_option("sqlalchemy.url", db_url)
-            command.upgrade(cfg, "a2_002")
+            command.upgrade(cfg, "a2_002_r2")
 
         eng = create_engine(db_url)
         tables = set(inspect(eng).get_table_names())
         eng.dispose()
 
-        assert "a2_rule_definitions" in tables
+        assert "a2_pricing_rules" in tables
         assert "a2_safety_policies" not in tables
 
 

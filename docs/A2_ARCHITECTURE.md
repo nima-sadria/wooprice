@@ -50,23 +50,32 @@ Defines the adapter interface for ingesting product data from heterogeneous sour
 ### A2.3 — Transformation Rule Engine (CLOSED)
 
 Implements the deterministic, reproducible price proposal pipeline. The Rule Engine
-accepts published RuleVersions and source inputs (cost + currency), evaluates the
-Cost + Profit formula, and persists a PriceProposal with full ProposalProvenance and
-ExecutionTrace. Identical inputs always produce the same computation_digest (determinism
-guarantee). Every proposal is fully re-derivable from stored provenance (reproducibility
-guarantee). Rule versions are immutable once published; parameter changes create new
-versions. Competitor price is future-ready as an input only — autonomous collection
-is explicitly out of scope until Owner approves a dedicated source adapter.
+accepts published RuleVersions and source inputs (cost + currency), evaluates formulas
+via an AST-based sandboxed evaluator (no eval/exec), and persists a PriceProposal with
+full ProposalProvenance and ExecutionTrace. Identical inputs always produce the same
+proposal_hash (determinism guarantee — hash excludes UUID and timestamp). Every proposal
+is fully re-derivable from stored provenance (reproducibility guarantee). Rule versions
+are immutable once published; parameter changes create new versions. The engine supports
+5 rule types: cost_plus, fx_based, fee_based, formula, competition.
+
+A2.3-R2 reconciles the REMOTE AST engine design with the LOCAL audit/provenance model.
 
 Deliverables:
-- `app/a2/engines/formula.py` — CostPlusProfitFormula (Decimal arithmetic, 3-mode rounding)
-- `app/a2/engines/rule_engine.py` — RuleEngine with determinism cache and full provenance
-- `app/a2/models/rule.py` — RuleDefinition, RuleVersion (immutable once published)
-- `app/a2/models/proposal.py` — PriceProposal, ProposalProvenance, ExecutionTraceEntry
-- `app/a2/repositories/rule_repository.py` — CRUD + publish enforcement + priority ordering
-- `app/a2/repositories/proposal_repository.py` — digest lookup + snapshot listing
-- `alembic_a2/versions/a2_002_transformation_rule_engine.py` — 5 new A2 tables
-- `tests/a2/test_a2_rule_engine.py` — 62 tests (formula, repo, engine, determinism, migration)
+- `app/a2/rules/base.py` — RuleType enum (5 values), RuleDefinition frozen dataclass
+- `app/a2/rules/formula.py` — AST-based sandboxed evaluator (Decimal arithmetic, no eval/exec)
+- `app/a2/rules/engine.py` — RuleEngine: propose() / propose_all() returning ProposalEnvelope
+- `app/a2/rules/proposal.py` — compute_proposal_hash (deterministic, excludes UUID/timestamp)
+- `app/a2/models/pricing_rule.py` — PricingRule ORM model (table: a2_pricing_rules)
+- `app/a2/models/pricing_rule_version.py` — PricingRuleVersion ORM model (is_published immutability)
+- `app/a2/models/price_proposal.py` — PriceProposalRecord, ProposalProvenanceRecord, ExecutionTraceRecord
+- `app/a2/repositories/rule_repository.py` — CRUD + publish_version() immutability guard + load_active_definitions()
+- `app/a2/repositories/proposal_repository.py` — save(envelope) + find_by_hash() deduplication
+- `alembic_a2/versions/a2_002_r2_transformation_rule_engine.py` — 5 a2_-prefixed tables (Numeric(14,4))
+- `tests/a2/test_a2_rule_formula.py` — 35 tests (AST sandbox, arithmetic, extract_variables)
+- `tests/a2/test_a2_proposal.py` — 14 tests (hash determinism, UUID/timestamp exclusion)
+- `tests/a2/test_a2_rule_engine.py` — 38 tests (5 rule types, ProposalEnvelope, provenance, trace, migration)
+- `tests/a2/test_a2_rule_repository.py` — 25 tests (CRUD, publish immutability, set_current_version)
+- `tests/a2/test_a2_rules_isolation.py` — 14 tests (no WooCommerce, no eval/exec, scope isolation)
 
 ### A2.4 — Safety Policy Engine (READY FOR OWNER REVIEW)
 

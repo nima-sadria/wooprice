@@ -1,126 +1,197 @@
-"""A2.3 Rule Repository — rule definition and version persistence.
+"""
+A2.3-R2 RuleRepository — create, retrieve, and version pricing rules.
 
-Published versions are immutable: publish_version() enforces this by
-raising ValueError when called on an already-published version.
+publish_version() enforces immutability: once a version is published,
+it cannot be republished. set_current_version() switches the active
+version among already-published versions only.
+
+Caller is responsible for committing the session.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from ..models.rule import RuleDefinition, RuleVersion
+from ..models.pricing_rule import PricingRule
+from ..models.pricing_rule_version import PricingRuleVersion
+from ..rules.base import RuleDefinition, RuleType
 
 
 class RuleRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    # ── Rule Definitions ────────────────────────────────────────────────────
+    # ── Rule CRUD ─────────────────────────────────────────────────────────────
 
-    def create_definition(
+    def create_rule(
         self,
         *,
+        rule_name: str,
         rule_type: str,
-        display_name: str,
-        priority: int = 100,
-    ) -> RuleDefinition:
+        priority: int,
+    ) -> PricingRule:
+        if rule_type not in RuleType.values():
+            raise ValueError(
+                f"Unknown rule_type '{rule_type}'. Allowed: {RuleType.values()}"
+            )
         now = datetime.now(tz=timezone.utc)
-        defn = RuleDefinition(
-            id=str(uuid.uuid4()),
+        rule = PricingRule(
+            rule_id=str(uuid.uuid4()),
+            rule_name=rule_name,
             rule_type=rule_type,
-            display_name=display_name,
             priority=priority,
             is_active=True,
             created_at=now,
             updated_at=now,
         )
-        self._db.add(defn)
+        self._db.add(rule)
         self._db.flush()
-        return defn
+        return rule
 
-    def get_definition(self, rule_id: str) -> Optional[RuleDefinition]:
-        return self._db.get(RuleDefinition, rule_id)
+    def get_rule(self, rule_id: str) -> Optional[PricingRule]:
+        return self._db.get(PricingRule, rule_id)
 
-    def get_active_rules_by_priority(self) -> list[RuleDefinition]:
-        """Return all active rules ordered by priority descending (highest first)."""
+    def list_active_rules(self) -> list[PricingRule]:
         return (
-            self._db.query(RuleDefinition)
-            .filter(RuleDefinition.is_active.is_(True))
-            .order_by(RuleDefinition.priority.desc())
+            self._db.query(PricingRule)
+            .filter(PricingRule.is_active.is_(True))
+            .order_by(PricingRule.priority)
             .all()
         )
 
-    # ── Rule Versions ────────────────────────────────────────────────────────
+    def deactivate_rule(self, rule_id: str) -> bool:
+        rule = self._db.get(PricingRule, rule_id)
+        if rule is None:
+            return False
+        rule.is_active = False
+        rule.updated_at = datetime.now(tz=timezone.utc)
+        self._db.flush()
+        return True
 
-    def create_version(self, rule_id: str, parameters_json: str) -> RuleVersion:
-        """Create a new draft version. version_number auto-increments within the rule."""
-        existing = (
-            self._db.query(RuleVersion)
-            .filter(RuleVersion.rule_id == rule_id)
-            .order_by(RuleVersion.version_number.desc())
-            .first()
-        )
-        next_number = (existing.version_number + 1) if existing else 1
-        now = datetime.now(tz=timezone.utc)
-        version = RuleVersion(
-            id=str(uuid.uuid4()),
+    # ── Version management ────────────────────────────────────────────────────
+
+    def create_version(
+        self,
+        *,
+        rule_id: str,
+        formula: str,
+        required_inputs: list[str],
+    ) -> PricingRuleVersion:
+        existing = self.list_versions(rule_id)
+        next_number = max((v.version_number for v in existing), default=0) + 1
+
+        version = PricingRuleVersion(
+            version_id=str(uuid.uuid4()),
             rule_id=rule_id,
             version_number=next_number,
-            parameters_json=parameters_json,
+            formula=formula,
+            required_inputs_json=json.dumps(sorted(required_inputs)),
             is_published=False,
             published_at=None,
-            created_at=now,
+            is_current=False,
+            created_at=datetime.now(tz=timezone.utc),
         )
         self._db.add(version)
         self._db.flush()
         return version
 
-    def publish_version(self, version_id: str) -> RuleVersion:
-        """Publish a draft version. Raises ValueError if already published."""
-        version = self._db.get(RuleVersion, version_id)
+    def publish_version(self, version_id: str) -> PricingRuleVersion:
+        """
+        Publish a draft version, making it immutable and setting it as current.
+
+        Raises ValueError if the version does not exist or is already published.
+        Once published, a version's formula and required_inputs cannot change;
+        create a new version instead.
+        """
+        version = self._db.get(PricingRuleVersion, version_id)
         if version is None:
-            raise ValueError(f"RuleVersion not found: {version_id}")
+            raise ValueError(f"PricingRuleVersion not found: {version_id}")
         if version.is_published:
             raise ValueError(
-                f"RuleVersion {version_id} (v{version.version_number}) is already published. "
-                "Create a new version to change parameters."
+                f"PricingRuleVersion {version_id} (v{version.version_number}) "
+                "is already published. Create a new version to change parameters."
             )
         version.is_published = True
         version.published_at = datetime.now(tz=timezone.utc)
+
+        # Set as current, clearing is_current on siblings
+        siblings = (
+            self._db.query(PricingRuleVersion)
+            .filter(PricingRuleVersion.rule_id == version.rule_id)
+            .all()
+        )
+        for sibling in siblings:
+            sibling.is_current = sibling.version_id == version_id
         self._db.flush()
         return version
 
-    def get_published_version(self, version_id: str) -> Optional[RuleVersion]:
-        """Return a published version with its rule loaded, or None."""
-        return (
-            self._db.query(RuleVersion)
-            .options(joinedload(RuleVersion.rule))
-            .filter(
-                RuleVersion.id == version_id,
-                RuleVersion.is_published.is_(True),
-            )
-            .first()
-        )
+    def set_current_version(self, version_id: str) -> bool:
+        """
+        Switch the active version to version_id.
 
-    def get_latest_published_version(self, rule_id: str) -> Optional[RuleVersion]:
-        """Return the highest version_number published version for a rule."""
-        return (
-            self._db.query(RuleVersion)
-            .filter(
-                RuleVersion.rule_id == rule_id,
-                RuleVersion.is_published.is_(True),
-            )
-            .order_by(RuleVersion.version_number.desc())
-            .first()
-        )
+        Only published versions may be made current.
+        Returns False if the version does not exist or is not published.
+        """
+        target = self._db.get(PricingRuleVersion, version_id)
+        if target is None or not target.is_published:
+            return False
 
-    def list_versions(self, rule_id: str) -> list[RuleVersion]:
-        return (
-            self._db.query(RuleVersion)
-            .filter(RuleVersion.rule_id == rule_id)
-            .order_by(RuleVersion.version_number)
+        siblings = (
+            self._db.query(PricingRuleVersion)
+            .filter(PricingRuleVersion.rule_id == target.rule_id)
             .all()
         )
+        for sibling in siblings:
+            sibling.is_current = sibling.version_id == version_id
+        self._db.flush()
+        return True
+
+    def get_current_version(self, rule_id: str) -> Optional[PricingRuleVersion]:
+        return (
+            self._db.query(PricingRuleVersion)
+            .filter(
+                PricingRuleVersion.rule_id == rule_id,
+                PricingRuleVersion.is_current.is_(True),
+            )
+            .first()
+        )
+
+    def get_version(self, version_id: str) -> Optional[PricingRuleVersion]:
+        return self._db.get(PricingRuleVersion, version_id)
+
+    def list_versions(self, rule_id: str) -> list[PricingRuleVersion]:
+        return (
+            self._db.query(PricingRuleVersion)
+            .filter(PricingRuleVersion.rule_id == rule_id)
+            .order_by(PricingRuleVersion.version_number)
+            .all()
+        )
+
+    # ── Convenience: load active rules as RuleDefinition objects ─────────────
+
+    def load_active_definitions(self) -> list[RuleDefinition]:
+        """Return RuleDefinition for every active rule that has a current published version."""
+        rules = self.list_active_rules()
+        definitions: list[RuleDefinition] = []
+        for rule in rules:
+            version = self.get_current_version(rule.rule_id)
+            if version is None or not version.is_published:
+                continue
+            required_inputs = json.loads(version.required_inputs_json or "[]")
+            definitions.append(
+                RuleDefinition(
+                    rule_id=rule.rule_id,
+                    rule_name=rule.rule_name,
+                    rule_type=rule.rule_type,
+                    priority=rule.priority,
+                    version_id=version.version_id,
+                    version_number=version.version_number,
+                    formula=version.formula,
+                    required_inputs=required_inputs,
+                )
+            )
+        return definitions

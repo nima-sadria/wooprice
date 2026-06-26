@@ -1,7 +1,7 @@
 """A2.4 safety policy engine — policies, versions, safety results, override logs
 
 Revision ID: a2_003
-Revises: a2_002
+Revises: a2_002_r2
 Create Date: 2026-06-25
 
 Additive migration: creates 4 new tables.
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a2_003"
-down_revision: Union[str, None] = "a2_002"
+down_revision: Union[str, None] = "a2_002_r2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
