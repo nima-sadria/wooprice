@@ -156,6 +156,8 @@ Reference: [docs/BETA_STRATEGY.md](BETA_STRATEGY.md)
 
 Master specification: [docs/BETA_MASTER_SPEC.md](BETA_MASTER_SPEC.md)
 
+Architecture blueprint: [docs/beta/](beta/) (12 documents — B1 Architecture Blueprint)
+
 ---
 
 ## Stable Checkpoints
