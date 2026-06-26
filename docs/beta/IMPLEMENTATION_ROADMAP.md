@@ -323,8 +323,8 @@ indefinitely before any cutover. B16 just ensures the path is documented.
 
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| R-B1 | A2 packaging strategy causes integration pain | Medium | High | Decide early in B2; prefer direct copy for simplicity |
-| R-B2 | Auth dependency blocks B5 UI work | Medium | Medium | Stub auth for B5 dev; replace with real auth in B10 |
+| R-B1 | A2 submodule UX causes integration friction | Low | Medium | **MITIGATED** — submodule decided; CI must pin submodule ref on every PR |
+| R-B2 | Stub auth diverges from real auth in B10 | Low | Medium | **MITIGATED** — stub must mirror B10 JWT structure from day one |
 | R-B3 | Plugin isolation is hard to enforce at runtime | Low | High | Start with interface-based isolation; add AST scanning in B12 |
 | R-B4 | TEP flag disabling causes production-like bugs in Beta | Low | High | Dependency chain enforced in evaluator; UI shows consequences |
 | R-B5 | Secret rotation invalidates all sessions unexpectedly | Low | Medium | Document rotation procedure; warn operator before rotation |
@@ -332,69 +332,48 @@ indefinitely before any cutover. B16 just ensures the path is documented.
 
 ---
 
-## Open B2 Decisions (Owner must resolve before B2 starts)
+## B2 Planning Decisions — Owner Approved 2026-06-26
 
-The following decisions are required before B2 implementation begins. Each has
-architecture implications. Owner decides.
+All pre-B2 decisions are resolved. B2 is unblocked pending Owner implementation approval.
 
 ### Decision 1 — A2 Packaging Strategy
 
-How is `app/a2/` (A2 Platform Core) included in the `wooprice-beta` repository?
+**APPROVED: Git Submodule**
 
-| Option | Pros | Cons |
-|---|---|---|
-| **Direct copy** | Simple; no submodule complexity; easy for devs to read | Drift risk if A2 is ever patched; no automatic sync |
-| **Git submodule** | Changes to A2 are trackable; clear separation | Submodule UX is painful; CI setup is more complex |
-| **Pip package** | Cleanest import story; enforces interface boundary | Requires A2 to be packaged and versioned; more setup work |
+A2 Platform Core is now stable (all 9 phases CLOSED). WooPrice Beta will consume
+the A2 Platform Core as a Git submodule. This keeps A2 changes trackable and the
+separation explicit.
 
-**Recommendation:** Direct copy for B2–B4 (simplest); revisit as pip package after B5 if A2 patch scenario arises.
-
-**Owner decision required:** Select one option before B2 work begins.
+Future migration to a standalone pip package remains possible but is not part of B2.
 
 ---
 
 ### Decision 2 — CI Platform
 
-Which CI system hosts the WooPrice Beta pipeline?
+**APPROVED: GitHub Actions**
 
-| Option | Notes |
-|---|---|
-| **GitHub Actions** | Standard choice if repo is on GitHub; YAML workflows; free tier available |
-| **GitLab CI** | If repo is on GitLab; `.gitlab-ci.yml` |
-
-**Owner decision required:** Confirm repository host (GitHub or GitLab) before B2 CI setup.
+WooPrice Beta repository will be hosted on GitHub. CI pipeline will use GitHub
+Actions (YAML workflows). GitLab CI is not planned.
 
 ---
 
-### Decision 3 — Auth Sequencing (B5 vs B10)
+### Decision 3 — Auth Sequencing
 
-B5 (Product Inspector UI) requires authenticated API calls. B10 (Auth + User Management)
-is the phase that implements production-grade JWT auth.
+**APPROVED: Stub Authentication first**
 
-| Option | Implication |
-|---|---|
-| **B10 before B5** | B5 works with real auth from day one; delays UI work |
-| **Stub auth for B5, real auth in B10** | B5 can proceed immediately; stub must be replaced before B10 |
-| **B10 parallel with B5** | Requires two concurrent workstreams |
-
-**Constraint:** Stub auth in B5 must use the same JWT structure as B10 to avoid refactoring API calls.
-
-**Owner decision required:** Select sequencing approach before B5 starts.
+B5 (Product Inspector UI) will proceed with stub authentication. Full JWT
+authentication will be implemented in B10. The stub must use the same JWT token
+structure as the B10 implementation to avoid refactoring API calls when B10 lands.
 
 ---
 
 ### Decision 4 — A2.4 Status Dependency
 
-`A2.4 — Safety Policy Engine` currently shows status `READY FOR OWNER APPROVAL` in some
-documentation. The B5 Safety Policy viewer (and B6 Change Set Viewer) depend on A2.4
-being functional.
+**RESOLVED: No longer a blocker**
 
-**Rule:** B5 Safety UI and B6 Change Set Viewer must not be built or shipped until A2.4 is
-formally CLOSED or explicitly approved by Owner as ready for Beta consumption.
-
-**Action required:** Owner must formally close A2.4 (or approve its use in Beta) before
-B5 Safety and B6 work begins. If A2.4 remains open, B5 can proceed for Products, Sources,
-and Rules only — the Safety section is held.
+A2 Platform Core is COMPLETE (all 9 phases CLOSED, Owner approved 2026-06-26).
+A2.4 Safety Policy Engine is part of the closed A2 core and is available for Beta
+consumption. B5 Safety UI and B6 Change Set Viewer are unblocked.
 
 ---
 
