@@ -158,7 +158,7 @@ Master specification: [docs/BETA_MASTER_SPEC.md](BETA_MASTER_SPEC.md)
 
 Architecture blueprint: [docs/beta/](beta/) (12 documents — B1 Architecture Blueprint)
 
-Beta phase sequence (B1–B18): B1 CLOSED · B2 CLOSED · **B3 Configuration Foundation NEXT** · B4 Installer · B5 CLI · B6 Docker Runtime · B7 Auth · B8–B12 UI stream · B13–B16 Admin/Ops stream · B17 Integration · B18 Cutover
+Beta phase sequence (B1–B18): B1 CLOSED · B2 CLOSED · B3 CLOSED · **B4 Installer Foundation NEXT** · B5 CLI · B6 Docker Runtime · B7 Auth · B8–B12 UI stream · B13–B16 Admin/Ops stream · B17 Integration · B18 Cutover
 
 Roadmap reference: [docs/beta/IMPLEMENTATION_ROADMAP.md](beta/IMPLEMENTATION_ROADMAP.md)
 

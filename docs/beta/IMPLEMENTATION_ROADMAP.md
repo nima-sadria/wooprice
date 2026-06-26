@@ -109,7 +109,15 @@ All B3+ phases work within this structure.
 
 ### B3 — Configuration Foundation
 
-**Status:** READY FOR OWNER REVIEW — commit `9a487c7`
+**Status:** CLOSED — Owner approved 2026-06-27
+
+**Permanent Record:**
+- Implementation commit: `9a487c7` — "B3: implement framework-independent configuration foundation"
+- Status update commit: `74f5ee1` — "B3: mark READY FOR OWNER REVIEW; update test count to 146"
+- CHAT2 Final Review: APPROVE (2026-06-27) — all 8 criteria satisfied
+- Owner approval date: 2026-06-27
+- Test summary: 146 passed, 0 failed, 0 skipped (0.30s)
+- Technical debt: LOW only — `set()` file write and migration file write deferred to B4 (expected and documented)
 
 **Architecture constraint (CHAT2 decision):** B3 Configuration Core is
 framework-independent. Zero FastAPI, Typer, Docker, or HTTP imports.
@@ -200,6 +208,8 @@ All modules: pure Python 3.12 standard library + Pydantic v2 + python-dotenv.
 ---
 
 ### B4 — Installer Foundation
+
+**Status:** NOT STARTED
 
 **Goal:** A working `install.sh` that produces a running stack on a clean server.
 Requires B3 (Configuration Foundation) because the installer writes configuration
