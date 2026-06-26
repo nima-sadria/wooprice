@@ -20,7 +20,7 @@
 | A2.2 | Source Adapter Framework | CLOSED |
 | A2.3 | Transformation Rule Engine | CLOSED |
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
-| A2.5 | Change Set Engine | READY FOR OWNER REVIEW |
+| A2.5 | Change Set Engine | CLOSED |
 | A2.6 | Dry Run Engine | NOT STARTED |
 | A2.7 | Execution Engine | NOT STARTED |
 | A2.8 | Scheduling Engine | NOT STARTED |
@@ -82,7 +82,7 @@ Deliverables:
 Enforces business safety policies at the canonical model level: price change thresholds,
 stock floor rules, alarm conditions, and operator-configurable block conditions.
 
-### A2.5 — Change Set Engine (READY FOR OWNER REVIEW)
+### A2.5 — Change Set Engine (CLOSED)
 
 Creates immutable, versioned Change Sets from approved Price Proposals that have passed
 Safety Policy evaluation. A ChangeSet is the single authoritative record of what is proposed
