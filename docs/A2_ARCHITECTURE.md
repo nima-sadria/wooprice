@@ -23,7 +23,7 @@
 | A2.5 | Change Set Engine | CLOSED |
 | A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | CLOSED |
-| A2.8 | Scheduling Engine | READY FOR OWNER REVIEW |
+| A2.8 | Scheduling Engine | CLOSED |
 | A2.9 | AI Foundation | NOT STARTED |
 
 ---
@@ -143,7 +143,7 @@ Deliverables:
 - `alembic_a2/versions/a2_006_execution_engine.py` — migration a2_006 (down_revision=a2_005); 4 a2_-prefixed tables
 - `tests/a2/test_a2_execution.py` — 72 tests (prerequisites, freshness, outcomes, idempotency, retry, state machine, terminal states, cancel, recovery, repository, report, migration, isolation)
 
-### A2.8 — Scheduling Engine (READY FOR OWNER REVIEW)
+### A2.8 — Scheduling Engine (CLOSED)
 
 Enables deferred execution of an already-confirmed, immutable Change Set through the
 A2.7 Execution Engine. The Scheduling Engine is a time-based triggering layer only —
