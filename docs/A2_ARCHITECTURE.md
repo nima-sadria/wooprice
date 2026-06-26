@@ -22,7 +22,7 @@
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
 | A2.5 | Change Set Engine | CLOSED |
 | A2.6 | Dry Run Engine | CLOSED |
-| A2.7 | Execution Engine | READY FOR OWNER REVIEW |
+| A2.7 | Execution Engine | CLOSED |
 | A2.8 | Scheduling Engine | NOT STARTED |
 | A2.9 | AI Foundation | NOT STARTED |
 
@@ -118,7 +118,7 @@ Deliverables:
 - `alembic_a2/versions/a2_005_dry_run_engine.py` — migration a2_005 (3 a2_-prefixed tables; down_revision=a2_004)
 - `tests/a2/test_a2_dry_run.py` — 73 tests (digest verification, item validation, confirmation invalidation scenarios, migration lineage, isolation)
 
-### A2.7 — Execution Engine (READY FOR OWNER REVIEW)
+### A2.7 — Execution Engine (CLOSED)
 
 Executes approved, confirmed, immutable Change Sets through a controlled adapter interface.
 The Execution Engine enforces five sequential prerequisites before processing any item:
