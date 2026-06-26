@@ -23,7 +23,7 @@
 | A2.5 | Change Set Engine | CLOSED |
 | A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | CLOSED |
-| A2.8 | Scheduling Engine | NOT STARTED |
+| A2.8 | Scheduling Engine | READY FOR OWNER REVIEW |
 | A2.9 | AI Foundation | NOT STARTED |
 
 ---
@@ -143,10 +143,31 @@ Deliverables:
 - `alembic_a2/versions/a2_006_execution_engine.py` — migration a2_006 (down_revision=a2_005); 4 a2_-prefixed tables
 - `tests/a2/test_a2_execution.py` — 72 tests (prerequisites, freshness, outcomes, idempotency, retry, state machine, terminal states, cancel, recovery, repository, report, migration, isolation)
 
-### A2.8 — Scheduling Engine (NOT STARTED)
+### A2.8 — Scheduling Engine (READY FOR OWNER REVIEW)
 
-Provides cron-based and event-triggered scheduling for automated source ingestion,
-transformation, dry run, and execution pipelines.
+Enables deferred execution of an already-confirmed, immutable Change Set through the
+A2.7 Execution Engine. The Scheduling Engine is a time-based triggering layer only —
+it never authorizes execution by itself, never re-evaluates rules or safety policies,
+and never modifies the Change Set it schedules.
+
+A2.7 remains the authoritative validation layer: confirmation digest, Change Set digest,
+Dry Run state, item freshness, and idempotency are all independently verified by A2.7
+on every dispatch. Scheduling cannot override or bypass those checks.
+
+Lease ownership enforces single-executor guarantee (one worker per run at a time).
+Expired leases may be reclaimed. Heartbeats extend active leases. Retry/backoff policy
+tracks attempt count and schedules next_run_at after failure. Stale lease detection
+enables operator recovery of abandoned runs.
+
+A2.8 scope constraint: No real WooCommerce write APIs connected. No ChannelExecutionAdapter
+implementation in A2.8 production code. No existing Workspace or Apply workflow modified.
+
+Deliverables:
+- `app/a2/models/schedule.py` — Schedule, ScheduleRun, ScheduleLease ORM models
+- `app/a2/repositories/scheduler_repository.py` — SchedulerRepository: state machines, lease acquisition, heartbeat, stale detection, retry
+- `app/a2/services/scheduler_service.py` — SchedulerService: orchestrates lifecycle; dispatch contract to A2.7 ExecutionService
+- `alembic_a2/versions/a2_007_scheduling_engine.py` — migration a2_007 (down_revision=a2_006); 3 a2_-prefixed tables
+- `tests/a2/test_a2_scheduling.py` — 38 tests, all pass
 
 ### A2.9 — AI Foundation (NOT STARTED)
 
