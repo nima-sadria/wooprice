@@ -114,7 +114,7 @@ feature stream (7.x/8.x) and has its own governance gate.
 | A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | CLOSED |
 | A2.8 | Scheduling Engine | CLOSED |
-| A2.9 | AI Foundation | READY FOR OWNER REVIEW |
+| A2.9 | AI Foundation | CLOSED |
 
 Architecture reference: `docs/A2_ARCHITECTURE.md`
 
@@ -129,6 +129,19 @@ docker compose up -d
 # A2 stack (includes PostgreSQL)
 docker compose -f docker-compose.yml -f docker-compose.a2.yml up -d
 ```
+
+---
+
+## A2 Platform Core
+
+COMPLETE — Owner approved 2026-06-26.
+
+All A2 phases closed: A2.1 · A2.2 · A2.3-R2 · A2.4 · A2.5 · A2.6 · A2.7 · A2.8 · A2.9
+
+No production cutover has occurred. No production deployment has occurred.
+Production WooPrice remains maintenance-only.
+
+Architecture reference: [docs/A2_ARCHITECTURE.md](A2_ARCHITECTURE.md)
 
 ---
 

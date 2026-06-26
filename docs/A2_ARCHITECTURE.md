@@ -24,7 +24,7 @@
 | A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | CLOSED |
 | A2.8 | Scheduling Engine | CLOSED |
-| A2.9 | AI Foundation | READY FOR OWNER REVIEW |
+| A2.9 | AI Foundation | CLOSED |
 
 ---
 
@@ -169,7 +169,7 @@ Deliverables:
 - `alembic_a2/versions/a2_007_scheduling_engine.py` — migration a2_007 (down_revision=a2_006); 3 a2_-prefixed tables
 - `tests/a2/test_a2_scheduling.py` — 38 tests, all pass
 
-### A2.9 — AI Foundation (READY FOR OWNER REVIEW)
+### A2.9 — AI Foundation (CLOSED)
 
 Provides advisory intelligence that assists pricing decisions while remaining completely
 outside the Trusted Execution Path. The AI Foundation is advisory only — it never
@@ -236,6 +236,32 @@ The following conditions must hold before any A2.2 implementation begins:
 - [x] A2 Architecture approval status: APPROVED (confirmed above)
 - [x] Governance status: PASS (confirmed above)
 - [x] All A2.1 documentation inconsistencies: RESOLVED
+
+---
+
+## A2 Platform Core
+
+COMPLETE — Owner approved 2026-06-26.
+
+All A2 phases delivered, verified, reviewed, and closed:
+
+| Phase | Name | Status |
+|---|---|---|
+| A2.1 | Canonical Product Model + PostgreSQL Foundation | CLOSED |
+| A2.2 | Source Adapter Framework | CLOSED |
+| A2.3-R2 | Transformation Rule Engine | CLOSED |
+| A2.4 | Safety Policy Engine | CLOSED |
+| A2.5 | Change Set Engine | CLOSED |
+| A2.6 | Dry Run Engine | CLOSED |
+| A2.7 | Execution Engine | CLOSED |
+| A2.8 | Scheduling Engine | CLOSED |
+| A2.9 | AI Foundation | CLOSED |
+
+No production cutover has occurred.
+No production deployment has occurred.
+Production WooPrice remains maintenance-only.
+Future product and platform development moves to WooPrice Beta.
+Beta Strategy: docs/BETA_STRATEGY.md (commit 5e6c05f).
 
 ---
 
