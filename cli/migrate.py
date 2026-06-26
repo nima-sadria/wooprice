@@ -3,11 +3,11 @@
 Database migration management: status, up, history.
 Wraps Alembic. Auto-creates backup checkpoint before migrate up.
 
-Implementation begins in B3.
+Implementation begins in B4.
 """
 
 import typer
 
 app = typer.Typer(help="Database migration management.")
 
-# Commands implemented in B3.
+# Commands implemented in B4.

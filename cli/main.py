@@ -5,7 +5,7 @@ on every invocation. Banner cannot be suppressed.
 
 Usage: wooprice [--env <path>] [--json] [--no-color] <group> [subcommand]
 
-Implementation of individual commands begins in B3–B13.
+Implementation of individual commands begins in B3–B14.
 """
 
 import typer
@@ -16,7 +16,7 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 
-# Command groups registered in B4:
+# Command groups registered in B5:
 # app.add_typer(install_app, name="install")
 # app.add_typer(configure_app, name="configure")
 # app.add_typer(status_app, name="status")

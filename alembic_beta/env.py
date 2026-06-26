@@ -5,8 +5,8 @@ A2 migrations (a2_000 through a2_008) use alembic_a2/env.py — do not modify.
 
 Configuration file: alembic_beta.ini (project root)
 
-Implementation begins in B3.
+Implementation begins in B4.
 """
 
-# Migration environment implementation begins in B3.
+# Migration environment implementation begins in B4.
 # This file will import Beta ORM models and configure the migration context.

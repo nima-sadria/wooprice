@@ -479,22 +479,24 @@ is updated in Beta.
 
 | Phase | Name | Scope |
 |---|---|---|
-| **B1** | Beta Master Specification | Architecture documentation (this document) |
-| **B2** | Repository and Project Skeleton | GitHub repo, directory structure, CI scaffold |
-| **B3** | Installer Foundation | Interactive install script; env file generation; Docker Compose generation |
-| **B4** | CLI Foundation | `wooprice` entry point; install, configure, status, health sub-commands |
-| **B5** | Configuration Manager | Database-backed settings; feature flag storage and evaluation |
-| **B6** | Docker Compose Beta Stack | Full service stack; volume isolation; health checks |
-| **B7** | Admin Auth and User Setup | JWT auth; user management; permission model |
+| **B1** | Master Specification + Architecture Blueprint | Architecture documentation (this document + 12 `docs/beta/` docs) |
+| **B2** | Repository Skeleton | Directory structure, package stubs, placeholder modules — **CLOSED** |
+| **B3** | Configuration Foundation | `ConfigurationManager`; env loader; validation; secret abstraction; profiles — **NEXT** |
+| **B4** | Installer Foundation | Interactive install script; env file generation; Docker Compose generation |
+| **B5** | CLI Foundation | `wooprice` entry point; 16 command groups; `health` working |
+| **B6** | Docker Runtime Foundation | Full service stack (nginx, app, worker, postgres, redis); health checks |
+| **B7** | Authentication Foundation | JWT auth; user management; permission model |
 | **B8** | Read-only A2 Inspector UI | Dashboard; Product Explorer; Source Explorer (read-only) |
-| **B9** | Source / Rule / Safety Review UI | Rule Engine viewer; Safety viewer; proposal history |
-| **B10** | Change Set / Dry Run Review UI | Change Set viewer; Dry Run viewer; confirmation flow |
-| **B11** | Execution / Scheduler Review UI | Execution viewer; Scheduler viewer; run management |
-| **B12** | AI Advisory UI | Advisory insight viewer; anomaly alerts; review priority dashboard |
-| **B13** | Plugin Manager Foundation | Plugin manifest; adapter registry UI; install/disable via CLI |
-| **B14** | WooCommerce Test Adapter Integration | First real channel adapter (test store only) |
-| **B15** | End-to-End Beta Validation | Full flow test: source → TEP → execution → channel write (test store) |
-| **B16** | Production Cutover Planning | Parity verification; rollback plan; cutover runbook |
+| **B9** | Change Set Viewer + Dry Run UI | Change Set viewer; Dry Run viewer; confirmation flow |
+| **B10** | Execution Viewer + Approval Flow | Execution history; Seller Confirmation UI |
+| **B11** | Scheduler Viewer + CLI Scheduler | Scheduler viewer; pause/resume; worker container |
+| **B12** | AI Insights Viewer | A2.9 advisory insight viewer; anomaly alerts |
+| **B13** | Feature Flag Manager + Admin UI | Flag toggle UI; audit log viewer; admin panel |
+| **B14** | Plugin System | Plugin Registry; loader; lifecycle; Plugin Manager UI |
+| **B15** | Backup + Update System | `wooprice backup`; `wooprice restore`; `wooprice update` |
+| **B16** | Security Hardening | CSP; audit log completeness; dependency scanning; secret rotation |
+| **B17** | Integration Testing + Diagnostics | End-to-end test suite; `wooprice diagnostics`; CI gate |
+| **B18** | Production Cutover Planning | Cutover checklist; rollback plan; Owner review |
 
 ### Phase governance
 

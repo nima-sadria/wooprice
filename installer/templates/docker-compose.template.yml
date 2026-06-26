@@ -3,7 +3,7 @@
 # Substitution via envsubst from installer/lib/compose_gen.sh
 #
 # This is a TEMPLATE with placeholders only. No real values here.
-# Implementation begins in B3.
+# Template generation: B4 (Installer Foundation). Service definitions: B6 (Docker Runtime Foundation).
 # See: docs/beta/DEPLOYMENT_ARCHITECTURE.md
 
 version: "3.9"
@@ -11,7 +11,7 @@ version: "3.9"
 services:
   nginx:
     image: nginx:1.25-alpine
-    # Configuration implemented in B3.
+    # Configuration implemented in B6.
 
   app:
     image: wooprice-beta:latest
@@ -22,11 +22,11 @@ services:
       - BETA_DATABASE_URL=${BETA_DATABASE_URL}
       - BETA_JWT_SECRET=${BETA_JWT_SECRET}
       - BETA_REST_API_SECRET=${BETA_REST_API_SECRET}
-    # Full configuration implemented in B3.
+    # Full configuration implemented in B6.
 
   worker:
     image: wooprice-beta:latest
-    # Full configuration implemented in B3.
+    # Full configuration implemented in B6.
 
   postgres:
     image: postgres:15-alpine
