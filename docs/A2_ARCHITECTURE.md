@@ -19,7 +19,7 @@
 | A2.1 | Canonical Product Model + PostgreSQL Foundation | CLOSED |
 | A2.2 | Source Adapter Framework | CLOSED |
 | A2.3 | Transformation Rule Engine | CLOSED |
-| A2.4 | Safety Policy Engine | READY FOR OWNER REVIEW |
+| A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
 | A2.5 | Change Set Engine | NOT STARTED |
 | A2.6 | Dry Run Engine | NOT STARTED |
 | A2.7 | Execution Engine | NOT STARTED |
@@ -77,7 +77,7 @@ Deliverables:
 - `tests/a2/test_a2_rule_repository.py` — 25 tests (CRUD, publish immutability, set_current_version)
 - `tests/a2/test_a2_rules_isolation.py` — 14 tests (no WooCommerce, no eval/exec, scope isolation)
 
-### A2.4 — Safety Policy Engine (READY FOR OWNER REVIEW)
+### A2.4 — Safety Policy Engine (READY FOR OWNER APPROVAL)
 
 Enforces business safety policies at the canonical model level: price change thresholds,
 stock floor rules, alarm conditions, and operator-configurable block conditions.
