@@ -20,7 +20,7 @@
 | A2.2 | Source Adapter Framework | CLOSED |
 | A2.3 | Transformation Rule Engine | CLOSED |
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
-| A2.5 | Change Set Engine | NOT STARTED |
+| A2.5 | Change Set Engine | READY FOR OWNER REVIEW |
 | A2.6 | Dry Run Engine | NOT STARTED |
 | A2.7 | Execution Engine | NOT STARTED |
 | A2.8 | Scheduling Engine | NOT STARTED |
@@ -82,10 +82,23 @@ Deliverables:
 Enforces business safety policies at the canonical model level: price change thresholds,
 stock floor rules, alarm conditions, and operator-configurable block conditions.
 
-### A2.5 — Change Set Engine (NOT STARTED)
+### A2.5 — Change Set Engine (READY FOR OWNER REVIEW)
 
-Computes the delta between the current canonical state and the proposed new state,
-producing a typed, immutable change set ready for validation and execution.
+Creates immutable, versioned Change Sets from approved Price Proposals that have passed
+Safety Policy evaluation. A ChangeSet is the single authoritative record of what is proposed
+to change, for which products, on which channel. Once a revision is created it is immutable;
+any modification requires a new ChangeSetRevision. The state machine enforces lifecycle
+transitions (DRAFT → READY → SUPERSEDED/ARCHIVED). Digest is a deterministic SHA-256 over
+all item bindings (proposal_hash, safety_result_id, rule_version_id, product_id), destination
+channel, scope, and source_snapshot_id — excluding UUIDs and timestamps.
+
+Deliverables:
+- `app/a2/models/change_set.py` — ChangeSet, ChangeSetRevision, ChangeSetItem ORM models
+- `app/a2/repositories/change_set_repository.py` — ChangeSetRepository: CRUD, state machine, revision management
+- `app/a2/services/change_set_service.py` — ChangeSetService: build, create_revision, transition, verify_digest; compute_change_set_digest
+- `app/a2/services/__init__.py` — services package
+- `alembic_a2/versions/a2_004_change_set_engine.py` — 3 a2_-prefixed tables (a2_change_sets, a2_change_set_revisions, a2_change_set_items); Numeric(14,4) for prices
+- `tests/a2/test_a2_change_set.py` — 71 tests (digest determinism, revision immutability, state machine, repository CRUD, migration lineage, isolation)
 
 ### A2.6 — Dry Run Engine (NOT STARTED)
 

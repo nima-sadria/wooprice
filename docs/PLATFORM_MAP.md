@@ -477,7 +477,7 @@ Architecture reference: `docs/A2_ARCHITECTURE.md`
 | A2.2 | Source Adapter Framework | CLOSED |
 | A2.3 | Transformation Rule Engine | CLOSED |
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
-| A2.5 | Change Set Engine | NOT STARTED |
+| A2.5 | Change Set Engine | READY FOR OWNER REVIEW |
 | A2.6 | Dry Run Engine | NOT STARTED |
 | A2.7 | Execution Engine | NOT STARTED |
 | A2.8 | Scheduling Engine | NOT STARTED |
