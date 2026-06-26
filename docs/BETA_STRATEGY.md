@@ -243,3 +243,4 @@ the A2 phase governance workflow.
 - Workflow: [docs/WORKFLOW.md](WORKFLOW.md)
 - Governance: [.claude/GOVERNANCE.md](../.claude/GOVERNANCE.md)
 - A2.9 (latest phase): [docs/phases/A2.9.md](phases/A2.9.md)
+- Beta master specification: [docs/BETA_MASTER_SPEC.md](BETA_MASTER_SPEC.md)

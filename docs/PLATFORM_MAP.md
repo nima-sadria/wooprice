@@ -518,6 +518,7 @@ Codex must re-verify PLATFORM_MAP against current code when any change affects:
 | D — Safety tree | Dry-run guards + apply guards in `app/main.py` |
 | E — Roadmap | `docs/ROADMAP.md` |
 | F — Beta Strategy | `docs/BETA_STRATEGY.md` — WooPrice Beta; future new work target |
+| G — Beta Master Spec | `docs/BETA_MASTER_SPEC.md` — B1 architecture; installer, CLI, plugin, UI strategy |
 
 ### Rules
 - If information cannot be verified from code, mark it UNKNOWN or remove it.

@@ -250,3 +250,4 @@ All future new product, UI, and platform work targets WooPrice Beta — not Prod
 Production WooPrice is maintenance-only from this point forward (bug fixes and safety fixes only).
 
 Reference: [docs/BETA_STRATEGY.md](BETA_STRATEGY.md)
+Master specification: [docs/BETA_MASTER_SPEC.md](BETA_MASTER_SPEC.md)

@@ -154,6 +154,8 @@ Production WooPrice is maintenance-only from this point forward.
 
 Reference: [docs/BETA_STRATEGY.md](BETA_STRATEGY.md)
 
+Master specification: [docs/BETA_MASTER_SPEC.md](BETA_MASTER_SPEC.md)
+
 ---
 
 ## Stable Checkpoints
