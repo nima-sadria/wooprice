@@ -2,6 +2,13 @@
 
 **Document:** INSTALLER_ARCHITECTURE.md
 **Series:** B1 Architecture Blueprint
+**B4 implementation note (2026-06-27):** Installer Foundation implemented.
+Python core (`installer/installer_core.py`) provides all testable business logic:
+prerequisite checks, secret generation, .env generation, TOML config generation,
+storage setup, dry-run mode, rollback, and B3 validation integration.
+Bash scripts (`install.sh`, `lib/`) are the Linux deployment entry point.
+Steps 8–13 (Docker launch, DB init, admin, SSL, health check) are NOT in B4 scope.
+B4 does NOT deploy to production. B4 does NOT start Docker services.
 
 ---
 

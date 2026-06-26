@@ -4,7 +4,10 @@
 # Waits for PostgreSQL to become healthy, then runs:
 #   wooprice migrate up (A2 migrations + Beta migrations)
 #
-# This is a PLACEHOLDER. Implementation begins in B4.
+# NOT IMPLEMENTED IN B4.
+# Implementation begins in B6 (Docker Runtime Foundation).
+# Requires: running PostgreSQL container (B6), Alembic config (B6).
 
-echo "lib/db_init.sh — PLACEHOLDER. Implementation begins in B4."
+echo "lib/db_init.sh — NOT IMPLEMENTED IN B4."
+echo "Implementation begins in B6 (Docker Runtime Foundation)."
 exit 1

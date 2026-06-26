@@ -209,23 +209,71 @@ All modules: pure Python 3.12 standard library + Pydantic v2 + python-dotenv.
 
 ### B4 — Installer Foundation
 
-**Status:** NOT STARTED
+**Status:** READY FOR OWNER REVIEW
 
-**Goal:** A working `install.sh` that produces a running stack on a clean server.
-Requires B3 (Configuration Foundation) because the installer writes configuration
-and must use the Configuration Manager's validation rules.
+**Architecture constraint:** B4 Installer Foundation implements only the foundation
+steps: prerequisite checks, interactive wizard, secret generation, .env file
+generation, managed TOML config generation, storage setup, dry-run mode, and
+rollback. Docker stack launch (B6), database init (B6), admin account (B7),
+and SSL setup (B6) are explicitly out of scope. No production deployment.
+No Docker execution. No network calls.
+
+**Goal:** Implement a safe, testable installer foundation that uses B3 Configuration
+Core for all validation. The Python core (`installer/installer_core.py`) is the
+testable layer; Bash scripts (`install.sh`, `lib/`) are the Linux deployment
+entry point.
 
 **Key implementation concerns:**
-- Secret generation must use `openssl rand` (not Python `secrets` or random)
-- `.env` file mode must be 600 on creation
-- Managed config TOML must never contain secrets
-- Rollback on failure must be clean — no partial state left
+- Python installer core delegates all validation to B3 ConfigValidator — no duplicate logic
+- `.env` file written with mode 600; secrets never appear in TOML or logs
+- Rollback tracks only files/dirs created by this install attempt
+- Dry-run mode writes nothing; shows everything that would happen
+- No hardcoded real domains, URLs, or credentials anywhere
 
 **Deliverables:**
-- `installer/install.sh` with all `lib/` modules implemented
-- Integration between installer and `ConfigurationManager.validate()`
-- Working `wooprice configure show/set/verify/rotate` (B3 Config Manager backing it)
-- `tests/beta/config/test_installer_integration.py`
+
+1. **Python Installer Core** (`installer/installer_core.py`) ✓
+   - `InstallerConfig`, `InstallerSecrets`, `PrerequisiteResult`, `DryRunResult`
+   - `generate_secrets()`, `check_prerequisites()`, `generate_env_content()`
+   - `generate_toml_content()`, `validate_generated_config()`, `setup_storage()`
+   - `dry_run_install()`, `InstallerRollback`, `confirm_installation()`
+   - `InstallationCancelled` exception
+
+2. **Bash Entry Point** (`installer/install.sh`) ✓
+   - Full 13-step orchestration; steps 8–13 are documented stubs for B6/B7
+   - `--dry-run` and `--non-interactive` flags
+   - `trap ERR` → `rollback_all()` on failure
+
+3. **Prerequisite Checks** (`installer/lib/checks.sh`) ✓
+   - Python version, docker command, docker compose, openssl, write permission
+   - Command availability checks only — no Docker execution
+
+4. **Secret Generation** (`installer/lib/secrets.sh`) ✓
+   - `openssl rand` for JWT (base64, 64+ chars), REST (hex32), PG password (base64)
+   - Masked preview only — never plain text after generation
+
+5. **Interactive Wizard** (`installer/lib/wizard.sh`) ✓
+   - 9 sections; per-section prompts with defaults; confirmation summary; cancellation
+
+6. **.env File Generation** (`installer/lib/env_gen.sh`) ✓
+   - Writes all 22 BETA_* vars; mode 600; calls B3 ConfigValidator via Python
+
+7. **Storage Setup** (`installer/lib/storage.sh`) ✓
+   - Creates `{logs,config,plugins,uploads,diagnostics}` + backup path; tracks for rollback
+
+8. **Docker Compose Generation** (`installer/lib/compose_gen.sh`) ✓
+   - Template substitution only (envsubst); no Docker execution
+
+9. **Managed TOML Template** (`installer/templates/wooprice-beta.toml.template`) ✓
+   - All `${VAR}` placeholders; no secrets; B3-compatible placeholder syntax
+
+10. **Installer Documentation** (`docs/beta/INSTALLER_ARCHITECTURE.md`) ✓
+    - B4 implementation note added
+
+11. **Test Suite** (`tests/beta/installer/`) ✓
+    - 8 test modules; covers all 16 required test categories from B4 spec
+
+**Tests:** `tests/beta/installer/` — 8 modules, tests pending run
 
 **TEP impact:** None.
 
