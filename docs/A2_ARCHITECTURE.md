@@ -21,7 +21,7 @@
 | A2.3 | Transformation Rule Engine | CLOSED |
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
 | A2.5 | Change Set Engine | CLOSED |
-| A2.6 | Dry Run Engine | READY FOR OWNER REVIEW |
+| A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | NOT STARTED |
 | A2.8 | Scheduling Engine | NOT STARTED |
 | A2.9 | AI Foundation | NOT STARTED |
@@ -100,7 +100,7 @@ Deliverables:
 - `alembic_a2/versions/a2_004_change_set_engine.py` — 3 a2_-prefixed tables (a2_change_sets, a2_change_set_revisions, a2_change_set_items); Numeric(14,4) for prices
 - `tests/a2/test_a2_change_set.py` — 71 tests (digest determinism, revision immutability, state machine, repository CRUD, migration lineage, isolation)
 
-### A2.6 — Dry Run Engine (READY FOR OWNER REVIEW)
+### A2.6 — Dry Run Engine (CLOSED)
 
 Validates a Change Set against safety policies and returns a structured dry-run result
 (PASS / WARN / BLOCK) without writing to any external system.
