@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-27 — B3 implemented; Runtime Config API moved to B5 (framework-independent core only)
+**Last revised:** 2026-06-27 — B4 closed; B5 CLI Foundation next
 
 ---
 
@@ -209,7 +209,13 @@ All modules: pure Python 3.12 standard library + Pydantic v2 + python-dotenv.
 
 ### B4 — Installer Foundation
 
-**Status:** READY FOR OWNER REVIEW
+**Status:** CLOSED — Owner approved 2026-06-27
+
+**Permanent Record:**
+- Implementation commit: `a864503` — "B4: implement installer foundation"
+- Owner approval date: 2026-06-27
+- Test summary: 315 passed, 1 skipped (0.63s) — 169 B4 installer tests + 146 B3 regression
+- Technical debt: LOW only — TD-B4-01 (Windows chmod not enforced), TD-B4-02 (Docker daemon check deferred to B6), TD-B4-03 (non-interactive completeness not enforced in Bash), TD-B4-04 (dry-run empty-path edge case in subdirectory planning)
 
 **Architecture constraint:** B4 Installer Foundation implements only the foundation
 steps: prerequisite checks, interactive wizard, secret generation, .env file
@@ -273,13 +279,15 @@ entry point.
 11. **Test Suite** (`tests/beta/installer/`) ✓
     - 8 test modules; covers all 16 required test categories from B4 spec
 
-**Tests:** `tests/beta/installer/` — 8 modules, tests pending run
+**Tests:** `tests/beta/installer/` — 8 modules, 169 tests passing (1 skipped: chmod on Windows); B3 regression: 146 tests, 0 failures
 
 **TEP impact:** None.
 
 ---
 
 ### B5 — CLI Foundation
+
+**Status:** NOT STARTED
 
 **Goal:** The `wooprice` CLI is installable and all 16 command groups are operational
 (even if most subcommands return "not yet implemented"). Health and status commands

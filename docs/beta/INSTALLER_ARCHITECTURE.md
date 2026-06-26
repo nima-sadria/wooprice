@@ -2,7 +2,8 @@
 
 **Document:** INSTALLER_ARCHITECTURE.md
 **Series:** B1 Architecture Blueprint
-**B4 implementation note (2026-06-27):** Installer Foundation implemented.
+**B4 status (2026-06-27): CLOSED — Owner approved 2026-06-27.**
+Implementation commit: `a864503`. 315 tests passing (169 B4 installer + 146 B3 regression).
 Python core (`installer/installer_core.py`) provides all testable business logic:
 prerequisite checks, secret generation, .env generation, TOML config generation,
 storage setup, dry-run mode, rollback, and B3 validation integration.
