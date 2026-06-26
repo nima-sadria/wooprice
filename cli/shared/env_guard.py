@@ -1,30 +1,24 @@
-"""WooPrice Beta — Environment safety guard.
+"""WooPrice Beta — Environment safety guard."""
 
-Checks BETA_ENV before every write operation. Refuses to proceed if
-a production resource (database URL, WooCommerce URL) is detected.
+from __future__ import annotations
 
-Implementation begins in B4.
-"""
+from app.beta.config import ConfigProfile
 
 
 class ProductionResourceError(Exception):
-    """Raised when a production resource is detected in Beta configuration."""
-    pass
+    """Raised when a write operation is attempted in PRODUCTION profile."""
 
 
-def check_environment() -> None:
-    """Verify the current environment is not production before write operations.
+def require_beta_env(profile: ConfigProfile) -> None:
+    """Assert the active profile is not PRODUCTION; raise otherwise.
 
-    Raises ProductionResourceError if production resources are detected.
-
-    Implementation begins in B4.
+    Called before any write or mutating operation. Read-only diagnostics
+    are always permitted regardless of profile.
     """
-    raise NotImplementedError("Implementation begins in B4.")
-
-
-def require_beta_env() -> None:
-    """Assert BETA_ENV == 'beta' or raise with clear error.
-
-    Implementation begins in B4.
-    """
-    raise NotImplementedError("Implementation begins in B4.")
+    if profile.is_production():
+        raise ProductionResourceError(
+            "This command is blocked in the PRODUCTION profile. "
+            "Only read-only operations (status, health, diagnostics) are "
+            "permitted. Write operations must be performed by the production "
+            "installer outside this CLI."
+        )

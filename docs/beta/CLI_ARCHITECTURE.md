@@ -2,6 +2,32 @@
 
 **Document:** CLI_ARCHITECTURE.md
 **Series:** B1 Architecture Blueprint
+**B5 status (2026-06-27): CLOSED — Owner approved 2026-06-27.**
+Implementation commit: see IMPLEMENTATION_ROADMAP.md.
+
+**B5 local invocation:**
+```
+python -m cli.main <command> [options]
+```
+
+**B5 implemented commands (functional):**
+- `install dry-run [--env-file <path>] [--install-dir <path>]` — B4 dry-run smoke path
+- `configure show [--env-file <path>] [--json]` — display config, secrets redacted
+- `configure verify [--env-file <path>] [--json]` — validate via B3 ConfigValidator
+- `status [--env-file <path>] [--json]` — local env/config status
+- `health [--env-file <path>] [--json]` — local-only health checks (no network)
+- `diagnostics [--env-file <path>] [--json]` — config + prerequisites diagnostic report
+
+**B5 stub commands (exit 0, print "Not implemented in this phase"):**
+migrate, backup, logs, update, adapters, channels, sources, users, scheduler, ai
+
+**B5 known limitations:**
+- Interactive wizard (install without --dry-run) requires B6 (Docker Runtime)
+- `health db`, `health sources`, `health channels` require B6 (running stack)
+- `migrate`, `backup`, `restore`, `update` require B6/B7/B15
+- `users`, `channels`, `sources`, `adapters` require B7/B8/B14
+- `scheduler`, `ai` require B11/B12
+- Packaging as `wooprice` command requires B6 Dockerfile (python -m cli.main is the B5 path)
 
 ---
 

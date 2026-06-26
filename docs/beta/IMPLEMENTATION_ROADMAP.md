@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-27 — B4 closed; B5 CLI Foundation next
+**Last revised:** 2026-06-27 — B5 implemented; READY FOR OWNER REVIEW
 
 ---
 
@@ -287,24 +287,94 @@ entry point.
 
 ### B5 — CLI Foundation
 
-**Status:** NOT STARTED
+**Status:** READY FOR OWNER REVIEW
 
-**Goal:** The `wooprice` CLI is installable and all 16 command groups are operational
-(even if most subcommands return "not yet implemented"). Health and status commands
-are fully working. Requires B4 (Installer) because `wooprice configure` and
-`wooprice migrate` rely on the Config Manager and the installed stack.
+**Architecture constraint:** B5 CLI Foundation implements only local, pre-server commands.
+Docker stack commands (health db/sources/channels), database migrations, backup/restore,
+update, users, scheduler, and AI are explicitly out of scope for B5.
+All stub commands exit safely with "Not implemented in this phase."
+
+**Goal:** The `wooprice` CLI provides a usable management entrypoint consuming B3
+Configuration Foundation and B4 Installer Foundation. Prepares for first controlled
+test installation on a clean Linux server.
 
 **Key implementation concerns:**
-- `[BETA ENVIRONMENT]` banner is non-suppressible from day one
-- `env_guard.py` production resource check active before any write operation
-- `wooprice health all` fully working (requires B4 stack running)
+- `[BETA ENVIRONMENT]` banner printed on every invocation; cannot be suppressed
+- Production profile blocks install and configure write paths; read-only commands always permitted
+- CLI orchestrates B3 and B4 — no duplicate config validation or installer logic
+- No Docker execution, no network calls, no production service connections anywhere in CLI
+- All secrets redacted in output (config show, install dry-run, diagnostics, status)
+
+**Local invocation command (B5):**
+```
+python -m cli.main <command> [options]
+```
+
+**Dry-run install smoke path:**
+```
+python -m cli.main install dry-run --env-file /path/to/.env --install-dir /opt/wooprice-beta
+```
 
 **Deliverables:**
-- `cli/main.py` with all 16 groups registered
-- `wooprice status` working
-- `wooprice health all` working
-- `wooprice configure` commands working (from B3)
-- `tests/beta/cli/` — unit tests for all CLI modules
+
+1. **CLI Output Utilities** (`cli/shared/output.py`) ✓
+   - Rich console, banner, error, success, warning, section, table helpers
+   - Production profile warning block
+
+2. **Environment Safety Guard** (`cli/shared/env_guard.py`) ✓
+   - `ProductionResourceError` exception
+   - `require_beta_env(profile)` — blocks write ops in PRODUCTION profile
+
+3. **Config Reader Helper** (`cli/shared/config_reader.py`) ✓
+   - `load_config(env_file)` — wraps B3 ConfigurationManager
+   - `validate_env_file(env_file)` — B3 ConfigValidator direct call
+   - `redact_env_dict(env_dict)` — secrets → [REDACTED]
+   - `secret_status(env_dict)` — {field: 'set'|'not set'} (never values)
+
+4. **Main Entry Point** (`cli/main.py`) ✓
+   - 15 command groups registered
+   - `python -m cli.main` invocation working
+
+5. **install dry-run** (`cli/install.py`) ✓
+   - Wraps B4 `dry_run_install()`
+   - Writes nothing; shows planned files, dirs, masked secrets, validation result
+   - PRODUCTION profile blocked
+
+6. **configure show** / **configure verify** (`cli/configure.py`) ✓
+   - `show`: displays config with all secrets as [REDACTED]
+   - `verify`: runs B3 ConfigValidator, shows field-level errors
+
+7. **status** (`cli/status.py`) ✓
+   - Local: profile, config loaded/valid, paths, domain, port
+   - No production service calls
+
+8. **health** (`cli/health.py`) ✓
+   - Python version, required module imports, config load/validate, storage path
+   - No external network calls; no Docker execution
+
+9. **diagnostics** (`cli/diagnostics.py`) ✓
+   - Config validation summary, missing fields, secret status (set/not set only)
+   - B4 prerequisite summary
+   - No secrets in output
+
+10. **Stub commands** (10 groups) ✓
+    - migrate, backup, logs, update, adapters, channels, sources, users, scheduler, ai
+    - Each prints "Not implemented in this phase." and exits 0
+
+11. **Test Suite** (`tests/beta/cli/`) ✓
+    - 9 test modules; covers all required test categories from B5 spec
+
+12. **Documentation** (`docs/beta/CLI_ARCHITECTURE.md`) ✓
+    - B5 implementation note added; local invocation documented
+
+**Tests:** `tests/beta/cli/` — 9 modules, tests pending count
+
+**Known limitations (technical debt):**
+- Interactive install wizard requires B6 (Docker runtime)
+- `health db/sources/channels` require B6 running stack
+- `wooprice` command packaging requires B6 Dockerfile; `python -m cli.main` is the B5 path
+
+**TEP impact:** None.
 
 ---
 
