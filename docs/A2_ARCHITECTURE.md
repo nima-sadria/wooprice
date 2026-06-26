@@ -22,7 +22,7 @@
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
 | A2.5 | Change Set Engine | CLOSED |
 | A2.6 | Dry Run Engine | CLOSED |
-| A2.7 | Execution Engine | NOT STARTED |
+| A2.7 | Execution Engine | READY FOR OWNER REVIEW |
 | A2.8 | Scheduling Engine | NOT STARTED |
 | A2.9 | AI Foundation | NOT STARTED |
 
@@ -118,10 +118,30 @@ Deliverables:
 - `alembic_a2/versions/a2_005_dry_run_engine.py` — migration a2_005 (3 a2_-prefixed tables; down_revision=a2_004)
 - `tests/a2/test_a2_dry_run.py` — 73 tests (digest verification, item validation, confirmation invalidation scenarios, migration lineage, isolation)
 
-### A2.7 — Execution Engine (NOT STARTED)
+### A2.7 — Execution Engine (READY FOR OWNER REVIEW)
 
-Applies an approved change set to WooCommerce and updates the canonical model, writing
-audit and change-history records for every mutation.
+Executes approved, confirmed, immutable Change Sets through a controlled adapter interface.
+The Execution Engine enforces five sequential prerequisites before processing any item:
+(1) valid SellerConfirmation, (2) confirmation digest equals Change Set digest,
+(3) Dry Run result is not BLOCK, (4) Dry Run digest_verified is True, (5) independent
+digest recomputation from items matches the stored digest.
+
+Live freshness is verified per item immediately before execution via the adapter. Freshness
+failure hard-blocks the item (BLOCKED) and the overall execution (BLOCKED). Retry handles
+transient adapter failures. Idempotency keys prevent duplicate execution records and
+duplicate item records. Stale RUNNING detection (recovery foundation) is implemented
+without automatic recovery.
+
+A2.7 scope constraint: Real WooCommerce write APIs are NOT connected in this phase.
+All execution goes through DummyExecutionAdapter (simulation only, no network calls).
+No existing Workspace Apply or WooCommerce write logic is modified.
+
+Deliverables:
+- `app/a2/models/execution.py` — Execution, ExecutionBatch, ExecutionItem, ExecutionAttempt ORM models
+- `app/a2/repositories/execution_repository.py` — ExecutionRepository: state machine, idempotency, stale detection
+- `app/a2/services/execution_service.py` — ExecutionService: orchestrates execution lifecycle; ChannelExecutionAdapter ABC; DummyExecutionAdapter (test/simulation only); ExecutionItemInput, FreshnessContext, FreshnessResult, ExecuteItemResult, ExecutionReport dataclasses
+- `alembic_a2/versions/a2_006_execution_engine.py` — migration a2_006 (down_revision=a2_005); 4 a2_-prefixed tables
+- `tests/a2/test_a2_execution.py` — 72 tests (prerequisites, freshness, outcomes, idempotency, retry, state machine, terminal states, cancel, recovery, repository, report, migration, isolation)
 
 ### A2.8 — Scheduling Engine (NOT STARTED)
 

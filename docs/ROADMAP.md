@@ -112,7 +112,7 @@ feature stream (7.x/8.x) and has its own governance gate.
 | A2.4 | Safety Policy Engine | READY FOR OWNER APPROVAL |
 | A2.5 | Change Set Engine | CLOSED |
 | A2.6 | Dry Run Engine | CLOSED |
-| A2.7 | Execution Engine | NOT STARTED |
+| A2.7 | Execution Engine | READY FOR OWNER REVIEW |
 | A2.8 | Scheduling Engine | NOT STARTED |
 | A2.9 | AI Foundation | NOT STARTED |
 
