@@ -58,7 +58,7 @@ class ChangeSet(A2Base):
         "ChangeSetRevision",
         back_populates="change_set",
         order_by="ChangeSetRevision.revision_number",
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",
     )
 
 

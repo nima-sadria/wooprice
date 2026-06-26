@@ -50,7 +50,7 @@ def compute_change_set_digest(
     """
     sorted_items = sorted(
         items,
-        key=lambda i: (i.product_id, i.proposal_id),
+        key=lambda i: (i.product_id, i.proposal_id, i.proposal_hash, i.safety_result_id, i.rule_version_id),
     )
     payload = {
         "destination_channel": destination_channel,
@@ -182,11 +182,11 @@ class ChangeSetService:
     def transition(self, change_set_id: str, target_state: str) -> ChangeSet:
         """Transition a ChangeSet to a new state via the state machine.
 
-        Valid transitions:
-          DRAFT  → READY | ARCHIVED
-          READY  → SUPERSEDED | ARCHIVED
-          SUPERSEDED → ARCHIVED
-          ARCHIVED → (none; terminal)
+        Valid transitions (exactly three; per A2.5 architecture spec):
+          DRAFT  → READY
+          READY  → SUPERSEDED
+          READY  → ARCHIVED
+        SUPERSEDED and ARCHIVED are both terminal states.
 
         Raises InvalidStateTransitionError for any other transition.
         """

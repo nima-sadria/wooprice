@@ -222,6 +222,18 @@ class TestDigestDeterminism:
             == compute_change_set_digest(items_b, "WC", "all", "snap-001")
         )
 
+    def test_sort_is_fully_deterministic_regardless_of_input_order(self):
+        """Sort key covers all payload fields so digest is independent of caller order
+        even when product_id + proposal_id are identical across items."""
+        item_a = _item("SAME-SKU", proposal_id="same-id", proposal_hash="alpha",
+                        safety_result_id="sr-1", rule_version_id="rv-1")
+        item_b = _item("SAME-SKU", proposal_id="same-id", proposal_hash="beta",
+                        safety_result_id="sr-2", rule_version_id="rv-2")
+        # Both orderings must produce the same digest (sort is fully determined)
+        d1 = compute_change_set_digest([item_a, item_b], "WC", "all", "snap-001")
+        d2 = compute_change_set_digest([item_b, item_a], "WC", "all", "snap-001")
+        assert d1 == d2
+
 
 # ── Repository CRUD ───────────────────────────────────────────────────────────
 
@@ -345,15 +357,21 @@ class TestChangeSetRepositoryCRUD:
 
 
 class TestStateMachine:
+    """Transition matrix (exactly 3 allowed transitions per A2.5 architecture spec):
+
+    DRAFT      → READY         ✓ (valid)
+    READY      → SUPERSEDED    ✓ (valid)
+    READY      → ARCHIVED      ✓ (valid)
+    all others                 ✗ (invalid; raises InvalidStateTransitionError)
+    SUPERSEDED and ARCHIVED are both terminal states.
+    """
+
+    # ── Valid transitions (3 total) ──────────────────────────────────────────
+
     def test_draft_to_ready(self, repo):
         cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
         result = repo.transition_state(cs.id, "READY")
         assert result.state == "READY"
-
-    def test_draft_to_archived(self, repo):
-        cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
-        result = repo.transition_state(cs.id, "ARCHIVED")
-        assert result.state == "ARCHIVED"
 
     def test_ready_to_superseded(self, repo):
         cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
@@ -367,12 +385,12 @@ class TestStateMachine:
         result = repo.transition_state(cs.id, "ARCHIVED")
         assert result.state == "ARCHIVED"
 
-    def test_superseded_to_archived(self, repo):
+    # ── Invalid transitions (all others rejected) ────────────────────────────
+
+    def test_draft_to_archived_invalid(self, repo):
         cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
-        repo.transition_state(cs.id, "READY")
-        repo.transition_state(cs.id, "SUPERSEDED")
-        result = repo.transition_state(cs.id, "ARCHIVED")
-        assert result.state == "ARCHIVED"
+        with pytest.raises(InvalidStateTransitionError):
+            repo.transition_state(cs.id, "ARCHIVED")
 
     def test_draft_to_superseded_invalid(self, repo):
         cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
@@ -385,23 +403,12 @@ class TestStateMachine:
         with pytest.raises(InvalidStateTransitionError):
             repo.transition_state(cs.id, "DRAFT")
 
-    def test_archived_is_terminal(self, repo):
+    def test_superseded_is_terminal_cannot_transition_to_archived(self, repo):
         cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
-        repo.transition_state(cs.id, "ARCHIVED")
+        repo.transition_state(cs.id, "READY")
+        repo.transition_state(cs.id, "SUPERSEDED")
         with pytest.raises(InvalidStateTransitionError):
-            repo.transition_state(cs.id, "READY")
-
-    def test_archived_to_draft_invalid(self, repo):
-        cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
-        repo.transition_state(cs.id, "ARCHIVED")
-        with pytest.raises(InvalidStateTransitionError):
-            repo.transition_state(cs.id, "DRAFT")
-
-    def test_archived_to_superseded_invalid(self, repo):
-        cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
-        repo.transition_state(cs.id, "ARCHIVED")
-        with pytest.raises(InvalidStateTransitionError):
-            repo.transition_state(cs.id, "SUPERSEDED")
+            repo.transition_state(cs.id, "ARCHIVED")
 
     def test_superseded_to_draft_invalid(self, repo):
         cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
@@ -417,12 +424,33 @@ class TestStateMachine:
         with pytest.raises(InvalidStateTransitionError):
             repo.transition_state(cs.id, "READY")
 
+    def test_archived_is_terminal(self, repo):
+        cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
+        repo.transition_state(cs.id, "READY")
+        repo.transition_state(cs.id, "ARCHIVED")
+        with pytest.raises(InvalidStateTransitionError):
+            repo.transition_state(cs.id, "READY")
+
+    def test_archived_to_draft_invalid(self, repo):
+        cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
+        repo.transition_state(cs.id, "READY")
+        repo.transition_state(cs.id, "ARCHIVED")
+        with pytest.raises(InvalidStateTransitionError):
+            repo.transition_state(cs.id, "DRAFT")
+
+    def test_archived_to_superseded_invalid(self, repo):
+        cs = repo.create(destination_channel="WC", scope="all", source_snapshot_id="s1")
+        repo.transition_state(cs.id, "READY")
+        repo.transition_state(cs.id, "ARCHIVED")
+        with pytest.raises(InvalidStateTransitionError):
+            repo.transition_state(cs.id, "SUPERSEDED")
+
     def test_transition_nonexistent_raises_value_error(self, repo):
         with pytest.raises(ValueError, match="not found"):
             repo.transition_state("no-such-id", "READY")
 
-    def test_only_draft_and_ready_can_be_cancelled(self, repo):
-        """ARCHIVED state = cancellation; only DRAFT and READY are valid sources."""
+    def test_only_ready_can_be_archived(self, repo):
+        """Only READY change sets may be archived. DRAFT and SUPERSEDED cannot."""
         cs_draft = repo.create(destination_channel="WC", scope="a", source_snapshot_id="s1")
         cs_ready = repo.create(destination_channel="WC", scope="b", source_snapshot_id="s2")
         cs_superseded = repo.create(destination_channel="WC", scope="c", source_snapshot_id="s3")
@@ -431,12 +459,14 @@ class TestStateMachine:
         repo.transition_state(cs_superseded.id, "READY")
         repo.transition_state(cs_superseded.id, "SUPERSEDED")
 
-        # DRAFT → ARCHIVED: OK
-        repo.transition_state(cs_draft.id, "ARCHIVED")
-        # READY → ARCHIVED: OK
+        # READY → ARCHIVED: allowed
         repo.transition_state(cs_ready.id, "ARCHIVED")
-        # SUPERSEDED → ARCHIVED is allowed (cleanup, not cancellation per se)
-        repo.transition_state(cs_superseded.id, "ARCHIVED")
+        # DRAFT → ARCHIVED: NOT allowed
+        with pytest.raises(InvalidStateTransitionError):
+            repo.transition_state(cs_draft.id, "ARCHIVED")
+        # SUPERSEDED → ARCHIVED: NOT allowed (SUPERSEDED is terminal)
+        with pytest.raises(InvalidStateTransitionError):
+            repo.transition_state(cs_superseded.id, "ARCHIVED")
 
 
 # ── Service layer ─────────────────────────────────────────────────────────────
@@ -550,6 +580,7 @@ class TestChangeSetServiceCreateRevision:
             source_snapshot_id="snap-001",
             items=[_item()],
         )
+        svc.transition(cs.id, "READY")
         svc.transition(cs.id, "ARCHIVED")
         with pytest.raises(ValueError, match="state"):
             svc.create_revision(cs.id, items=[_item(proposal_hash="hash-z")])
@@ -702,6 +733,21 @@ class TestImmutability:
         from app.a2.services.change_set_service import ChangeSetService
         assert not hasattr(ChangeSetService, "update_revision"), (
             "ChangeSetService must not expose update_revision — revisions are immutable."
+        )
+
+    def test_change_set_revisions_cascade_does_not_include_delete_orphan(self):
+        """ChangeSet.revisions must use save-update/merge cascade only.
+        delete-orphan would allow callers to delete immutable revisions via ORM."""
+        from sqlalchemy import inspect as sa_inspect
+        from app.a2.models.change_set import ChangeSet
+        mapper = sa_inspect(ChangeSet)
+        revisions_rel = mapper.relationships["revisions"]
+        cascade_str = str(revisions_rel.cascade)
+        assert "delete-orphan" not in cascade_str, (
+            f"ChangeSet.revisions must not have delete-orphan cascade; got: {cascade_str!r}"
+        )
+        assert "delete" not in cascade_str.replace("save-update", "").replace("merge", ""), (
+            f"ChangeSet.revisions must not have delete cascade; got: {cascade_str!r}"
         )
 
     def test_revision_items_persist_after_multiple_revisions(self, svc, repo):

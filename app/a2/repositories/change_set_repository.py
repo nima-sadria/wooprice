@@ -11,10 +11,15 @@ from sqlalchemy.orm import Session, joinedload
 from ..models.change_set import ChangeSet, ChangeSetItem, ChangeSetRevision
 
 # Valid state transitions for the ChangeSet state machine.
+# Exactly three transitions are permitted (per A2.5 architecture spec):
+#   DRAFT → READY
+#   READY → SUPERSEDED
+#   READY → ARCHIVED
+# SUPERSEDED and ARCHIVED are both terminal states.
 _VALID_TRANSITIONS: dict[str, set[str]] = {
-    "DRAFT": {"READY", "ARCHIVED"},
+    "DRAFT": {"READY"},
     "READY": {"SUPERSEDED", "ARCHIVED"},
-    "SUPERSEDED": {"ARCHIVED"},
+    "SUPERSEDED": set(),
     "ARCHIVED": set(),
 }
 
