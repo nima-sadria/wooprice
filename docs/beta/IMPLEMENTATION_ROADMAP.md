@@ -109,7 +109,7 @@ All B3+ phases work within this structure.
 
 ### B3 — Configuration Foundation
 
-**Status:** IMPLEMENTED — commit pending
+**Status:** READY FOR OWNER REVIEW — commit `9a487c7`
 
 **Architecture constraint (CHAT2 decision):** B3 Configuration Core is
 framework-independent. Zero FastAPI, Typer, Docker, or HTTP imports.
@@ -181,7 +181,7 @@ and stable before those consumers are built.
     - All 22 required + 8 optional variables documented with type, description, example
     - Secret-separation model, profile behavior, emergency edit procedure
 
-**Tests:** `tests/beta/config/` — 9 test modules, ~90 test cases
+**Tests:** `tests/beta/config/` — 9 test modules, 146 tests passing
 - `conftest.py` — shared fixtures (`valid_env`, `valid_env_with_paths`)
 - `test_profiles.py` — ConfigProfile enum, from_string(), banner()
 - `test_secrets.py` — SECRET_FIELDS, EnvSecretProvider
