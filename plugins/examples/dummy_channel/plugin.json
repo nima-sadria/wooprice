@@ -1,0 +1,16 @@
+{
+  "id": "dummy-channel",
+  "name": "Dummy Channel Adapter",
+  "version": "1.0.0",
+  "category": "channel_adapter",
+  "author": "WooPrice Beta",
+  "description": "Logs and acknowledges all change sets without applying them. Reference implementation.",
+  "min_wooprice_version": "beta-1.0.0",
+  "max_wooprice_version": null,
+  "entry_point": "adapter.py",
+  "class_name": "DummyChannelAdapter",
+  "permissions": [],
+  "config_schema": null,
+  "tep_position": null,
+  "ui_routes": []
+}

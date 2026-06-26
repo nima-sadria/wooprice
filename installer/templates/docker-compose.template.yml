@@ -1,0 +1,51 @@
+# WooPrice Beta — Docker Compose template
+# Generated output: docker-compose.beta.yml
+# Substitution via envsubst from installer/lib/compose_gen.sh
+#
+# This is a TEMPLATE with placeholders only. No real values here.
+# Implementation begins in B3.
+# See: docs/beta/DEPLOYMENT_ARCHITECTURE.md
+
+version: "3.9"
+
+services:
+  nginx:
+    image: nginx:1.25-alpine
+    # Configuration implemented in B3.
+
+  app:
+    image: wooprice-beta:latest
+    environment:
+      - BETA_ENV=${BETA_ENV}
+      - BETA_DOMAIN=${BETA_DOMAIN}
+      - BETA_PORT=${BETA_PORT}
+      - BETA_DATABASE_URL=${BETA_DATABASE_URL}
+      - BETA_JWT_SECRET=${BETA_JWT_SECRET}
+      - BETA_REST_API_SECRET=${BETA_REST_API_SECRET}
+    # Full configuration implemented in B3.
+
+  worker:
+    image: wooprice-beta:latest
+    # Full configuration implemented in B3.
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=${BETA_POSTGRES_DB}
+      - POSTGRES_USER=${BETA_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${BETA_POSTGRES_PASSWORD}
+    volumes:
+      - beta_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - beta_redisdata:/data
+
+volumes:
+  beta_pgdata:
+  beta_redisdata:
+
+networks:
+  beta_net:
+    driver: bridge
