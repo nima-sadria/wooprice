@@ -132,6 +132,17 @@ docker compose -f docker-compose.yml -f docker-compose.a2.yml up -d
 
 ---
 
+## WooPrice Beta
+
+All future new product work, UI development, and platform capabilities target
+WooPrice Beta — a completely isolated environment based on the A2 Platform Core.
+
+Production WooPrice is maintenance-only from this point forward.
+
+Reference: [docs/BETA_STRATEGY.md](BETA_STRATEGY.md)
+
+---
+
 ## Stable Checkpoints
 
 * react-wsd-stable

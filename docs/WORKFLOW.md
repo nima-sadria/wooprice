@@ -241,3 +241,12 @@ Before any production cutover is attempted:
 ## Backend Stability Rule
 
 The backend (`app/main.py` and all files under `app/`) must not be modified during frontend migration phases unless a verified defect in the backend is found and documented. All 47 backend tests must pass before and after any change. No new endpoints may be added without explicit approval.
+
+---
+
+## WooPrice Beta
+
+All future new product, UI, and platform work targets WooPrice Beta — not Production WooPrice.
+Production WooPrice is maintenance-only from this point forward (bug fixes and safety fixes only).
+
+Reference: [docs/BETA_STRATEGY.md](BETA_STRATEGY.md)

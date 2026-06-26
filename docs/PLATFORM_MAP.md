@@ -517,6 +517,7 @@ Codex must re-verify PLATFORM_MAP against current code when any change affects:
 | C — API permission list | `app/main.py` each `@app.get`/`@app.post` decorator |
 | D — Safety tree | Dry-run guards + apply guards in `app/main.py` |
 | E — Roadmap | `docs/ROADMAP.md` |
+| F — Beta Strategy | `docs/BETA_STRATEGY.md` — WooPrice Beta; future new work target |
 
 ### Rules
 - If information cannot be verified from code, mark it UNKNOWN or remove it.

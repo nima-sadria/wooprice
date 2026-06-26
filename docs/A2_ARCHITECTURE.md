@@ -247,3 +247,4 @@ The following conditions must hold before any A2.2 implementation begins:
 | `docs/ARCHITECTURE.md` | A2 Track section — governance, phase sequence, compose path |
 | `docs/PLATFORM_MAP.md` | Section H — governance, phase sequence, compose path |
 | `docs/A2_ARCHITECTURE.md` | This document — authoritative A2 reference |
+| `docs/BETA_STRATEGY.md` | WooPrice Beta strategy — all future new work targets Beta |
