@@ -114,7 +114,7 @@ feature stream (7.x/8.x) and has its own governance gate.
 | A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | CLOSED |
 | A2.8 | Scheduling Engine | CLOSED |
-| A2.9 | AI Foundation | NOT STARTED |
+| A2.9 | AI Foundation | READY FOR OWNER REVIEW |
 
 Architecture reference: `docs/A2_ARCHITECTURE.md`
 

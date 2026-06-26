@@ -24,7 +24,7 @@
 | A2.6 | Dry Run Engine | CLOSED |
 | A2.7 | Execution Engine | CLOSED |
 | A2.8 | Scheduling Engine | CLOSED |
-| A2.9 | AI Foundation | NOT STARTED |
+| A2.9 | AI Foundation | READY FOR OWNER REVIEW |
 
 ---
 
@@ -169,10 +169,32 @@ Deliverables:
 - `alembic_a2/versions/a2_007_scheduling_engine.py` — migration a2_007 (down_revision=a2_006); 3 a2_-prefixed tables
 - `tests/a2/test_a2_scheduling.py` — 38 tests, all pass
 
-### A2.9 — AI Foundation (NOT STARTED)
+### A2.9 — AI Foundation (READY FOR OWNER REVIEW)
 
-Integrates AI-assisted capabilities: anomaly detection on proposed changes, natural-language
-query over canonical product history, and suggested pricing actions.
+Provides advisory intelligence that assists pricing decisions while remaining completely
+outside the Trusted Execution Path. The AI Foundation is advisory only — it never
+participates in deterministic execution, never authorizes a Change Set, never triggers
+execution or scheduling, and never writes to any destination channel.
+
+All AI output is a single object type: AdvisoryInsight. No executable domain objects
+(PriceProposal, ChangeSet, DryRunResult, ExecutionPlan, Schedule, ApplyCommand) are
+ever produced by A2.9 components.
+
+Prior phases (Rule Engine, Safety Engine, Change Set Engine, Dry Run Engine, Execution
+Engine, Scheduling Engine) must never import from `app.a2.ai`. The dependency is
+one-way: AI may read prior-phase outputs; prior phases must never depend on AI.
+
+Deliverables:
+- `app/a2/ai/__init__.py` — AI Foundation package (isolation boundary declared)
+- `app/a2/ai/models.py` — AdvisorySession, AdvisoryInsight ORM models; plain-string
+  subject_id and related_object_id (phase independence — no FK to prior-phase tables)
+- `app/a2/ai/repository.py` — AdvisoryRepository: create_session, store_insight,
+  list_insights, get_session, archive_session
+- `app/a2/ai/service.py` — AdvisoryService: generate_explanation, generate_risk_summary,
+  detect_anomaly, detect_stale_price, assign_review_priority, generate_rule_recommendation
+- `alembic_a2/versions/a2_008_ai_foundation.py` — migration a2_008 (down_revision=a2_007);
+  2 a2_-prefixed tables (a2_advisory_sessions, a2_advisory_insights)
+- `tests/a2/test_a2_advisory.py` — 51 tests, all pass
 
 ---
 

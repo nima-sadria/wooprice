@@ -21,6 +21,7 @@ from app.a2.models import change_set  # noqa: F401,E402  — A2.5 models
 from app.a2.models import dry_run  # noqa: F401,E402  — A2.6 models
 from app.a2.models import execution  # noqa: F401,E402  — A2.7 models
 from app.a2.models import schedule  # noqa: F401,E402  — A2.8 models
+from app.a2.ai import models as advisory_models  # noqa: F401,E402  — A2.9 models
 
 target_metadata = A2Base.metadata
 
