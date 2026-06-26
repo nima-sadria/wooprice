@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-26 — Owner Architecture Decision: Configuration Foundation first
+**Last revised:** 2026-06-27 — B3 implemented; Runtime Config API moved to B5 (framework-independent core only)
 
 ---
 
@@ -109,6 +109,13 @@ All B3+ phases work within this structure.
 
 ### B3 — Configuration Foundation
 
+**Status:** IMPLEMENTED — commit pending
+
+**Architecture constraint (CHAT2 decision):** B3 Configuration Core is
+framework-independent. Zero FastAPI, Typer, Docker, or HTTP imports.
+Usable from backend, CLI, installer, tests, and future services without modification.
+The Runtime Configuration REST API has been moved to B5 (CLI Foundation).
+
 **Goal:** Implement the complete configuration subsystem before any other runtime
 component. Configuration is consumed by the Installer, CLI, Docker runtime, Backend,
 Frontend, Plugins, Scheduler, and all future services. It must be correct, validated,
@@ -116,68 +123,79 @@ and stable before those consumers are built.
 
 **Key implementation concerns:**
 - No application code may read `os.environ` directly — all access flows through ConfigurationManager
-- Secrets never appear in managed config files, logs, or API responses
-- Startup validation must be strict — missing or invalid required variables cause `exit(1)` with clear message
+- Secrets stored as `pydantic.SecretStr` — redacted in repr(), accessible via `.get_secret_value()`
+- Startup validation returns structured `ValidationResult` — never raises, never terminates
 - Profile separation (dev / beta / production) enforced at initialization time; never mix
 - Secret Provider Abstraction decouples the source of secrets from their consumers
   (allows future migration to Vault, AWS Secrets Manager, etc. without code changes)
+- TOML config file write path deferred to B4 (Installer Foundation)
 
 **Deliverables:**
 
-1. **Configuration Manager** (`app/beta/config/manager.py`)
-   - `ConfigurationManager` class with `validate()`, `get()`, `set()`, `verify()`
-   - Reads environment variables and the managed TOML config file
-   - Provides a typed `BetaConfig` object to all services via dependency injection
+1. **Configuration Manager** (`app/beta/config/manager.py`) ✓
+   - Public API: `load()`, `validate()`, `get()`, `set()`, `verify()`, `profile()`, `migrate()`
+   - Reads environment variables and optional managed TOML config file
+   - Provides typed `BetaConfig` to all consumers — no raw env dicts passed around
 
-2. **Environment Loader** (`app/beta/config/loader.py`)
-   - Loads `.env` file via `python-dotenv` at application startup
-   - Merges with process environment (process env takes priority)
-   - Raises `ConfigurationError` on malformed `.env`
+2. **Environment Loader** (`app/beta/config/loader.py`) ✓
+   - `EnvironmentLoader` with `.load()` and `.load_beta_only()`
+   - Merges `.env` file with process environment (process env takes priority)
+   - Raises `ConfigurationError` on missing `.env` file; fallback manual parser if dotenv unavailable
 
-3. **Placeholder Expansion** (`app/beta/config/expander.py`)
-   - Resolves `${VAR}` placeholders in the managed TOML config file
-   - Used when reading the config file — values in TOML may reference env vars
-   - Never writes expanded values back to disk (expansion is read-time only)
+3. **Placeholder Expansion** (`app/beta/config/expander.py`) ✓
+   - `expand_placeholders(text, env)` — resolves `${VAR}` in TOML config text at read time
+   - `find_unexpanded(text, env)` — lists unexpanded variable names for diagnostics
+   - Never writes expanded values back to disk
 
-4. **Configuration Validation** (`app/beta/config/validation.py`)
-   - Per-variable validators for all 21 required `BETA_*` variables
-   - Validates types, formats, ranges, and enum membership
-   - Produces a structured `ValidationResult` with field-level errors
+4. **Configuration Validation** (`app/beta/config/validation.py`) ✓
+   - `ConfigValidator` with per-variable validators for all 22 required `BETA_*` variables
+   - Validates types, formats, ranges, URL schemes, IANA timezones, ISO 4217 currency codes
+   - Returns structured `ValidationResult` with `FieldError` list — never raises, never exits
 
-5. **Secret Provider Abstraction** (`app/beta/config/secrets.py`)
-   - `SecretProvider` abstract base class
+5. **Secret Provider Abstraction** (`app/beta/config/secrets.py`) ✓
+   - `SecretProvider` abstract base class with `get()` and `names()`
    - `EnvSecretProvider` — reads secrets from environment variables (default)
-   - Interface designed for future `VaultSecretProvider` without changing callers
+   - `SECRET_FIELDS` frozenset — canonical list of 6 secret variable names
 
-6. **Runtime Configuration API** (`app/beta/api/v2/config.py` — implemented)
-   - `GET /api/v2/config/` — returns current configuration (secrets redacted)
-   - `POST /api/v2/config/verify` — runs drift check; returns discrepancy list
-   - Admin permission required; no secret values in any response
+6. **~~Runtime Configuration API~~** — **moved to B5 (CLI Foundation)**
+   - `app/beta/api/v2/config.py` placeholder updated to reference B5
 
-7. **Environment Profiles** (`app/beta/config/profiles.py`)
-   - `ConfigProfile` enum: `DEV`, `BETA`, `PRODUCTION`
-   - Profile-specific defaults and validation rules
-   - `PRODUCTION` profile activates all safety guards; `DEV` enables debug output
+7. **Environment Profiles** (`app/beta/config/profiles.py`) ✓
+   - `ConfigProfile(str, Enum)`: `DEV`, `BETA`, `PRODUCTION`
+   - `from_string()`, `is_production()`, `is_dev()`, `banner()`
+   - PRODUCTION profile adds CLI warning; never used for new test data
 
-8. **Configuration Schema** (`app/beta/config/schema.py` — implemented)
-   - Pydantic v2 model for `BetaConfig`
-   - All 21 required variables + 7 optional variables with typed fields
+8. **Configuration Schema** (`app/beta/config/schema.py`) ✓
+   - Pydantic v2 `BetaConfig` (frozen model) with 22 required + 8 optional typed fields
+   - Secrets as `SecretStr`; URL, timezone, currency, secret-length validators
+   - `from_env(dict)` factory; `plugin_dir` computed from `storage_path` if not set
    - Validators for URL format, timezone strings, ISO 4217 codes, secret length
 
-9. **Configuration Migration Strategy** (`app/beta/config/migration.py`)
-   - Detects when a managed config file is from an older Beta version
-   - Applies field additions/renames without losing existing values
-   - Used by `wooprice update apply` to migrate config between Beta versions
+9. **Configuration Migration Strategy** (`app/beta/config/migration.py`) ✓
+   - `ConfigMigration` with `detect_version()`, `needs_migration()`, `migrate()`
+   - Returns updated config dict + list of change descriptions; never modifies in-place
+   - First version (beta-1.0.0) has no predecessor; new steps added as schema evolves
+   - TOML file write on migration deferred to B4 (Installer Foundation)
 
-10. **Configuration Documentation** (`app/beta/config/README.md`)
-    - Inline documentation of all config variables with examples
-    - Explains the secret-separation model (env vars vs. TOML)
-    - Explains profile behavior and the emergency manual edit procedure
+10. **Configuration Documentation** (`app/beta/config/README.md`) ✓
+    - All 22 required + 8 optional variables documented with type, description, example
+    - Secret-separation model, profile behavior, emergency edit procedure
 
-**Tests:** `tests/beta/config/` — full test suite covering all validators,
-profile switching, placeholder expansion, and startup failure modes.
+**Tests:** `tests/beta/config/` — 9 test modules, ~90 test cases
+- `conftest.py` — shared fixtures (`valid_env`, `valid_env_with_paths`)
+- `test_profiles.py` — ConfigProfile enum, from_string(), banner()
+- `test_secrets.py` — SECRET_FIELDS, EnvSecretProvider
+- `test_expander.py` — expand_placeholders(), find_unexpanded()
+- `test_validation.py` — per-field validators, ConfigValidator, ValidationResult
+- `test_schema.py` — BetaConfig.from_env() valid/invalid, SecretStr redaction
+- `test_loader.py` — EnvironmentLoader, .env file loading, process env priority
+- `test_migration.py` — detect_version(), needs_migration(), migrate()
+- `test_manager.py` — integration: load, validate, get, set, verify, profile, migrate
 
 **TEP impact:** None — B3 is infrastructure only.
+
+**Framework dependency scan:** Zero FastAPI, Typer, HTTP, Docker, Auth, Plugin, or UI imports.
+All modules: pure Python 3.12 standard library + Pydantic v2 + python-dotenv.
 
 ---
 

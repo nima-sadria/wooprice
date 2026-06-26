@@ -2,6 +2,10 @@
 
 **Document:** CONFIGURATION_ARCHITECTURE.md
 **Series:** B1 Architecture Blueprint
+**B3 implementation note (2026-06-27):** Configuration Core is framework-independent.
+Runtime Configuration REST API (`GET /api/v2/config/`, `POST /api/v2/config/verify`)
+has been moved to B5 (CLI Foundation) — not B3. The Python Core API is fully
+usable from backend, CLI, installer, tests, and worker without any REST layer.
 
 ---
 

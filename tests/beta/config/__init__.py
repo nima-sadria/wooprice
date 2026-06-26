@@ -1,1 +1,1 @@
-"""Tests for app/beta/config/ — implemented in B3."""
+"""Tests for app/beta/config/ — B3 Configuration Foundation."""
