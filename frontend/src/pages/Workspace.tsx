@@ -296,7 +296,7 @@ function reducer(s: WorkspaceState, a: Action): WorkspaceState {
         previewSelection: new Set(a.rows.filter(isAutoSelectEligible).map(r => r.product_id)),
       }
     case 'PREVIEW_ERROR':
-      if (s.previewPhase === 'ready') return s
+      if (s.previewPhase === 'ready' || s.previewPhase === 'error') return s
       return { ...s, previewPhase: 'error', previewSseUrl: null, previewError: a.message }
 
     case 'PREVIEW_PAGE':
