@@ -308,6 +308,57 @@ screens. No mobile-specific features are planned for B5 — this is desktop-firs
 | API 503 Service Unavailable | Show "service unavailable" banner; retry button |
 | Network error | Show "connection error" banner; retry button |
 | Unexpected API error | Show generic error message; log to console |
+| Integration plane failure | Show exact failure class (see Control Plane Resilience); Settings / Diagnostics remain accessible |
 
 All error states show what happened and what the user can do next. Raw API error
 messages are never shown directly — they are mapped to user-facing messages.
+
+Integration failures must show the specific failure class (dns_failure, tls_failure,
+timeout, unauthorized, forbidden, unreachable, invalid_response), never a collapsed
+generic message.
+
+---
+
+## Control Plane Resilience
+
+**Owner decision — 2026-06-27**
+
+The UI must maintain access to the Control Plane even when Integration Plane services
+are down.
+
+**Control Plane UI surfaces (always accessible):**
+- Login page
+- Settings / Admin panel
+- Integration credentials configuration (so the operator can fix credentials)
+- Diagnostics view
+- Feature flags manager
+- Plugin manager
+- Logs viewer
+- Backup / update controls
+
+**Integration Plane UI surfaces (may be disabled during outage):**
+- Product Explorer, Source Explorer, Change Set Viewer, Dry Run Viewer,
+  Execution Viewer, Scheduler Viewer, AI Insights Viewer
+
+**Required UI behavior during integration outage:**
+
+1. Show Settings / Integrations / Diagnostics — always.
+2. Hide or disable dependent operational feature menus (those that require live
+   integration data to be meaningful).
+3. Show a clear repair path: which integration is failing, exact failure class,
+   how to fix it (e.g., edit credentials, check network, review certificate).
+
+**Failure class display rule:** Diagnostics and integration health checks must
+display the exact failure class (dns_failure, tls_failure, timeout, unauthorized,
+forbidden, unreachable, invalid_response). A generic "could not connect" or
+"invalid credentials" message is not acceptable when the root cause is a DNS or
+TLS failure.
+
+**B8 requirement:** Settings and Diagnostics pages remain available during
+integration outage. Dependent feature menu items are disabled (not hidden) when
+integration health is failing, with a tooltip or banner explaining the outage.
+
+**B13 requirement:** Admin panel (feature flags, plugin manager, audit log,
+user management) must be accessible independent of Integration Plane status.
+These are Control Plane surfaces and must never be gated behind integration
+health.

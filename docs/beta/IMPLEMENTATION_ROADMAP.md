@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-27 — B5 Phase Completion Report produced; READY FOR CHAT2 REVIEW
+**Last revised:** 2026-06-27 — B5 Phase Completion Report produced; Control Plane Resilience decision recorded
 
 ---
 
@@ -70,6 +70,46 @@ B1 (Spec)
 
 B17 (Integration Testing) is the merge point for both the UI stream (B8–B12) and
 the admin/ops stream (B13–B16). Both streams must be complete before B17.
+
+---
+
+## Control Plane Resilience
+
+**Owner decision — 2026-06-27** — applies to all phases from B6 onward.
+
+WooPrice Beta separates the system into two operational planes:
+
+**Control Plane** — must remain accessible at all times:
+login, settings, integration credentials, diagnostics, health, feature flags,
+plugin manager, logs, backup/update controls.
+
+**Integration Plane** — may be unavailable:
+Nextcloud, WooCommerce, external adapters, AI providers, external APIs.
+
+**Critical rule:** The Control Plane must remain accessible even when one or more
+Integration Plane services are down (DNS failure, TLS failure, timeout, wrong
+credentials, adapter failure, plugin failure).
+
+**Auth rule (B7):** Local admin credential login is mandatory. Nextcloud and any
+external identity provider are Integration Plane services — their failure must not
+block owner or admin access.
+
+**UI rule (B8, B13):** Settings, Diagnostics, Admin, Feature Flags, and Plugin
+Manager remain available during integration outage. Dependent operational feature
+menus (Product Explorer, Scheduler Viewer, etc.) may be disabled when integration
+health is failing.
+
+**CLI rule (B5, B6+):** `configure show`, `configure verify`, `configure set`,
+`diagnostics`, `health` (local), and `adapters list` must work without external
+integrations being online.
+
+**Diagnostics failure class rule (B17 gate):** When an integration fails, the system
+must report the exact failure class — not a collapsed "Invalid credentials" message:
+`dns_failure`, `tls_failure`, `timeout`, `unauthorized`, `forbidden`, `unreachable`,
+`invalid_response`.
+
+**Production lesson:** WooPrice 7.5A silently collapsed DNS/TLS failures to Nextcloud
+into "Invalid Nextcloud credentials". Beta must not repeat this.
 
 ---
 
@@ -304,6 +344,9 @@ test installation on a clean Linux server.
 - CLI orchestrates B3 and B4 — no duplicate config validation or installer logic
 - No Docker execution, no network calls, no production service connections anywhere in CLI
 - All secrets redacted in output (config show, install dry-run, diagnostics, status)
+- **Control Plane Resilience (confirmed B5):** `configure show`, `configure verify`,
+  `status`, `health` (local), and `diagnostics` are offline-safe — zero network calls,
+  zero Docker execution. Confirmed by 185 B5 tests passing.
 
 **Local invocation command (B5):**
 ```
@@ -420,6 +463,12 @@ The B2 stub-auth decision is superseded — real auth is in place before B8.
 - Silent refresh on 401 before redirecting to login
 - Session invalidation on secret rotation must be immediate
 - Bootstrap admin endpoint (`/api/v2/users/bootstrap-admin`) callable only once (idempotent after first use)
+- **Control Plane Resilience:** Local credential login (email + password against Beta user DB)
+  is mandatory and must work independently of all Integration Plane services
+- **Nextcloud / external auth is an optional future integration** — its failure or absence
+  must never prevent owner or admin login
+- **External auth failure must not block owner/admin access** — if any external auth
+  provider is configured and unreachable, the local login path remains available
 
 **Deliverables:**
 - `app/beta/users/` — `BetaUser`, `Permission` ORM models + Beta migration `beta_001`
@@ -445,6 +494,11 @@ views. The A2 Platform Core is fully exposed through the read API. Real authenti
 - All `/api/v2/` read endpoints protected by real JWT auth (not stub)
 - Feature flag gates wired for all flagged endpoints
 - Frontend pages: Dashboard, Products, Sources, Rules, Safety
+- **Control Plane Resilience:** Settings and Diagnostics pages must remain accessible
+  during integration outage (Nextcloud down, WooCommerce down, adapter failure)
+- Dependent feature menu items (Products, Sources, Rules) may be disabled when
+  integration health is failing, with a clear repair path shown to the user
+- Integration health check display must show exact failure class, not generic message
 
 **Deliverables:**
 - `/api/v2/products/`, `/api/v2/sources/`, `/api/v2/rules/`, `/api/v2/safety/` (read endpoints)
@@ -510,6 +564,13 @@ is running. Pause/Resume/Cancel work from UI and CLI.
 
 **Goal:** Feature flags can be toggled at runtime. The Admin panel is complete.
 Depends on B7 (auth) — admin panel requires the permission model.
+
+**Key implementation concerns:**
+- **Control Plane Resilience:** Admin panel (feature flags, audit log, user management,
+  plugin manager) must be accessible independent of Integration Plane status — these
+  are Control Plane surfaces
+- Settings / Diagnostics / Admin remain available during integration outage;
+  only dependent operational menus may be disabled
 
 **Deliverables:**
 - `app/beta/feature_flags/` — evaluator, dependency chain enforcement, Beta migration seeding

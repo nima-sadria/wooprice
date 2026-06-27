@@ -77,6 +77,12 @@ internal networks.
 
 ## Authentication
 
+**Local admin login is mandatory.** Beta authentication must not depend on Nextcloud
+or any external identity provider. Local credential login (email + password verified
+against the Beta user database) is always available. External identity provider
+integrations (Nextcloud, OAuth, LDAP) are optional and their failure must never block
+owner or admin access. See Section "Control Plane Resilience" below.
+
 ### JWT tokens
 
 ```
@@ -260,6 +266,40 @@ Frontend dependencies are pinned in `package-lock.json` with integrity hashes.
 
 Automated dependency vulnerability scanning is part of the B4 CI pipeline (using
 `pip-audit` for Python, `npm audit` for Node).
+
+---
+
+## Control Plane Resilience
+
+**Owner decision — 2026-06-27**
+
+The Control Plane (login, settings, diagnostics, feature flags, plugin manager,
+backup/update controls) must remain accessible when one or more Integration Plane
+services are down.
+
+**Security implication:** Integration failures must be reported with exact failure
+class — not collapsed to "Invalid credentials". The failure classes are:
+
+| Class | Meaning |
+|---|---|
+| `dns_failure` | DNS resolution failed |
+| `tls_failure` | TLS / certificate validation error |
+| `timeout` | Connection timed out |
+| `unauthorized` | HTTP 401 — wrong or expired credentials |
+| `forbidden` | HTTP 403 — credentials valid but access denied |
+| `unreachable` | Connection refused / no route to host |
+| `invalid_response` | Server replied with unexpected content |
+
+Collapsing a DNS or TLS failure to "Invalid credentials" is a security
+anti-pattern: it misleads the operator into rotating credentials when the
+real cause is a network or certificate problem.
+
+**Production lesson:** WooPrice 7.5A silently collapsed Nextcloud DNS/TLS
+failures to "Invalid Nextcloud credentials". Beta must not repeat this.
+
+**Auth requirement from this decision:** Local admin login (`/api/auth/login`
+verified against the Beta user database) must never depend on Nextcloud
+connectivity. External auth integrations are optional and must fail safely.
 
 ---
 

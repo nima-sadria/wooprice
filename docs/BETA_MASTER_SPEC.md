@@ -535,7 +535,76 @@ No production cutover occurs during Beta development.
 
 ---
 
-## 15. Security Requirements
+## 15. Control Plane Resilience
+
+**Owner decision — 2026-06-27**
+
+WooPrice Beta separates the system into two distinct operational planes:
+
+**Control Plane** — the administrative and configuration surface that must remain
+accessible at all times:
+- Login / admin access
+- Settings management
+- Integration credentials configuration
+- Diagnostics and health checks
+- Environment status
+- Feature flags
+- Plugin manager
+- Logs viewer
+- Backup and update controls
+
+**Integration Plane** — external service connections that may be unavailable:
+- Nextcloud source connection
+- WooCommerce channel connection
+- External adapters
+- Scheduler execution targets
+- AI provider connections
+- External APIs
+
+**Critical rule:** The Control Plane must remain accessible even if one or more
+Integration Plane services are down.
+
+**Failure scenarios that must not block the Control Plane:**
+- Nextcloud unreachable (DNS failure, TLS failure, timeout, wrong credentials,
+  expired app password, connection refused)
+- WooCommerce unreachable
+- Adapter failure
+- Plugin failure
+
+**Required behavior:**
+- Admin panel and settings must open and remain usable during integration failure.
+- Integration credentials must be editable regardless of integration status.
+- Integration health checks must show the exact failure class:
+  - `dns_failure` — DNS resolution failed
+  - `tls_failure` — TLS / certificate error
+  - `timeout` — connection timed out
+  - `unauthorized` — HTTP 401 (wrong credentials)
+  - `forbidden` — HTTP 403
+  - `unreachable` — connection refused / no route to host
+  - `invalid_response` — server replied but response was unexpected
+- Dependent feature menus may be disabled or hidden when integration health is failing.
+- Integration failure must never be reported only as a generic "Invalid credentials" message.
+
+**Auth rule:** Beta must not depend on Nextcloud availability for admin login.
+Local admin credential login is always available. External identity providers
+(Nextcloud, OAuth, LDAP) are optional integrations; their failure must not block
+owner or admin access.
+
+**CLI rule:** The following CLI commands must work without any external integration
+being online, unless explicitly testing that integration:
+- `configure show`, `configure verify`, `configure set`
+- `diagnostics`, `health`
+- `integrations test <name>` (tests only the named integration; others unaffected)
+- `adapters list`
+
+**Production lesson:** WooPrice 7.5A demonstrated that DNS and TLS failures to
+Nextcloud were silently collapsed to "Invalid Nextcloud credentials", making it
+impossible to distinguish a network problem from a wrong password. Beta must expose
+the true failure class in diagnostics and all error surfaces.
+
+---
+
+## 16. Security Requirements
 
 ### Secrets management
 
@@ -572,11 +641,11 @@ No production cutover occurs during Beta development.
 
 ---
 
-## 16. Acceptance Criteria for B1
+## 17. Acceptance Criteria for B1
 
 B1 (this phase) is complete when all of the following are true:
 
-- [x] `docs/BETA_MASTER_SPEC.md` exists and contains all 16 required sections
+- [x] `docs/BETA_MASTER_SPEC.md` exists and contains all 17 required sections (16 original + Control Plane Resilience added 2026-06-27)
 - [x] All sections contain architecture and policy content — no placeholder section bodies
 - [x] No real domain names committed
 - [x] No real URLs committed

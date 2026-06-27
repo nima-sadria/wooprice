@@ -56,6 +56,11 @@ operator to edit configuration files manually.
      does not require a running application.
    - **Connected mode** (operational commands): calls the running API through
      `cli/shared/api_client.py`.
+6. **Offline-safe Control Plane commands** — `configure show`, `configure verify`,
+   `configure set`, `status`, `health` (local checks), `diagnostics`, and
+   `adapters list` must work without any external integration being online. These
+   commands are Control Plane operations; they must never fail because Nextcloud,
+   WooCommerce, or any adapter is unreachable.
 
 ---
 
@@ -427,3 +432,45 @@ The CLI enforces environment safety at multiple layers:
 4. **Never writes Production WooPrice config:** The CLI checks the application version
    and config format before writing any file — it will refuse to write if it detects
    a Production WooPrice configuration file.
+
+---
+
+## Control Plane Resilience
+
+**Owner decision — 2026-06-27**
+
+The CLI divides its commands into Control Plane and Integration Plane operations.
+
+**Offline-safe Control Plane commands** — these must work without any external
+integration being online:
+
+| Command | Why offline-safe |
+|---|---|
+| `configure show` | Reads local managed config only |
+| `configure verify` | Validates local config only |
+| `configure set` | Writes local managed config only |
+| `diagnostics` | Reads local state; reports integration failures as failure-class, not errors |
+| `health` (local) | Checks Python, modules, config load, paths — no network |
+| `adapters list` | Reads local plugin registry |
+| `integrations test <name>` | Tests only the named integration; does not require others |
+
+**Integration Plane commands** — these require the named service to be available,
+but their failure must never block Control Plane access:
+
+| Command | Integration required |
+|---|---|
+| `health db` | PostgreSQL (via running stack) |
+| `health sources` | Configured source adapters |
+| `health channels` | Configured channel adapters |
+| `sources test` | Specific source integration |
+| `channels test` | Specific channel integration |
+
+**Failure reporting rule:** When an integration test fails, the CLI must report the
+exact failure class (`dns_failure`, `tls_failure`, `timeout`, `unauthorized`,
+`forbidden`, `unreachable`, `invalid_response`) — never a collapsed "Invalid
+credentials" message. This rule applies to `diagnostics run`, `health sources`,
+`health channels`, `sources test`, and `channels test`.
+
+**B5 status:** `configure show`, `configure verify`, `status`, `health` (local),
+and `diagnostics` are implemented and offline-safe (confirmed: no network calls,
+no Docker execution, 185 tests passing).

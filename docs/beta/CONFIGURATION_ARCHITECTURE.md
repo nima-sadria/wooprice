@@ -352,3 +352,43 @@ are never suppressible.
 **The `BETA_ENV=production` guard:** if the CLI or installer detects `BETA_ENV=production`,
 it prints a large warning, requires explicit `--i-know-what-i-am-doing` flag for any
 destructive operation, and logs every action to the audit log with a DANGER prefix.
+
+---
+
+## Control Plane Resilience
+
+**Owner decision — 2026-06-27**
+
+Configuration access is a Control Plane operation. The Configuration Manager and
+all configuration CLI commands (`configure show`, `configure verify`, `configure set`)
+must operate without any Integration Plane service being available.
+
+**Configuration must never depend on Integration Plane availability:**
+- `configure show` reads the local managed config file and environment — no network calls.
+- `configure verify` validates the local config against the B3 ConfigValidator — no network calls.
+- `configure set` writes the local managed config file — no network calls.
+- The Configuration Manager loads and validates on startup from local environment only.
+
+**Integration credentials are configuration values, not live integrations.** Setting or
+viewing `BETA_NEXTCLOUD_URL`, `BETA_NEXTCLOUD_PASSWORD`, `BETA_WOOCOMMERCE_KEY`, and
+similar variables through `configure set` must work even when the target service is
+unreachable. The purpose is precisely to allow the operator to fix bad credentials
+during an integration outage.
+
+**Failure class transparency:** When a runtime component tests an integration
+(e.g., `wooprice health sources`, `wooprice integrations test nextcloud`), it must
+report the exact failure class from the integration response:
+
+| Class | Trigger |
+|---|---|
+| `dns_failure` | DNS resolution failure on the integration URL |
+| `tls_failure` | TLS handshake or certificate validation failure |
+| `timeout` | Connection or read timeout |
+| `unauthorized` | HTTP 401 response |
+| `forbidden` | HTTP 403 response |
+| `unreachable` | Connection refused, no route to host |
+| `invalid_response` | Non-standard or unexpected server response |
+
+Collapsing any of these to "Invalid credentials" is prohibited. The production
+WooPrice 7.5A incident (DNS/TLS failure misreported as "Invalid Nextcloud
+credentials") is the explicit motivation for this requirement.

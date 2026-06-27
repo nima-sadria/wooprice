@@ -238,6 +238,11 @@ Permissions are stored in the Beta database (not A2 PostgreSQL). Each user has a
 of named permissions. Admin users have all permissions. The permission model mirrors
 the Production WooPrice model and extends it with Beta-specific permissions.
 
+**Control Plane auth rule:** Local credential login (email + password) is always
+available. Beta must not depend on Nextcloud or any external identity provider for
+admin login. External auth integrations are optional — their failure must not block
+owner or admin access.
+
 ---
 
 ## API Layer
@@ -369,3 +374,42 @@ Source → Rule Engine → Safety Engine → Change Set Engine
 - Bypass validation steps (e.g., skip Dry Run before execution)
 - Allow AI output to become TEP input without explicit human action
 - Allow plugin code to modify TEP service behavior
+
+---
+
+## Control Plane Resilience
+
+**Owner decision — 2026-06-27**
+
+WooPrice Beta separates the system into two distinct operational planes:
+
+**Control Plane** — administrative and configuration surface; must remain accessible
+at all times regardless of integration health:
+- Login / admin access, settings management, integration credentials configuration
+- Diagnostics, health checks, environment status
+- Feature flags, plugin manager, logs viewer, backup and update controls
+
+**Integration Plane** — external service connections that may be unavailable:
+- Nextcloud source, WooCommerce channel, external adapters, AI providers, external APIs
+
+**Critical rule:** The Control Plane must remain accessible even if one or more
+Integration Plane services are down (DNS failure, TLS failure, timeout, wrong
+credentials, expired app password, adapter failure, plugin failure).
+
+**Diagnostics must report the exact failure class:**
+
+| Code | Meaning |
+|---|---|
+| `dns_failure` | DNS resolution failed |
+| `tls_failure` | TLS / certificate error |
+| `timeout` | Connection timed out |
+| `unauthorized` | HTTP 401 (wrong or expired credentials) |
+| `forbidden` | HTTP 403 |
+| `unreachable` | Connection refused / no route to host |
+| `invalid_response` | Server replied with unexpected response |
+
+Integration failure must never be collapsed to a generic "Invalid credentials"
+message. Dependent feature menus may be disabled when integration health is failing,
+but the Settings / Diagnostics / Admin surfaces remain always available.
+
+See also: `docs/BETA_MASTER_SPEC.md` Section 15 — Control Plane Resilience.
