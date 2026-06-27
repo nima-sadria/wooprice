@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-27 — B5 implemented; READY FOR OWNER REVIEW
+**Last revised:** 2026-06-27 — B5 Phase Completion Report produced; READY FOR CHAT2 REVIEW
 
 ---
 
@@ -367,7 +367,7 @@ python -m cli.main install dry-run --env-file /path/to/.env --install-dir /opt/w
 12. **Documentation** (`docs/beta/CLI_ARCHITECTURE.md`) ✓
     - B5 implementation note added; local invocation documented
 
-**Tests:** `tests/beta/cli/` — 9 modules, tests pending count
+**Tests:** `tests/beta/cli/` — 9 modules, 185 tests passing; B3+B4 regression: 315 tests, 0 failures (1 skipped: chmod on Windows)
 
 **Known limitations (technical debt):**
 - Interactive install wizard requires B6 (Docker runtime)
