@@ -2,7 +2,7 @@
 
 **Document:** CONTROL_PLANE_SECURITY.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 

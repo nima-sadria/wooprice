@@ -2,7 +2,7 @@
 
 **Document:** CONNECTION_MANAGER.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 
@@ -213,14 +213,22 @@ breaker must not intercept it — the operator is explicitly asking for a live c
 Background polling and API-triggered health checks also bypass the circuit breaker
 for the same reason.
 
-Circuit breaker applies only to **application-level integration calls**
-(e.g., A2 Source Adapter fetching from Nextcloud, WooCommerce write path).
+**CP1 circuit breaker scope (OD4 — CHAT2 decision):** Circuit breaker applies to
+the Connection Manager, Health Engine, and Diagnostics subsystems only. It does NOT
+apply to A2 Source Adapter calls in CP1. The A2 Platform Core remains frozen; any
+integration between CP1 and A2 adapter call paths requires a separate audited phase.
 
 ---
 
 ## 8. Connection Cache
 
-Successful connection probes are cached to reduce redundant network traffic.
+**OD1 (CHAT2 decision — 2026-06-28):** CP1 uses in-memory cache only. Persistent
+cache (Redis) is deferred to B6/B13. The cache is a performance optimization (avoid
+repeated health checks) — not a durability requirement.
+
+Successful connection probes are cached in-memory to reduce redundant network traffic.
+The cache is lost on application restart; this is acceptable in CP1 because health
+checks are triggered on-demand (no background polling until B6).
 
 ```python
 @dataclass
@@ -229,6 +237,8 @@ class CacheEntry:
     result: ConnectionResult
     cached_at: datetime
     ttl_s: float                    # Time-to-live for this cache entry
+# Cache is a dict[ServiceName, CacheEntry] held in ConnectionManager instance memory.
+# No Redis, no file, no DB in CP1.
 ```
 
 ### 8.1 Cache TTL
@@ -289,9 +299,9 @@ def classify_http_response(status_code: int) -> FailureClass:
 ```
 
 **This is the canonical classification logic.** No other module may independently
-classify network exceptions. All integration checks — in the Health Engine, Diagnostic
-Runner, and A2 Source Adapter — must route exception classification through the
-Connection Manager.
+classify network exceptions. All integration checks within CP1 — Health Engine and
+Diagnostic Runner — must route exception classification through the Connection Manager.
+Application-level A2 adapter integration is deferred to a future audited phase (OD4).
 
 ---
 
@@ -311,27 +321,20 @@ upon receiving the updated `FeatureAvailability` from the API.
 
 ---
 
-## 11. Integration with A2 Source Adapter
+## 11. A2 Source Adapter Integration — DEFERRED (OD4)
 
-When the A2 Source Adapter (A2.2) needs to contact Nextcloud, it must route through
-the Connection Manager rather than creating its own `httpx.AsyncClient` directly.
-This ensures:
-- Retry and backoff are applied consistently
-- Circuit breaker is applied (to avoid hammering a failing Nextcloud)
-- Failure classification is consistent with what the Health Engine reports
+**CHAT2 decision (2026-06-28):** Integration between the Connection Manager and the
+A2 Source Adapter is explicitly deferred from CP1. The A2 Platform Core is frozen and
+must not be modified or wrapped in CP1.
 
-**A2 code is frozen.** The integration point will be an adapter shim in `app/beta/`
-that wraps A2.2's connection calls with the Connection Manager. A2 source files are
-never modified.
+Any future integration (e.g., routing A2.2 Nextcloud calls through the Connection Manager
+circuit breaker) requires a separate audited phase. CP1 does not include an `adapter_shim.py`
+and does not modify or wrap any A2 module.
 
-The shim architecture:
-```
-A2 Source Adapter
-  └── calls app/beta/connections/adapter_shim.py
-        └── ConnectionManager.get_http_client(ServiceName.NEXTCLOUD)
-              → returns a configured httpx.AsyncClient with
-                timeout policy + circuit breaker state applied
-```
+Rationale: The A2 Platform Core has passed all A2 governance gates and is frozen.
+Wrapping its HTTP calls without a full audit creates a risk of silent behavior changes
+in the Trusted Execution Path. This integration point will be evaluated in a dedicated
+phase after CP1 is complete and stable.
 
 ---
 

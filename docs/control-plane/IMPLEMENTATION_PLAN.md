@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_PLAN.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 
@@ -184,18 +184,22 @@ FastAPI endpoints are implemented as stubs that return the correct response sche
 with placeholder data. Live behavior comes in B6 (when the database is available)
 and B8 (when the UI is ready).
 
+**OD3 update:** The health API is now split. `GET /api/health` is public (minimal).
+`GET /api/v2/health` is authenticated (full detail). See HEALTH_ENGINE.md §7.
+
 **Stub endpoints to implement:**
 
-| Endpoint | Status | Notes |
-|---|---|---|
-| `GET /api/v2/health` | Stub | Returns hardcoded `ok` status in CP1 |
-| `GET /api/v2/control-plane/status` | Stub | Returns `ControlPlaneStatus` computed from local state only |
-| `GET /api/v2/config/` | Stub | Returns current TOML values |
-| `PUT /api/v2/config/{key}` | Live in CP1 | RuntimeConfigService write path works without Docker |
-| `POST /api/v2/config/validate` | Live in CP1 | Validation via B3 ConfigValidator |
-| `POST /api/v2/diagnostics/run` | Stub | Returns `run_id`; full runner needs B6 DB |
-| `GET /api/v2/diagnostics/{run_id}` | Stub | Returns placeholder DiagnosticReport |
-| `GET /api/v2/diagnostics/history` | Stub | Returns empty list in CP1 |
+| Endpoint | Auth | Status in CP1 | Notes |
+|---|---|---|---|
+| `GET /api/health` | Public | Live | Returns `{"status": "ok\|degraded\|critical", "timestamp": "..."}` only |
+| `GET /api/v2/health` | JWT | Stub | Returns full `ControlPlaneStatus` from in-memory state |
+| `GET /api/v2/control-plane/status` | JWT | Stub | Returns `ControlPlaneStatus` + `FeatureAvailability` |
+| `GET /api/v2/config/` | JWT admin | Live | Returns current TOML values (no secrets) |
+| `PUT /api/v2/config/{key}` | JWT admin | Live | RuntimeConfigService write path; works without Docker |
+| `POST /api/v2/config/validate` | JWT admin | Live | Validation via B3 ConfigValidator |
+| `POST /api/v2/diagnostics/run` | JWT admin | Stub | Returns `run_id`; DiagnosticRunner works in CP1 |
+| `GET /api/v2/diagnostics/{run_id}` | JWT admin | Live | Returns DiagnosticReport from JSON file |
+| `GET /api/v2/diagnostics/history` | JWT admin | Live | Returns list from `$BETA_STORAGE_PATH/diagnostics/` |
 
 ---
 
@@ -322,73 +326,94 @@ pattern in CP1 allows B14 to register its checks without modifying the Diagnosti
 
 ---
 
-## 6. Open Design Decisions
+## 6. CHAT2 Decisions (Resolved — 2026-06-28)
 
-These decisions are unresolved and require CHAT2 input.
+All open design decisions have been resolved by CHAT2 review.
 
-### OD1 — Connection Cache Storage
+### OD1 — Connection Cache Storage  ✓ RESOLVED
 
-**Question:** In CP1 (before Redis/B6), should the connection cache be:
-- (a) In-memory only (lost on restart)
-- (b) File-backed (survives restart, adds I/O)
+**Decision:** CP1 uses in-memory cache only. Persistent cache (Redis) deferred to B6/B13.
+**Impact:** `ConnectionManager` holds cache as a `dict[ServiceName, CacheEntry]` in
+instance memory. No Redis or file dependency introduced in CP1.
 
-**Recommendation:** In-memory only for CP1. Redis in B6. The cache is for performance
-(avoid repeated health checks) not for durability.
+### OD2 — RuntimeConfigService Write Scope  ✓ RESOLVED
 
-### OD2 — RuntimeConfigService Write Scope
+**Decision:** Identity fields (`nextcloud.username`) remain `.env`-only in CP1.
+Runtime configuration covers: URL, timeout, TLS option, retry policy, connection metadata.
+**Impact:** `RUNTIME_CONFIGURABLE_KEYS` excludes `nextcloud.username`. Any attempt to
+set it via `configure set` raises `ProtectedKeyError`.
 
-**Question:** Should `configure set` allow updating `nextcloud.username` at runtime
-(it is not a secret), or should identity fields also require `.env` editing?
+### OD3 — Health Endpoint Authentication  ✓ RESOLVED
 
-**Recommendation:** Allow `nextcloud.url` and `nextcloud.file_path` (endpoint location).
-Require `.env` for `nextcloud.username` because changing the username may invalidate
-existing shared folders or API tokens. CHAT2 to confirm.
+**Decision:** Split into two endpoints:
+- `GET /api/health` — public, returns `{"status": "ok|degraded|critical", "timestamp": "..."}` only
+- `GET /api/v2/health` — authenticated (JWT), returns full `ControlPlaneStatus`
 
-### OD3 — Health Check Endpoint Authentication
+**Impact:** Public endpoint must not expose integration names, failure classes, topology,
+credentials, or internal detail. All such information is on the authenticated endpoint.
 
-**Question:** Should `GET /api/v2/health` (the summary endpoint) require JWT or be
-public?
+### OD4 — Circuit Breaker Scope  ✓ RESOLVED
 
-**Arguments for public:** Monitoring tools, Docker health probes, and uptime services
-need the endpoint without credentials.
-**Arguments for authenticated:** The `feature_availability` and `integration_states`
-fields contain potentially sensitive operational information.
+**Decision:** CP1 circuit breaker applies to Connection Manager, Health Engine, and
+Diagnostics only. NOT applied to A2 Source Adapter calls. A2 remains frozen.
+Any A2 adapter integration requires a later audited phase.
+**Impact:** No `adapter_shim.py`. No modification of any A2 module.
 
-**Recommendation:** Split into two endpoints:
-- `GET /api/health` — public, minimal (overall_health only, for Docker probes)
-- `GET /api/v2/health` — authenticated, full detail
+### OD5 — Diagnostic Storage  ✓ RESOLVED
 
-CHAT2 to confirm.
+**Decision:** CP1 stores diagnostic reports as JSON files in
+`$BETA_STORAGE_PATH/diagnostics/`. Database-backed history deferred to B13+.
+**Impact:** `DiagnosticRunner` writes JSON to filesystem only. No DB write in CP1.
 
-### OD4 — Circuit Breaker Scope
+### OD6 — RuntimeConfigService Placement  ✓ RESOLVED
 
-**Question:** Should the circuit breaker apply to A2 Source Adapter calls in addition
-to the Health Engine? (Currently specified for Health Engine only.)
+**Decision:** RuntimeConfigService is a separate service in `app/beta/runtime_config/`.
+B3 `ConfigurationManager` remains read-only. No B3 files modified.
+**Impact:** Write path entirely in CP1; B3 is consumed, not modified.
 
-**Recommendation:** Yes — the A2 Source Adapter shim should check circuit breaker
-state before attempting a Nextcloud call. This prevents the A2 engine from hammering
-a failed Nextcloud when many source tasks are queued. CHAT2 to confirm.
+---
 
-### OD5 — Diagnostic Run Storage Location
+## 6a. CP1 Implementation Split
 
-**Question:** Should completed diagnostic reports be stored in:
-- (a) `$BETA_STORAGE_PATH/diagnostics/` as JSON files
-- (b) The Beta database (when available in B6+)
-- (c) Both
+**CHAT2 additional rule (2026-06-28):** CP1 must be implementation-sized. If the
+implementation would exceed a reasonable single-PR review size, split into at most
+3 subparts:
 
-**Recommendation:** JSON files for CP1 and B6; replicate to DB in B13 for searchable
-history in the Admin UI. CHAT2 to confirm.
+### CP1.1 — Core Models + Failure Taxonomy
 
-### OD6 — RuntimeConfigService and B3 Overlap
+**Scope:**
+- `app/beta/control_plane/status.py` — `HealthLevel`, `ServiceStatus`, `FailureClass`, `IntegrationState`, `ControlPlaneStatus`
+- `app/beta/control_plane/availability.py` — `AvailabilityState`, `FeatureAvailability`
+- `app/beta/control_plane/service.py` — `ControlPlaneService`
+- `app/beta/connections/result.py` — `ConnectionResult`, `FailureClass` (canonical taxonomy)
+- `tests/beta/cp1/test_control_plane_status.py`
+- `tests/beta/cp1/test_feature_availability.py`
+- `tests/beta/cp1/test_failure_class.py`
 
-**Question:** `RuntimeConfigService.set()` writes to the managed TOML. B3
-`ConfigurationManager.load()` reads from the same file. Should CP1 introduce a
-write path in `ConfigurationManager` itself, or keep it in a separate service?
+**Gate:** CP1.1 is CLOSED before CP1.2 begins. `FailureClass` is the
+foundational type consumed by all subsequent parts.
 
-**Recommendation:** Keep in a separate service (`RuntimeConfigService`). The B3
-principle of being framework-independent means `ConfigurationManager` is read-only
-at load time. The write path is an operational concern that belongs in the Beta
-service layer. This avoids scope creep into B3.
+### CP1.2 — Connection Manager + Health Engine
+
+**Scope:**
+- `app/beta/connections/` — full Connection Manager (timeout, retry, backoff, circuit breaker, cache)
+- `app/beta/diagnostics/checks/` — all 10 check types (6 live + 4 stubs)
+- `tests/beta/cp1/test_connection_manager.py`
+- `tests/beta/cp1/test_health_engine.py`
+
+**Gate:** CP1.2 is CLOSED before CP1.3 begins. Connection Manager must pass
+full circuit breaker transition tests and failure classification coverage.
+
+### CP1.3 — Diagnostics + Runtime Config + CLI/API Contracts
+
+**Scope:**
+- `app/beta/diagnostics/runner.py`, `report.py`, `repair.py`
+- `app/beta/runtime_config/` — full RuntimeConfigService
+- CLI extensions: `cli/control_plane.py`, `cli/integrations.py`, updated `cli/diagnostics.py`, `cli/health.py`, `cli/configure.py`
+- REST API stubs (updated for OD3 split endpoints)
+- `tests/beta/cp1/test_diagnostic_runner.py`, `test_runtime_config.py`, `test_cli_*`
+
+**Gate:** CP1.3 is CLOSED when all tests pass and the Phase Completion Report is produced.
 
 ---
 
@@ -416,6 +441,6 @@ CP1 is complete when:
    `wooprice diagnostics run` all produce correct output.
 5. `RuntimeConfigService.set()` correctly rejects protected keys and validates URLs.
 6. `DiagnosticReport` JSON contains no secrets (verified by explicit test assertion).
-7. All 6 open design decisions are resolved (by CHAT2 or Owner).
+7. All open design decisions confirmed resolved by CHAT2 review (2026-06-28).
 8. Phase Completion Report produced and CHAT2 review passed.
 9. Owner approval received.

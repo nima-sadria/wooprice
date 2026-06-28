@@ -2,7 +2,7 @@
 
 **Document:** DIAGNOSTICS_ARCHITECTURE.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 
@@ -343,7 +343,11 @@ $ python -m cli.main diagnostics run --json
 
 ---
 
-## 8. Audit History
+## 8. Audit History and Storage
+
+**OD5 (CHAT2 decision — 2026-06-28):** CP1 stores diagnostic reports as JSON files
+only. Database-backed diagnostic history is deferred to a later Admin/Ops phase (B13+).
+No database write occurs in CP1 for diagnostic reports.
 
 Every diagnostic run is written to the audit log.
 

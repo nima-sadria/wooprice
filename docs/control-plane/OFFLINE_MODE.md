@@ -2,7 +2,7 @@
 
 **Document:** OFFLINE_MODE.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 
@@ -321,7 +321,20 @@ policy from `ConnectionManager` and report `timeout` if exceeded.
 
 ## 10. API Contract (for B8 UI)
 
-### GET /api/v2/control-plane/status
+**OD3 (CHAT2 decision — 2026-06-28):** Health API is split into two endpoints.
+The public endpoint exposes only `status` (ok/degraded/critical). Detailed operational
+information — integration states, feature availability, failure classes — is available
+only on authenticated endpoints and must never appear on the public endpoint.
+
+### GET /api/health  (PUBLIC)
+
+Returns minimal health for Docker probes and monitoring tools. No failure detail.
+
+```json
+{"status": "degraded", "timestamp": "2026-06-28T10:30:00Z"}
+```
+
+### GET /api/v2/control-plane/status  (AUTHENTICATED)
 
 Returns the current `ControlPlaneStatus` and `FeatureAvailability`.
 Called by the frontend on mount and on polling interval.

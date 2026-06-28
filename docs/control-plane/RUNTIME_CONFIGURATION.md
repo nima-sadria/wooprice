@@ -2,7 +2,7 @@
 
 **Document:** RUNTIME_CONFIGURATION.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 
@@ -32,6 +32,12 @@ manual file editing.**
 ## 2. What Is and Is Not Runtime-Configurable
 
 ### 2.1 Runtime-Configurable (editable via CLI and UI)
+
+**OD2 (CHAT2 decision — 2026-06-28):** Runtime configuration in CP1 covers endpoint
+location, connection behavior, and operational metadata only: URL, timeout, TLS option,
+retry policy, and connection metadata. Identity fields (`nextcloud.username`) remain
+`.env`-only. Changing a username may invalidate shared folder access and API tokens,
+making it an installation-level decision rather than a runtime one.
 
 These values change the behavior of integration connections. They can be edited
 while the application is running, take effect immediately on the next check, and
@@ -360,6 +366,10 @@ Every configuration change is written to the audit log with:
 ---
 
 ## 8. Relationship to B3 Configuration Foundation
+
+**OD6 (CHAT2 decision — 2026-06-28):** `RuntimeConfigService` is implemented as a
+separate service in `app/beta/runtime_config/`. B3 `ConfigurationManager` remains
+read-only. CP1 does not modify any B3 file or behavior.
 
 RuntimeConfigService is a **consumer** of B3 — it does not replace or modify B3.
 

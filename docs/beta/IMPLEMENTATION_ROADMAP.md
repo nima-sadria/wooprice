@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-28 — B5 CLOSED (Owner approved 2026-06-28); CP1 Control Plane Foundation Pack added as NOT STARTED
+**Last revised:** 2026-06-28 — CP1 architecture specification complete; CHAT2 APPROVED with modifications; READY FOR OWNER REVIEW
 
 ---
 
@@ -432,16 +432,28 @@ python -m cli.main install dry-run --env-file /path/to/.env --install-dir /opt/w
 
 ### CP1 — Control Plane Foundation Pack
 
-**Status:** NOT STARTED
+**Status:** READY FOR OWNER REVIEW — Architecture specification complete.
+Implementation NOT STARTED.
+
+**Architecture specification:** `docs/control-plane/` (8 documents — CP1 Architecture Specification)
+**CHAT2 review:** APPROVED with modifications — 2026-06-28. All 6 open decisions resolved.
+**Implementation subparts (CHAT2 rule):** CP1.1 Core Models → CP1.2 Connection Manager + Health Engine → CP1.3 Diagnostics + Runtime Config + CLI/API
 
 **Goal:** Implement the Control Plane service layer that enforces the Owner Architecture
 Decision (2026-06-27): the Control Plane must remain accessible when one or more
 Integration Plane services are down. CP1 builds the service infrastructure that B6+
-phases will consume — ControlPlaneStatus, ConnectionManager, DiagnosticRunner — plus
-corresponding CLI extensions and architecture documentation.
+phases will consume — ControlPlaneStatus, ConnectionManager, DiagnosticRunner,
+RuntimeConfigService — plus CLI extensions and REST API contracts.
+
+**Key deliverables:**
+- `app/beta/control_plane/` — ControlPlaneService, ControlPlaneStatus, FeatureAvailability
+- `app/beta/connections/` — ConnectionManager, FailureClass taxonomy, circuit breaker
+- `app/beta/diagnostics/` — DiagnosticRunner, 10 health check types, repair playbooks
+- `app/beta/runtime_config/` — RuntimeConfigService, atomic TOML write-back
+- CLI extensions: `wooprice control-plane status`, `wooprice integrations list/test/status`
+- REST API: public `GET /api/health` + authenticated `GET /api/v2/health` (OD3 split)
 
 **Depends on:** B5 (CLI Foundation)
-**CHAT2 spec required before implementation.**
 
 ---
 

@@ -2,8 +2,9 @@
 
 **Document:** CONTROL_PLANE_ARCHITECTURE.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 **Owner decision date:** 2026-06-27
+**CHAT2 review date:** 2026-06-28
 
 ---
 
@@ -400,7 +401,27 @@ layer is documented here as a contract for B8 to implement.
 
 ---
 
-## 10. Document Index
+## 10. CHAT2 Decisions Summary — 2026-06-28
+
+All open design decisions resolved. No remaining open decisions.
+
+| Decision | Resolution |
+|---|---|
+| OD1 — Cache storage | In-memory only in CP1. Redis deferred to B6/B13. |
+| OD2 — Runtime config scope | Identity fields (username) are `.env`-only. URL/timeout/TLS/retry are runtime-editable. |
+| OD3 — Health endpoint auth | Split: `GET /api/health` public minimal; `GET /api/v2/health` authenticated full detail. |
+| OD4 — Circuit breaker scope | CP1 only: Connection Manager, Health Engine, Diagnostics. A2 Source Adapter excluded. |
+| OD5 — Diagnostic storage | JSON files only in CP1. DB-backed history deferred to B13+. |
+| OD6 — RuntimeConfigService placement | Separate service in `app/beta/runtime_config/`. B3 unchanged. |
+
+**CP1 implementation split (CHAT2 rule):** If scope exceeds a single reviewable PR, split into:
+- **CP1.1** — Core Models + Failure Taxonomy
+- **CP1.2** — Connection Manager + Health Engine
+- **CP1.3** — Diagnostics + Runtime Config + CLI/API Contracts
+
+---
+
+## 11. Document Index
 
 | Document | Contents |
 |---|---|

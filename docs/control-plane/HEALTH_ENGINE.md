@@ -2,7 +2,7 @@
 
 **Document:** HEALTH_ENGINE.md
 **Series:** CP1 Architecture Specification
-**Status:** SPECIFICATION — awaiting CHAT2 review. No implementation has begun.
+**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
 
 ---
 
@@ -309,9 +309,12 @@ From B6 onward, the scheduler worker runs health checks on a configurable interv
 | Local checks (DB, storage) | 30 seconds | Yes |
 | Docker check | 30 seconds | Yes (B6+) |
 
-The latest `ControlPlaneStatus` is stored in Redis (from B6) and served from cache.
+The latest `ControlPlaneStatus` is stored in-memory (CP1) and later in Redis (B6+).
 Cache TTL is the polling interval × 2. Stale cache returns `unknown` status rather
 than the last `ok` — it does not falsely report `ok` when data is stale.
+
+**OD1 (CHAT2 decision — 2026-06-28):** In CP1, status cache is in-memory only.
+Persistent cache (Redis) is introduced in B6 when the full Docker stack is available.
 
 ### 6.2 On-Demand Checks (CP1 and beyond)
 
@@ -333,9 +336,30 @@ In CP1, there is no running Docker stack and no scheduler worker. Health checks 
 
 ## 7. Health API Contract
 
-### GET /api/v2/health
+**OD3 (CHAT2 decision — 2026-06-28):** The health API is split into two endpoints:
+a public minimal endpoint (for Docker probes and monitoring tools) and an authenticated
+full-detail endpoint. The public endpoint must never expose secrets, internal network
+topology, credentials, or detailed failure traces.
 
-Returns the cached `ControlPlaneStatus`. Does not trigger new checks.
+### GET /api/health  (PUBLIC — no authentication required)
+
+Returns only the minimum information needed for Docker health probes and external
+uptime monitors. Must not expose any operational detail.
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-06-28T10:30:00Z"
+}
+```
+
+`status` is one of: `"ok"` | `"degraded"` | `"critical"`. No other fields.
+No integration names, failure classes, topology, or credential information is included.
+
+### GET /api/v2/health  (AUTHENTICATED — JWT required, any valid user)
+
+Returns the full `ControlPlaneStatus` including per-service integration states and
+feature availability. Available only to authenticated users.
 
 ```json
 {
@@ -351,7 +375,7 @@ Returns the cached `ControlPlaneStatus`. Does not trigger new checks.
 }
 ```
 
-### POST /api/v2/health/check (admin only)
+### POST /api/v2/health/check  (AUTHENTICATED — admin permission required)
 
 Triggers an on-demand health check for a specific target or all targets.
 
