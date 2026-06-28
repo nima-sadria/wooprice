@@ -38,6 +38,7 @@ import typer
 
 from cli.install import app as install_app
 from cli.configure import app as configure_app
+from cli.create_admin import app as create_admin_app
 from cli.status import app as status_app
 from cli.health import app as health_app
 from cli.diagnostics import app as diagnostics_app
@@ -71,6 +72,7 @@ def _main_callback(ctx: typer.Context) -> None:
 
 app.add_typer(install_app, name="install")
 app.add_typer(configure_app, name="configure")
+app.add_typer(create_admin_app, name="create-admin")
 app.add_typer(status_app, name="status")
 app.add_typer(health_app, name="health")
 app.add_typer(diagnostics_app, name="diagnostics")

@@ -1,8 +1,8 @@
-"""WooPrice Beta — Alembic migration environment.
+"""WooPrice Beta — Alembic migration environment (BU2).
 
 Reads BETA_DATABASE_URL from the environment (set in .env.beta).
-ORM model imports and autogenerate support are added in B4 when the
-first Beta schema migrations are written.
+target_metadata is wired to BetaBase so that `alembic --autogenerate`
+detects model changes from beta_001 onward.
 
 Usage:
   alembic -c alembic_beta.ini upgrade head
@@ -27,12 +27,20 @@ database_url = os.environ.get("BETA_DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
+# Import models so their tables are registered on BetaBase.metadata before
+# Alembic inspects it.  The import chain is: models → database (BetaBase).
+# The database module is safe to import without a live connection.
+from app.beta.database import BetaBase  # noqa: E402
+from app.beta.auth import models as _auth_models  # noqa: E402, F401
+
+target_metadata = BetaBase.metadata
+
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
-        target_metadata=None,
+        target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -47,7 +55,7 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=None)
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 

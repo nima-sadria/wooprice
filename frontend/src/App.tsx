@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, RequirePermission, AccessState, useAuth } from './auth'
 import { DirectionProvider } from './direction'
 import AppShell from './components/AppShell'
-import Home from './pages/Home'
+import BetaDashboard from './pages/BetaDashboard'
 import Workspace from './pages/Workspace'
 import Products from './pages/Products'
 import Analytics from './pages/Analytics'
@@ -84,7 +84,7 @@ export default function App() {
             <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route element={<AuthGuard><AppShell /></AuthGuard>}>
-              <Route path="/home" element={<RequirePermission permission="can_access_site"><Home /></RequirePermission>} />
+              <Route path="/home" element={<RequirePermission permission="can_access_site"><BetaDashboard /></RequirePermission>} />
               <Route path="/workspace" element={<RequirePermission permission="can_fetch"><Workspace /></RequirePermission>} />
               <Route path="/products" element={<RequirePermission permission="can_fetch"><Products /></RequirePermission>} />
               <Route

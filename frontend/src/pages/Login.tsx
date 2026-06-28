@@ -27,6 +27,8 @@ export default function Login() {
           setError(data.detail ?? 'Invalid credentials. Please check your username and password.')
         } else if (r.status === 403) {
           setError(data.detail ?? 'Access not granted — contact your administrator.')
+        } else if (r.status === 429) {
+          setError('Too many login attempts. Please wait a moment and try again.')
         } else if (r.status === 503) {
           setError('Authentication service is temporarily unavailable. Please try again.')
         } else {
@@ -35,8 +37,9 @@ export default function Login() {
         return
       }
 
-      const data = await r.json() as { token: string }
+      const data = await r.json() as { token: string; refresh_token: string }
       localStorage.setItem('wp_token', data.token)
+      localStorage.setItem('wp_refresh_token', data.refresh_token)
       await refreshUser()
       navigate('/home', { replace: true })
     } catch {
@@ -51,7 +54,7 @@ export default function Login() {
       <div className="w-full max-w-sm bg-bg-card border border-border rounded-card shadow-card p-8">
         <div className="mb-7 text-center">
           <h1 className="text-[22px] font-bold text-text-base">WooPrice</h1>
-          <p className="text-[13px] text-wp-muted mt-1">Sign in with your Nextcloud account</p>
+          <p className="text-[13px] text-wp-muted mt-1">Sign in to WooPrice Beta</p>
         </div>
 
         {error && (
@@ -75,7 +78,7 @@ export default function Login() {
               autoFocus
               disabled={loading}
               className="w-full border border-border rounded-lg px-3 py-2 text-[14px] bg-bg-base text-text-base focus:outline-none focus:border-accent placeholder:text-wp-muted disabled:opacity-60"
-              placeholder="Nextcloud username"
+              placeholder="Administrator username"
             />
           </div>
 
@@ -92,7 +95,7 @@ export default function Login() {
               autoComplete="current-password"
               disabled={loading}
               className="w-full border border-border rounded-lg px-3 py-2 text-[14px] bg-bg-base text-text-base focus:outline-none focus:border-accent placeholder:text-wp-muted disabled:opacity-60"
-              placeholder="Nextcloud password"
+              placeholder="Enter your administrator credentials"
             />
           </div>
 

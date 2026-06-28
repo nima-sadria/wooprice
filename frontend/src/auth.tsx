@@ -31,6 +31,7 @@ export const AuthContext = createContext<AuthContextValue | null>(null)
 
 function clearStoredAuth() {
   localStorage.removeItem('wp_token')
+  localStorage.removeItem('wp_refresh_token')
   localStorage.removeItem('wp_user')
 }
 
@@ -39,6 +40,25 @@ function authHeaders(init?: RequestInit) {
   const token = localStorage.getItem('wp_token') ?? ''
   if (token) headers.set('Authorization', `Bearer ${token}`)
   return headers
+}
+
+async function attemptTokenRefresh(): Promise<boolean> {
+  const refreshToken = localStorage.getItem('wp_refresh_token') ?? ''
+  if (!refreshToken) return false
+  try {
+    const r = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+    if (!r.ok) return false
+    const data = await r.json() as { token: string; refresh_token: string }
+    localStorage.setItem('wp_token', data.token)
+    localStorage.setItem('wp_refresh_token', data.refresh_token)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -54,15 +74,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     const token = localStorage.getItem('wp_token') ?? ''
     if (!token) {
-      setUser(null)
-      setStatus('login_required')
-      return
+      // No access token — try refresh before giving up
+      const refreshed = await attemptTokenRefresh()
+      if (!refreshed) {
+        setUser(null)
+        setStatus('login_required')
+        return
+      }
     }
 
     setStatus('loading')
     try {
       const r = await fetch('/api/auth/me', { headers: authHeaders() })
       if (r.status === 401) {
+        // Access token rejected — attempt silent refresh once
+        const refreshed = await attemptTokenRefresh()
+        if (refreshed) {
+          const r2 = await fetch('/api/auth/me', { headers: authHeaders() })
+          if (r2.ok) {
+            const nextUser = (await r2.json()) as AuthUser
+            setUser(nextUser)
+            setStatus('authenticated')
+            localStorage.setItem('wp_user', JSON.stringify(nextUser))
+            return
+          }
+        }
         clearStoredAuth()
         setUser(null)
         setStatus('login_required')
@@ -86,7 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const authFetch = useCallback(async (input: RequestInfo | URL, init?: RequestInit) => {
     const r = await fetch(input, { ...init, headers: authHeaders(init) })
-    if (r.status === 401) clearAuth()
+    if (r.status === 401) {
+      // Silent refresh: try once, retry the original request, then logout
+      const refreshed = await attemptTokenRefresh()
+      if (refreshed) {
+        return fetch(input, { ...init, headers: authHeaders(init) })
+      }
+      clearAuth()
+    }
     if (r.status === 403) setStatus('permission_denied')
     if (r.status === 503) {
       // Detect a maintenance-mode block and immediately activate the overlay,
@@ -109,7 +152,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'wp_token' || e.key === 'wp_user') void refreshUser()
+      if (e.key === 'wp_token' || e.key === 'wp_refresh_token' || e.key === 'wp_user') {
+        void refreshUser()
+      }
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)

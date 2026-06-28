@@ -115,16 +115,39 @@ docker compose -f docker-compose.beta.yml exec app \
     alembic -c alembic_beta.ini upgrade head
 ```
 
-Expected output when no Beta migrations exist yet:
+Expected output (BU2 migrations installed):
 ```
 INFO  [alembic.runtime.migration] Context impl PostgreSQLImpl.
 INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> beta_001, beta_001 — create beta_users table
+INFO  [alembic.runtime.migration] Running upgrade beta_001 -> beta_002, beta_002 — create beta_refresh_tokens table
+INFO  [alembic.runtime.migration] Running upgrade beta_002 -> beta_003, beta_003 — create beta_login_audit table
 ```
-(No migration files = no-op, which is correct for the initial deployment.)
 
 ---
 
-## 7. Verify the deployment
+## 7. Create the admin user
+
+**Required post-install step (BU2).** The login endpoint returns 401 until at least one admin account exists. Run once after migrations:
+
+```bash
+docker compose -f docker-compose.beta.yml exec app \
+    python -m cli.main create-admin
+```
+
+The command prompts for a username (default: `admin`) and password (with confirmation). You can also pass `--username` to set a non-default name:
+
+```bash
+docker compose -f docker-compose.beta.yml exec app \
+    python -m cli.main create-admin --username yourname
+```
+
+> **Security:** Choose a strong password. The account has full admin access to WooPrice Beta.
+> Re-running with the same username will fail safely — the command never overwrites an existing account.
+
+---
+
+## 8. Verify the deployment
 
 ### Container status
 ```bash
@@ -153,7 +176,7 @@ wooprice diagnostics run --env-file /opt/wooprice-beta/.env.beta
 
 ---
 
-## 8. Configure Nginx Proxy Manager
+## 9. Configure Nginx Proxy Manager
 
 In NPM, create a Proxy Host:
 - **Domain Names:** `beta.yourdomain.com`
@@ -206,8 +229,10 @@ docker compose -f docker-compose.beta.yml up -d --build
 | Health endpoint (`/api/health`) | Active |
 | CLI diagnostics | Active |
 | CLI configure get/set | Active |
-| REST API v2 | Stubs only (active in B5+) |
-| Authentication | B7 |
-| UI | B5+ |
+| Authentication (`/api/auth/login`, `/api/auth/me`, etc.) | **Active (BU2)** |
+| Admin user creation (`wooprice create-admin`) | **Active (BU2)** |
+| Beta Dashboard (`/home`) | **Active (BU2)** |
+| REST API v2 | Stubs only (active in B8+) |
+| UI (full feature set) | B8+ |
 | Docker Runtime management | B6 |
-| Database migrations (Beta schema) | B4 |
+| Database migrations (Beta schema) | Active (beta_001–beta_003) |

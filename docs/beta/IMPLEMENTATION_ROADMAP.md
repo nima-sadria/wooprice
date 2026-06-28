@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-28 — CP1.2 CLOSED (Owner approved 2026-06-28)
+**Last revised:** 2026-06-28 — BU2 CLOSED (Owner approved 2026-06-28)
 
 ---
 
@@ -42,6 +42,15 @@ to establish all runtime prerequisites before the first UI work begins in B8.
 | B16 | Security Hardening | SECURITY_ARCHITECTURE.md | CSP, audit log completeness, secret rotation, dependency scanning | B15 |
 | B17 | Integration Testing + Diagnostics | DEVELOPMENT_GUIDE.md | End-to-end test suite, `wooprice diagnostics`, CI gate | B16 |
 | B18 | Production Cutover Planning | All docs | Cutover checklist, rollback plan, Owner review | B17 |
+
+### BU — Beta UI and Deployment Track (Supplementary)
+
+These phases run in parallel with the B-series to establish the Beta deployment environment, authentication, and initial UI before the full B-series is complete.
+
+| Phase | Name | Status | Key deliverables |
+|---|---|---|---|
+| BU1 | Beta Server Foundation | **CLOSED — 2026-06-28** | Docker Compose stack, `app/beta/` entry point, health API, CLI safety tests, installer upgrade path |
+| BU2 | Authentication & Session Foundation | **CLOSED — 2026-06-28** | JWT auth, refresh tokens, `wooprice create-admin`, login/logout/me API, Beta Dashboard placeholder, Argon2 passwords, rate limiting, audit log |
 
 ---
 
