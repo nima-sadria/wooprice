@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# WooPrice Beta — management CLI wrapper
+#
+# Installed to /usr/local/bin/wooprice by installer/install.sh
+# Source: scripts/wooprice  (tracked in git)
+#
+# Usage:
+#   wooprice                   -- interactive management menu
+#   wooprice status            -- configuration status
+#   wooprice health            -- local health checks
+#   wooprice diagnostics run   -- integration health check
+#   wooprice --help            -- full command list
+
+INSTALL_DIR="${WOOPRICE_INSTALL_DIR:-/opt/wooprice-beta}"
+
+if [[ ! -d "$INSTALL_DIR" ]]; then
+    echo "ERROR: WooPrice installation directory not found: ${INSTALL_DIR}" >&2
+    echo "Set WOOPRICE_INSTALL_DIR if installed to a non-default path." >&2
+    exit 1
+fi
+
+cd "$INSTALL_DIR"
+exec python3 -m cli.main "$@"

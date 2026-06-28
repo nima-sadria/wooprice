@@ -1,16 +1,16 @@
 """WooPrice Beta — wooprice CLI entry point.
 
-Registers all command groups and enforces the [BETA ENVIRONMENT] banner
-on every invocation. Banner cannot be suppressed.
+Registers all command groups.  Invoked with no arguments: shows the
+interactive management menu (BU1).  Invoked with a subcommand: runs it.
 
-Local invocation (B5/CP1.3):
-    python -m cli.main <command> [options]
+Local invocation:
+    python -m cli.main [command] [options]
 
-Intended future command (requires packaging):
-    wooprice <command> [options]
+System-installed (after install.sh):
+    wooprice [command] [options]
 
 Available commands:
-    install dry-run       -- B4 dry-run smoke path (writes nothing)
+    install dry-run       -- dry-run smoke path (writes nothing)
     configure show        -- show config (secrets redacted)
     configure verify      -- validate config using B3
     configure get <field> -- show a single field value (CP1.3)
@@ -56,9 +56,18 @@ from cli.ai import app as ai_app
 app = typer.Typer(
     name="wooprice",
     help="WooPrice Beta management CLI.  [BETA ENVIRONMENT]",
-    no_args_is_help=True,
+    no_args_is_help=False,
+    invoke_without_command=True,
     add_completion=False,
 )
+
+
+@app.callback()
+def _main_callback(ctx: typer.Context) -> None:
+    """Show the interactive management menu when no subcommand is given."""
+    if ctx.invoked_subcommand is None:
+        from cli.menu import show_menu
+        show_menu()
 
 app.add_typer(install_app, name="install")
 app.add_typer(configure_app, name="configure")
