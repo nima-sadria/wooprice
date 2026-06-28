@@ -1,4 +1,5 @@
 .env
+.env.beta
 *.db
 data/
 __pycache__/

@@ -1,13 +1,17 @@
 """WooPrice Beta — /api/health router.
 
-Health probe: returns environment label, version, and service status.
-No authentication required. Used by load balancers and the CLI.
-
-Implementation begins in B4.
+Public health probe used by load balancers, Nginx Proxy Manager, and the CLI.
+No authentication required.  Returns minimal status — no internal details exposed.
 """
 
 from fastapi import APIRouter
 
 router = APIRouter()
 
-# GET /api/health — implementation begins in B4.
+_VERSION = "0.1.0-dev"
+
+
+@router.get("/health")
+async def health() -> dict:
+    """Minimal liveness probe.  Always returns 200 OK when the app is running."""
+    return {"status": "ok", "env": "beta", "version": _VERSION}
