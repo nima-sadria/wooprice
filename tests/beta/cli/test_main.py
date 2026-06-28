@@ -67,8 +67,13 @@ class TestMainRegistration:
         names = [g.name for g in main_app.registered_groups]
         assert "configure" in names
 
-    def test_fifteen_command_groups_registered(self):
+    def test_sixteen_command_groups_registered(self):
         from cli.main import app as main_app
-        # 15 groups: install, configure, status, health, diagnostics,
+        # 16 groups: install, configure, status, health, diagnostics, integrations (CP1.3),
         # migrate, backup, logs, update, adapters, channels, sources, users, scheduler, ai
-        assert len(main_app.registered_groups) == 15
+        assert len(main_app.registered_groups) == 16
+
+    def test_integrations_registered(self):
+        from cli.main import app as main_app
+        names = [g.name for g in main_app.registered_groups]
+        assert "integrations" in names

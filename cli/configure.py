@@ -146,3 +146,97 @@ def configure_verify(
     console.print()
     if not result.is_valid:
         raise typer.Exit(code=1)
+
+
+@app.command("get")
+def configure_get(
+    field: Annotated[str, typer.Argument(help="Config field name (e.g., BETA_LOG_LEVEL)")],
+    env_file: Annotated[
+        Path | None,
+        typer.Option("--env-file", help="Path to .env file"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
+    """Show the current value of a single configuration field (secrets redacted)."""
+    from cli.shared.output import console, print_banner, print_section
+    from cli.shared.config_reader import load_config
+    from app.beta.runtime_config import RuntimeConfigService
+
+    _, profile = load_config(env_file)
+    env_path = env_file or Path(".env")
+    svc = RuntimeConfigService(env_file=env_path)
+    record = svc.get(field)
+
+    if json_output:
+        typer.echo(json.dumps(record.to_dict(), indent=2))
+        return
+
+    print_banner(profile)
+    print_section(f"Configuration: {record.field_name}")
+    value_display = "[REDACTED]" if record.is_secret else (record.current_value or "[not set]")
+    console.print(f"  {record.field_name:<36} {value_display}")
+    if record.is_secret:
+        console.print("  [dim]This field is a secret and cannot be displayed.[/dim]")
+    elif record.is_installer_only:
+        console.print("  [dim]This field is installer-only and cannot be changed at runtime.[/dim]")
+    elif not record.is_editable:
+        console.print("  [dim]This field is not editable via runtime configuration.[/dim]")
+    console.print()
+
+
+@app.command("set")
+def configure_set(
+    field: Annotated[str, typer.Argument(help="Config field name (e.g., BETA_LOG_LEVEL)")],
+    value: Annotated[str, typer.Argument(help="New value to set")],
+    env_file: Annotated[
+        Path | None,
+        typer.Option("--env-file", help="Path to .env file"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
+    """Set a runtime configuration field. Only editable fields are accepted.
+
+    Secrets and installer-only fields are always rejected.
+    The value is validated before any write occurs.
+    """
+    from cli.shared.output import console, print_banner, print_section, print_error
+    from cli.shared.config_reader import load_config
+    from app.beta.runtime_config import RuntimeConfigService
+
+    _, profile = load_config(env_file)
+    env_path = env_file or Path(".env")
+    svc = RuntimeConfigService(env_file=env_path)
+    result = svc.set(field, value, changed_by="cli")
+
+    if json_output:
+        out = {
+            "success": result.success,
+            "field_name": result.field_name,
+            "new_value": result.new_value,
+            "error": result.error,
+        }
+        typer.echo(json.dumps(out, indent=2))
+        if not result.success:
+            raise typer.Exit(code=1)
+        return
+
+    print_banner(profile)
+
+    if not result.success:
+        print_error(
+            f"Cannot set {result.field_name}",
+            suggestion=result.error or "Unknown error.",
+        )
+        raise typer.Exit(code=1)
+
+    print_section("Configuration Updated")
+    console.print(f"  [green]✓[/green]  {result.field_name} = {result.new_value}")
+    if result.old_value is not None and result.old_value != result.new_value:
+        console.print(f"      [dim](was: {result.old_value})[/dim]")
+    console.print()

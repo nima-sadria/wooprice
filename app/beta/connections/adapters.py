@@ -160,3 +160,167 @@ class NetworkAdapter(ABC):
 
         Raises DockerAdapterError on failure.
         """
+
+
+# ---------------------------------------------------------------------------
+# Real production adapter (CP1.3)
+# ---------------------------------------------------------------------------
+
+
+class RealNetworkAdapter(NetworkAdapter):
+    """Production adapter that issues actual OS-level and HTTP calls.
+
+    Uses stdlib (socket, ssl) for transport checks and httpx for HTTP/auth.
+    Credentials passed to http_request/check_auth are never logged.
+    """
+
+    def resolve_dns(self, hostname: str) -> list[str]:
+        import socket
+        try:
+            info = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+            return list({addr[4][0] for addr in info})
+        except socket.gaierror as exc:
+            raise DNSResolutionError(str(exc)) from exc
+
+    def tcp_connect(self, host: str, port: int, timeout: float) -> float:
+        import socket
+        import time
+        t0 = time.monotonic()
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                pass
+            return (time.monotonic() - t0) * 1000.0
+        except socket.timeout as exc:
+            raise ConnectionTimeoutError(f"TCP connect timeout: {host}:{port}") from exc
+        except ConnectionRefusedError as exc:
+            raise TCPConnectionError(f"Connection refused: {host}:{port}") from exc
+        except OSError as exc:
+            raise ConnectionUnreachableError(str(exc)) from exc
+
+    def tls_handshake(self, host: str, port: int, timeout: float) -> dict:
+        import datetime
+        import socket
+        import ssl
+        import time
+        t0 = time.monotonic()
+        ctx = ssl.create_default_context()
+        try:
+            raw = socket.create_connection((host, port), timeout=timeout)
+            with ctx.wrap_socket(raw, server_hostname=host) as conn:
+                cert = conn.getpeercert()
+            latency_ms = (time.monotonic() - t0) * 1000.0
+            expiry_str: str = cert.get("notAfter", "") if cert else ""
+            expiry_dt = None
+            if expiry_str:
+                expiry_dt = datetime.datetime.strptime(
+                    expiry_str, "%b %d %H:%M:%S %Y %Z"
+                ).replace(tzinfo=datetime.timezone.utc)
+            days = (
+                (expiry_dt - datetime.datetime.now(tz=datetime.timezone.utc)).days
+                if expiry_dt
+                else -1
+            )
+            subject = (
+                dict(x[0] for x in cert.get("subject", []))
+                if cert
+                else {}
+            )
+            return {
+                "cert_subject": subject.get("commonName", ""),
+                "cert_expiry": expiry_dt.date().isoformat() if expiry_dt else "",
+                "days_until_expiry": days,
+                "chain_valid": True,
+                "latency_ms": latency_ms,
+            }
+        except ssl.SSLError as exc:
+            raise TLSHandshakeError(str(exc)) from exc
+        except socket.timeout as exc:
+            raise ConnectionTimeoutError(f"TLS timeout: {host}:{port}") from exc
+        except OSError as exc:
+            raise ConnectionUnreachableError(str(exc)) from exc
+
+    def http_request(
+        self,
+        method: str,
+        url: str,
+        timeout: float,
+        headers: dict[str, str],
+        auth: Optional[tuple[str, str]],
+    ) -> tuple[int, bytes]:
+        import httpx
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                r = client.request(method, url, headers=headers, auth=auth)
+                return (r.status_code, r.content)
+        except httpx.TimeoutException as exc:
+            raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.ConnectError as exc:
+            msg = str(exc)
+            if "getaddrinfo" in msg.lower() or "nodename" in msg.lower() or "name or service" in msg.lower():
+                raise DNSResolutionError(msg) from exc
+            raise TCPConnectionError(msg) from exc
+        except httpx.HTTPError as exc:
+            raise InvalidResponseError(str(exc)) from exc
+
+    def check_auth(
+        self,
+        url: str,
+        username: str,
+        password: str,
+        timeout: float,
+    ) -> tuple[bool, int]:
+        import httpx
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                r = client.get(url, auth=(username, password))
+                if r.status_code == 401:
+                    raise AuthenticationError("HTTP 401: credentials rejected")
+                if r.status_code == 403:
+                    raise AccessForbiddenError("HTTP 403: access denied")
+                return (r.status_code < 400, r.status_code)
+        except httpx.TimeoutException as exc:
+            raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.ConnectError as exc:
+            raise TCPConnectionError(str(exc)) from exc
+
+    def check_path(self, path: str) -> dict:
+        import os
+        import shutil
+        from pathlib import Path as _Path
+        p = _Path(path)
+        if not p.exists():
+            raise StorageAdapterError(f"Path does not exist: {path}")
+        try:
+            readable = os.access(path, os.R_OK)
+            writable = os.access(path, os.W_OK)
+            usage = shutil.disk_usage(path)
+            return {
+                "exists": True,
+                "readable": readable,
+                "writable": writable,
+                "free_gb": usage.free / (1024 ** 3),
+                "total_gb": usage.total / (1024 ** 3),
+            }
+        except OSError as exc:
+            raise StorageAdapterError(str(exc)) from exc
+
+    def check_database(self, url: str, timeout: float) -> dict:
+        import time
+        t0 = time.monotonic()
+        try:
+            import psycopg2
+            conn = psycopg2.connect(url, connect_timeout=max(1, int(timeout)))
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            latency_ms = (time.monotonic() - t0) * 1000.0
+            conn.close()
+            return {"connected": True, "latency_ms": latency_ms, "pending_migrations": False}
+        except Exception as exc:
+            raise DatabaseAdapterError(str(exc)) from exc
+
+    def check_docker(self) -> dict:
+        import os
+        socket_path = "/var/run/docker.sock"
+        if not os.path.exists(socket_path):
+            raise DockerAdapterError(f"Docker socket not found at {socket_path}")
+        return {"available": True, "socket_path": socket_path}
