@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_PLAN.md
 **Series:** CP1 Architecture Specification
-**Status:** CP1.1 IN PROGRESS — Owner approved 2026-06-28. Core Models + Failure Taxonomy under implementation.
+**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 NOT STARTED.
 
 ---
 
@@ -381,7 +381,11 @@ implementation would exceed a reasonable single-PR review size, split into at mo
 
 ### CP1.1 — Core Models + Failure Taxonomy
 
-**Status: IN PROGRESS (Owner approved 2026-06-28)**
+**Status: CLOSED — Owner approved 2026-06-28**
+
+**Permanent Record:**
+- Commit: `59f49c5`
+- Tests: 285 passed, 0 failed
 
 **Delivered:**
 - `app/beta/control_plane/__init__.py` — package exports

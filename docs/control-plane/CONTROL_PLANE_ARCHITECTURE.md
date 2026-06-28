@@ -2,9 +2,10 @@
 
 **Document:** CONTROL_PLANE_ARCHITECTURE.md
 **Series:** CP1 Architecture Specification
-**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
+**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 NOT STARTED.
 **Owner decision date:** 2026-06-27
 **CHAT2 review date:** 2026-06-28
+**CP1.1 commit:** 59f49c5 (285 tests, 0 failed)
 
 ---
 
