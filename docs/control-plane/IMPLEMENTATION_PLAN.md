@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_PLAN.md
 **Series:** CP1 Architecture Specification
-**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 NOT STARTED.
+**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 CLOSED — Owner approved 2026-06-28. CP1.3 NOT STARTED.
 
 ---
 
@@ -406,11 +406,29 @@ foundational type consumed by all subsequent parts.
 
 ### CP1.2 — Connection Manager + Health Engine
 
-**Scope:**
-- `app/beta/connections/` — full Connection Manager (timeout, retry, backoff, circuit breaker, cache)
-- `app/beta/diagnostics/checks/` — all 10 check types (6 live + 4 stubs)
-- `tests/beta/cp1/test_connection_manager.py`
-- `tests/beta/cp1/test_health_engine.py`
+**Status: CLOSED — Owner approved 2026-06-28**
+
+**Permanent Record:**
+- Commit: (pending — see phase closure)
+- Tests: 210 passed, 0 failed (total suite: 1906 passed, 1 skipped)
+
+**Delivered:**
+- `app/beta/connections/__init__.py` — package exports
+- `app/beta/connections/models.py` — `ConnectionType`, `ConnectionStatus`, `CircuitState`, `ConnectionDefinition`, `ConnectionResult`
+- `app/beta/connections/adapters.py` — `NetworkAdapter` ABC + custom exception hierarchy
+- `app/beta/connections/classifier.py` — exception-to-FailureClass mapping (canonical; all CP1 modules must route through this)
+- `app/beta/connections/circuit_breaker.py` — `CircuitBreakerConfig`, `CircuitBreaker` (CLOSED → OPEN → HALF_OPEN → CLOSED)
+- `app/beta/connections/cache.py` — `ConnectionCache` (TTL-based in-memory; OD1 compliant)
+- `app/beta/connections/manager.py` — `ConnectionManager` (register, check, retry, bypass-circuit, cache)
+- `app/beta/health/__init__.py` — package exports
+- `app/beta/health/models.py` — `HealthStatus`, `CheckCategory`, `HealthCheckResult`
+- `app/beta/health/checks.py` — 10 check implementations: DNS, TCP, TLS, HTTP, Auth, Config, Storage, Database, Docker (stub), Integration
+- `app/beta/health/aggregation.py` — `SystemHealthSummary`, `aggregate_results`
+- `app/beta/health/engine.py` — `HealthEngine` orchestrator
+- `tests/beta/connections/__init__.py`, `conftest.py` (FakeNetworkAdapter), `test_classifier.py`, `test_circuit_breaker.py`, `test_cache.py`, `test_manager.py`
+- `tests/beta/health/__init__.py`, `conftest.py`, `test_models.py`, `test_checks.py`, `test_aggregation.py`, `test_engine.py`
+
+**Test result:** 210 passed, 0 failed.
 
 **Gate:** CP1.2 is CLOSED before CP1.3 begins. Connection Manager must pass
 full circuit breaker transition tests and failure classification coverage.

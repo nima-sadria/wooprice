@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-28 — CP1.1 CLOSED (Owner approved 2026-06-28)
+**Last revised:** 2026-06-28 — CP1.2 CLOSED (Owner approved 2026-06-28)
 
 ---
 
@@ -432,12 +432,12 @@ python -m cli.main install dry-run --env-file /path/to/.env --install-dir /opt/w
 
 ### CP1 — Control Plane Foundation Pack
 
-**Status:** CP1.1 CLOSED — Owner approved 2026-06-28.
+**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 CLOSED — Owner approved 2026-06-28. CP1.3 NOT STARTED.
 
 | Subpart | Scope | Status |
 |---|---|---|
 | CP1.1 | Core Models + Failure Taxonomy | CLOSED — commit 59f49c5 · 285 tests |
-| CP1.2 | Connection Manager + Health Engine | NOT STARTED |
+| CP1.2 | Connection Manager + Health Engine | CLOSED — 210 tests · 1906 total |
 | CP1.3 | Diagnostics + Runtime Config + CLI/API | NOT STARTED |
 
 **Architecture specification:** `docs/control-plane/` (8 documents — CP1 Architecture Specification)
