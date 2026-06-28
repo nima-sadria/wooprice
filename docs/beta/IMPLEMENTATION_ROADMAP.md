@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_ROADMAP.md
 **Series:** B1 Architecture Blueprint
-**Last revised:** 2026-06-27 — B5 Phase Completion Report produced; Control Plane Resilience decision recorded
+**Last revised:** 2026-06-28 — B5 CLOSED (Owner approved 2026-06-28); CP1 Control Plane Foundation Pack added as NOT STARTED
 
 ---
 
@@ -28,7 +28,8 @@ to establish all runtime prerequisites before the first UI work begins in B8.
 | B3 | Configuration Foundation | CONFIGURATION_ARCHITECTURE.md | ConfigurationManager, schema, validation, secret abstraction, profiles | B2 |
 | B4 | Installer Foundation | INSTALLER_ARCHITECTURE.md, CONFIGURATION_ARCHITECTURE.md | `install.sh`, `wooprice configure`, `.env` generation | B3 |
 | B5 | CLI Foundation | CLI_ARCHITECTURE.md, DEVELOPMENT_GUIDE.md | `wooprice` command, 16 command groups, `health` working | B4 |
-| B6 | Docker Runtime Foundation | DEPLOYMENT_ARCHITECTURE.md | Docker Compose stack, Dockerfiles, health checks, dev environment | B5 |
+| CP1 | Control Plane Foundation Pack | SYSTEM_ARCHITECTURE.md, CLI_ARCHITECTURE.md | ControlPlaneService, ConnectionManager, DiagnosticRunner, CP1 CLI extensions | B5 |
+| B6 | Docker Runtime Foundation | DEPLOYMENT_ARCHITECTURE.md | Docker Compose stack, Dockerfiles, health checks, dev environment | CP1 |
 | B7 | Authentication Foundation | SECURITY_ARCHITECTURE.md | JWT auth, user models, permissions, session management | B6 |
 | B8 | Read-only A2 Inspector UI | SYSTEM_ARCHITECTURE.md, UI_ARCHITECTURE.md | `/api/v2/` read endpoints, Dashboard, Products, Sources, Rules, Safety | B7 |
 | B9 | Change Set Viewer + Dry Run UI | UI_ARCHITECTURE.md | Change Set list/detail, Dry Run viewer, A2.5 + A2.6 API | B8 |
@@ -52,7 +53,8 @@ B1 (Spec)
         └── B3 (Configuration Foundation)
               └── B4 (Installer Foundation)
                     └── B5 (CLI Foundation)
-                          └── B6 (Docker Runtime Foundation)
+                          └── CP1 (Control Plane Foundation Pack)
+                                └── B6 (Docker Runtime Foundation)
                                 └── B7 (Authentication Foundation)
                                       ├── B8 (Read-only A2 Inspector UI)
                                       │     └── B9 (Change Set Viewer)
@@ -327,7 +329,14 @@ entry point.
 
 ### B5 — CLI Foundation
 
-**Status:** READY FOR OWNER REVIEW
+**Status:** CLOSED — Owner approved 2026-06-28
+
+**Permanent Record:**
+- Implementation commit: `8c8ccee` — "B5: implement CLI foundation"
+- Phase Completion Report commit: `9bbd4de` — "B5: phase completion report; update test count"
+- Owner approval date: 2026-06-28
+- Test summary: 185 B5 tests passing; B3+B4 regression: 315 tests, 0 failures (1 skipped: chmod on Windows)
+- Technical debt: LOW only — interactive install wizard deferred to B6, `health db/sources/channels` deferred to B6, `wooprice` command packaging deferred to B6
 
 **Architecture constraint:** B5 CLI Foundation implements only local, pre-server commands.
 Docker stack commands (health db/sources/channels), database migrations, backup/restore,
@@ -418,6 +427,21 @@ python -m cli.main install dry-run --env-file /path/to/.env --install-dir /opt/w
 - `wooprice` command packaging requires B6 Dockerfile; `python -m cli.main` is the B5 path
 
 **TEP impact:** None.
+
+---
+
+### CP1 — Control Plane Foundation Pack
+
+**Status:** NOT STARTED
+
+**Goal:** Implement the Control Plane service layer that enforces the Owner Architecture
+Decision (2026-06-27): the Control Plane must remain accessible when one or more
+Integration Plane services are down. CP1 builds the service infrastructure that B6+
+phases will consume — ControlPlaneStatus, ConnectionManager, DiagnosticRunner — plus
+corresponding CLI extensions and architecture documentation.
+
+**Depends on:** B5 (CLI Foundation)
+**CHAT2 spec required before implementation.**
 
 ---
 

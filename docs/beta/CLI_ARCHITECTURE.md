@@ -2,7 +2,7 @@
 
 **Document:** CLI_ARCHITECTURE.md
 **Series:** B1 Architecture Blueprint
-**B5 status (2026-06-27): CLOSED — Owner approved 2026-06-27.**
+**B5 status (2026-06-28): CLOSED — Owner approved 2026-06-28.**
 Implementation commit: see IMPLEMENTATION_ROADMAP.md.
 
 **B5 local invocation:**

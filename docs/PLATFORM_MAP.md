@@ -519,7 +519,7 @@ Codex must re-verify PLATFORM_MAP against current code when any change affects:
 | E — Roadmap | `docs/ROADMAP.md` |
 | F — Beta Strategy | `docs/BETA_STRATEGY.md` — WooPrice Beta; future new work target |
 | G — Beta Master Spec | `docs/BETA_MASTER_SPEC.md` — B1 architecture; installer, CLI, plugin, UI strategy |
-| I — Beta Architecture Blueprint | `docs/beta/` — 12 architecture documents; B1 CLOSED · B2 CLOSED · B3 CLOSED · B4 CLOSED · **B5 CLI Foundation NEXT** |
+| I — Beta Architecture Blueprint | `docs/beta/` — 12 architecture documents; B1 CLOSED · B2 CLOSED · B3 CLOSED · B4 CLOSED · B5 CLOSED · **CP1 Control Plane Foundation NOT STARTED** |
 
 ### Rules
 - If information cannot be verified from code, mark it UNKNOWN or remove it.
