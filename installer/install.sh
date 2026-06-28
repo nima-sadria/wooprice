@@ -430,8 +430,15 @@ step_completion_report() {
 main() {
     print_banner
 
-    # Idempotency check — detect existing installation before starting
-    if detect_existing_installation && [[ "$DRY_RUN" -eq 0 && "$NON_INTERACTIVE" -eq 0 ]]; then
+    # Idempotency check — detect existing installation before starting.
+    # Non-interactive mode with an existing .env.beta defaults to upgrade to
+    # avoid silently overwriting secrets without confirmation.
+    if detect_existing_installation && [[ "$DRY_RUN" -eq 0 ]]; then
+        if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+            echo "  Existing installation detected. Running upgrade (non-interactive mode)."
+            step_upgrade
+            return
+        fi
         handle_existing_installation
         return
     fi
