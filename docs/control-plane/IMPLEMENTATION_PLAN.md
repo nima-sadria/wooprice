@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_PLAN.md
 **Series:** CP1 Architecture Specification
-**Status:** CHAT2 APPROVED with modifications — 2026-06-28. Specification complete. READY FOR OWNER REVIEW. No implementation has begun.
+**Status:** CP1.1 IN PROGRESS — Owner approved 2026-06-28. Core Models + Failure Taxonomy under implementation.
 
 ---
 
@@ -381,14 +381,21 @@ implementation would exceed a reasonable single-PR review size, split into at mo
 
 ### CP1.1 — Core Models + Failure Taxonomy
 
-**Scope:**
-- `app/beta/control_plane/status.py` — `HealthLevel`, `ServiceStatus`, `FailureClass`, `IntegrationState`, `ControlPlaneStatus`
-- `app/beta/control_plane/availability.py` — `AvailabilityState`, `FeatureAvailability`
-- `app/beta/control_plane/service.py` — `ControlPlaneService`
-- `app/beta/connections/result.py` — `ConnectionResult`, `FailureClass` (canonical taxonomy)
-- `tests/beta/cp1/test_control_plane_status.py`
-- `tests/beta/cp1/test_feature_availability.py`
-- `tests/beta/cp1/test_failure_class.py`
+**Status: IN PROGRESS (Owner approved 2026-06-28)**
+
+**Delivered:**
+- `app/beta/control_plane/__init__.py` — package exports
+- `app/beta/control_plane/failure.py` — `Severity`, `FailureClass` (16 values), `FailureClassMeta`
+- `app/beta/control_plane/models.py` — `IntegrationType`, `IntegrationState`
+- `app/beta/control_plane/availability.py` — `FeatureName`, `FeatureAvailability`, `compute_feature_availability`, `compute_all_features`
+- `app/beta/control_plane/status.py` — `ControlPlaneStatus`
+- `tests/beta/control_plane/__init__.py`
+- `tests/beta/control_plane/test_failure.py` — 75 tests
+- `tests/beta/control_plane/test_models.py` — 20 tests
+- `tests/beta/control_plane/test_availability.py` — 100 tests
+- `tests/beta/control_plane/test_status.py` — 90 tests
+
+**Test result:** 285 passed, 0 failed.
 
 **Gate:** CP1.1 is CLOSED before CP1.2 begins. `FailureClass` is the
 foundational type consumed by all subsequent parts.
