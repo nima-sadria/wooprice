@@ -2,7 +2,7 @@
 
 **Document:** IMPLEMENTATION_PLAN.md
 **Series:** CP1 Architecture Specification
-**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 CLOSED — Owner approved 2026-06-28. CP1.3 NOT STARTED.
+**Status:** CP1.1 CLOSED — Owner approved 2026-06-28. CP1.2 READY FOR OWNER REVIEW. CP1.3 NOT STARTED.
 
 ---
 
@@ -406,10 +406,10 @@ foundational type consumed by all subsequent parts.
 
 ### CP1.2 — Connection Manager + Health Engine
 
-**Status: CLOSED — Owner approved 2026-06-28**
+**Status: READY FOR OWNER REVIEW**
 
 **Permanent Record:**
-- Commit: (pending — see phase closure)
+- Commit: `7694c04`
 - Tests: 210 passed, 0 failed (total suite: 1906 passed, 1 skipped)
 
 **Delivered:**

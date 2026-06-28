@@ -2,7 +2,7 @@
 
 **Document:** CONNECTION_MANAGER.md
 **Series:** CP1 Architecture Specification
-**Status:** CLOSED — CP1.2 implementation complete. Owner approved 2026-06-28.
+**Status:** READY FOR OWNER REVIEW — CP1.2 implementation complete. Commit 7694c04. Awaiting Owner approval.
 
 ---
 
