@@ -170,8 +170,15 @@ class NetworkAdapter(ABC):
 class RealNetworkAdapter(NetworkAdapter):
     """Production adapter that issues actual OS-level and HTTP calls.
 
+    SYNCHRONOUS BLOCKING IMPLEMENTATION — all methods block the calling thread.
+    Safe for CLI use.  Must NOT be called from async FastAPI route handlers
+    until replaced by an async adapter in B6 (AsyncNetworkAdapter / asyncpg).
+
     Uses stdlib (socket, ssl) for transport checks and httpx for HTTP/auth.
     Credentials passed to http_request/check_auth are never logged.
+
+    B6 replacement note: implement AsyncNetworkAdapter(NetworkAdapter) with
+    async def counterparts; swap at the DI boundary in ConnectionManager.
     """
 
     def resolve_dns(self, hostname: str) -> list[str]:
@@ -305,20 +312,30 @@ class RealNetworkAdapter(NetworkAdapter):
             raise StorageAdapterError(str(exc)) from exc
 
     def check_database(self, url: str, timeout: float) -> dict:
+        # Synchronous psycopg2 — blocks the event loop.  Replace with asyncpg in B6.
         import time
         t0 = time.monotonic()
         try:
             import psycopg2
+            import psycopg2.Error as _PGError
+        except ImportError as exc:
+            raise DatabaseAdapterError("psycopg2 not installed") from exc
+        try:
             conn = psycopg2.connect(url, connect_timeout=max(1, int(timeout)))
             cur = conn.cursor()
             cur.execute("SELECT 1")
             latency_ms = (time.monotonic() - t0) * 1000.0
             conn.close()
             return {"connected": True, "latency_ms": latency_ms, "pending_migrations": False}
-        except Exception as exc:
+        except _PGError as exc:
+            raise DatabaseAdapterError(str(exc)) from exc
+        except OSError as exc:
             raise DatabaseAdapterError(str(exc)) from exc
 
     def check_docker(self) -> dict:
+        # Linux-only assumption: /var/run/docker.sock.
+        # B6 replacement note: make socket_path configurable or use docker-py SDK
+        # so this works on macOS (~/Library/Containers/…) and Windows (named pipe).
         import os
         socket_path = "/var/run/docker.sock"
         if not os.path.exists(socket_path):
