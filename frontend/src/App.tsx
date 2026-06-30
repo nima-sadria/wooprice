@@ -11,6 +11,7 @@ import Audit from './pages/Audit'
 import Logs from './pages/Logs'
 import Settings from './pages/Settings'
 import Admin from './pages/Admin'
+import IntegrationPlatform from './pages/IntegrationPlatform'
 import Login from './pages/Login'
 
 function MaintenanceOverlay({ message }: { message?: string }) {
@@ -95,6 +96,7 @@ export default function App() {
               <Route path="/logs" element={<RequirePermission permission="can_view_logs"><Logs /></RequirePermission>} />
               <Route path="/settings" element={<RequirePermission permission="can_view_settings"><Settings /></RequirePermission>} />
               <Route path="/admin" element={<RequirePermission adminOnly><Admin /></RequirePermission>} />
+              <Route path="/integrations" element={<RequirePermission permission="can_view_settings"><IntegrationPlatform /></RequirePermission>} />
             </Route>
           </Routes>
         </AuthProvider>

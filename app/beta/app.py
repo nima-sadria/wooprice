@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.beta.api.health import router as health_router
+from app.beta.api.v2.integrations import router as integrations_v2_router
 from app.beta.auth.router import router as auth_router
 
 _VERSION = "0.1.0-dev"
@@ -72,6 +73,7 @@ app = FastAPI(
 # API routers — registered before the SPA catch-all so they take priority
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(integrations_v2_router, prefix="/api/v2")
 
 # Static assets (hashed filenames produced by Vite; only mounted if built)
 _assets_dir = _FRONTEND_DIST / "assets"
