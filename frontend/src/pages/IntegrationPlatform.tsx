@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../auth'
 
 type ConnectorHealthStatus =
   | 'healthy'
@@ -52,6 +53,28 @@ interface ConnectorDefinition {
   }
 }
 
+interface ConnectorInstance {
+  connector: ConnectorDefinition['connector']
+  settings: Array<{
+    key: string
+    value: unknown
+    secret: boolean
+    configured: boolean
+  }>
+  created_at: string | null
+  updated_at: string | null
+}
+
+interface ConnectorRegistryResponse {
+  items: ConnectorDefinition[]
+  runtime_write_blocked: boolean
+}
+
+interface ConnectorListResponse {
+  items: ConnectorInstance[]
+  runtime_write_blocked: boolean
+}
+
 const CAPABILITY_LABELS: Array<[keyof ConnectorCapabilities, string]> = [
   ['read_products', 'Read products'],
   ['read_categories', 'Read categories'],
@@ -63,87 +86,6 @@ const CAPABILITY_LABELS: Array<[keyof ConnectorCapabilities, string]> = [
   ['polling', 'Polling'],
   ['oauth', 'OAuth'],
   ['api_key', 'API key'],
-]
-
-const REGISTRY: ConnectorDefinition[] = [
-  {
-    connector: {
-      identity: {
-        id: 'woocommerce',
-        name: 'WooCommerce',
-        type: 'woocommerce',
-        version: '1.0.0',
-        enabled: false,
-        read_only: true,
-      },
-      capabilities: {
-        read_products: true,
-        read_categories: true,
-        read_inventory: true,
-        read_orders: true,
-        write_prices: true,
-        write_inventory: true,
-        webhook: true,
-        polling: true,
-        oauth: false,
-        api_key: true,
-      },
-      status: 'disabled',
-      runtime_write_blocked: true,
-      capability_authorizes_write: false,
-    },
-    settings_schema: [
-      { key: 'base_url', label: 'Store URL', required: true, secret: false },
-      { key: 'consumer_key', label: 'Consumer key', required: true, secret: true },
-      { key: 'consumer_secret', label: 'Consumer secret', required: true, secret: true },
-    ],
-    diagnostics_contract: {
-      checks: [
-        { name: 'settings', category: 'configuration' },
-        { name: 'api_key_auth', category: 'authentication' },
-        { name: 'capabilities', category: 'capability_detection' },
-      ],
-    },
-  },
-  {
-    connector: {
-      identity: {
-        id: 'nextcloud',
-        name: 'Nextcloud',
-        type: 'nextcloud',
-        version: '1.0.0',
-        enabled: false,
-        read_only: true,
-      },
-      capabilities: {
-        read_products: true,
-        read_categories: false,
-        read_inventory: false,
-        read_orders: false,
-        write_prices: false,
-        write_inventory: false,
-        webhook: false,
-        polling: true,
-        oauth: false,
-        api_key: false,
-      },
-      status: 'disabled',
-      runtime_write_blocked: true,
-      capability_authorizes_write: false,
-    },
-    settings_schema: [
-      { key: 'base_url', label: 'Nextcloud URL', required: true, secret: false },
-      { key: 'file_path', label: 'Spreadsheet path', required: true, secret: false },
-      { key: 'password', label: 'Password', required: true, secret: true },
-    ],
-    diagnostics_contract: {
-      checks: [
-        { name: 'settings', category: 'configuration' },
-        { name: 'basic_auth', category: 'authentication' },
-        { name: 'capabilities', category: 'capability_detection' },
-      ],
-    },
-  },
 ]
 
 function CapabilityBadge({ enabled, label }: { enabled: boolean; label: string }) {
@@ -226,11 +168,44 @@ function ConnectorCard({ definition }: { definition: ConnectorDefinition }) {
 }
 
 export default function IntegrationPlatform() {
+  const { authFetch } = useAuth()
+  const [registry, setRegistry] = useState<ConnectorDefinition[]>([])
+  const [connectors, setConnectors] = useState<ConnectorInstance[]>([])
+  const [runtimeWriteBlocked, setRuntimeWriteBlocked] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [registryResponse, connectorResponse] = await Promise.all([
+        authFetch('/api/v2/integrations/registry'),
+        authFetch('/api/v2/integrations/connectors'),
+      ])
+      if (!registryResponse.ok) throw new Error(`Registry request failed (${registryResponse.status})`)
+      if (!connectorResponse.ok) throw new Error(`Connector request failed (${connectorResponse.status})`)
+      const registryData = await registryResponse.json() as ConnectorRegistryResponse
+      const connectorData = await connectorResponse.json() as ConnectorListResponse
+      setRegistry(registryData.items)
+      setConnectors(connectorData.items)
+      setRuntimeWriteBlocked(registryData.runtime_write_blocked && connectorData.runtime_write_blocked)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load integrations')
+    } finally {
+      setLoading(false)
+    }
+  }, [authFetch])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
   const advertisedWrites = useMemo(() => {
-    return REGISTRY.filter(
+    return registry.filter(
       item => item.connector.capabilities.write_prices || item.connector.capabilities.write_inventory,
     ).length
-  }, [])
+  }, [registry])
 
   return (
     <div className="p-4 sm:p-7 flex flex-col gap-5 max-w-5xl">
@@ -244,19 +219,25 @@ export default function IntegrationPlatform() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-bg-card border border-border rounded-card shadow-card p-[18px]">
           <p className="text-[11px] uppercase tracking-[.7px] text-wp-muted font-semibold mb-1">Registry</p>
-          <div className="text-[20px] font-bold text-text-base">{REGISTRY.length}</div>
+          <div className="text-[20px] font-bold text-text-base">{loading ? '...' : registry.length}</div>
         </div>
         <div className="bg-bg-card border border-border rounded-card shadow-card p-[18px]">
           <p className="text-[11px] uppercase tracking-[.7px] text-wp-muted font-semibold mb-1">Instances</p>
-          <div className="text-[20px] font-bold text-text-base">0</div>
+          <div className="text-[20px] font-bold text-text-base">{loading ? '...' : connectors.length}</div>
         </div>
         <div className="bg-bg-card border border-border rounded-card shadow-card p-[18px]">
           <p className="text-[11px] uppercase tracking-[.7px] text-wp-muted font-semibold mb-1">Write Guard</p>
           <div className="text-[20px] font-bold text-wp-green">
-            Blocked
+            {runtimeWriteBlocked ? 'Blocked' : 'Open'}
           </div>
         </div>
       </div>
+
+      {error && (
+        <div className="bg-wp-red/10 border border-wp-red/30 rounded-card p-4 text-[13px] text-wp-red">
+          {error}
+        </div>
+      )}
 
       <div className="bg-bg-card border border-border rounded-card shadow-card p-[18px]">
         <div className="flex items-start gap-3">
@@ -272,7 +253,7 @@ export default function IntegrationPlatform() {
       </div>
 
       <div className="flex flex-col gap-4">
-        {REGISTRY.map(definition => (
+        {registry.map(definition => (
           <ConnectorCard key={definition.connector.identity.id} definition={definition} />
         ))}
       </div>
