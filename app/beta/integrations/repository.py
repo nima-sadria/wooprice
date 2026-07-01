@@ -8,7 +8,13 @@ from typing import Iterable
 from sqlalchemy.orm import Session
 
 from app.beta.integrations.contracts import ConnectorSettingValue
-from app.beta.integrations.models import ConnectorInstance, ConnectorSetting
+from app.beta.integrations.models import (
+    ConnectorInstance,
+    ConnectorProductRecord,
+    ConnectorSetting,
+    ConnectorSourceRecord,
+    ConnectorTelemetryEvent,
+)
 
 _UTC = timezone.utc
 
@@ -36,6 +42,26 @@ class ConnectorRepository:
         self.db.commit()
         self.db.refresh(instance)
         return instance
+
+    def add_source_for_instance(self, instance: ConnectorInstance) -> ConnectorSourceRecord:
+        existing = (
+            self.db.query(ConnectorSourceRecord)
+            .filter(ConnectorSourceRecord.connector_id == instance.id)
+            .first()
+        )
+        if existing is not None:
+            return existing
+        source = ConnectorSourceRecord(
+            connector_id=instance.id,
+            name=instance.name,
+            source_type=instance.connector_type,
+            status=instance.status,
+            product_count=0,
+        )
+        self.db.add(source)
+        self.db.commit()
+        self.db.refresh(source)
+        return source
 
     def upsert_settings(
         self,
@@ -67,3 +93,68 @@ class ConnectorRepository:
         self.db.commit()
         self.db.refresh(connector)
         return connector
+
+    def list_sources(self) -> list[ConnectorSourceRecord]:
+        return (
+            self.db.query(ConnectorSourceRecord)
+            .order_by(ConnectorSourceRecord.name.asc())
+            .all()
+        )
+
+    def list_products(
+        self,
+        search: str = "",
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[ConnectorProductRecord], int]:
+        query = self.db.query(ConnectorProductRecord)
+        if search:
+            pattern = f"%{search}%"
+            query = query.filter(
+                (ConnectorProductRecord.name.ilike(pattern))
+                | (ConnectorProductRecord.sku.ilike(pattern))
+                | (ConnectorProductRecord.external_id.ilike(pattern))
+            )
+        total = query.count()
+        items = (
+            query.order_by(ConnectorProductRecord.name.asc(), ConnectorProductRecord.id.asc())
+            .offset(max(page - 1, 0) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return items, total
+
+    def count_products(self) -> int:
+        return self.db.query(ConnectorProductRecord).count()
+
+    def record_telemetry(
+        self,
+        connector_id: str,
+        event_name: str,
+        message: str,
+        severity: str = "info",
+        metadata: dict | None = None,
+    ) -> ConnectorTelemetryEvent:
+        event = ConnectorTelemetryEvent(
+            connector_id=connector_id,
+            event_name=event_name,
+            severity=severity,
+            message=message,
+            metadata_json=metadata or {},
+        )
+        self.db.add(event)
+        self.db.commit()
+        self.db.refresh(event)
+        return event
+
+    def list_telemetry(self, connector_id: str | None = None, limit: int = 100) -> tuple[list[ConnectorTelemetryEvent], int]:
+        query = self.db.query(ConnectorTelemetryEvent)
+        if connector_id:
+            query = query.filter(ConnectorTelemetryEvent.connector_id == connector_id)
+        total = query.count()
+        items = (
+            query.order_by(ConnectorTelemetryEvent.created_at.desc(), ConnectorTelemetryEvent.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return items, total

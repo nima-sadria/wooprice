@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -12,7 +13,6 @@ from sqlalchemy.pool import StaticPool
 from app.beta.app import app
 from app.beta.database import BetaBase, get_db
 from app.beta.integrations.contracts import ConnectorHealthStatus
-from app.beta.integrations.models import ConnectorHealthSnapshot, ConnectorInstance, ConnectorSetting
 from app.beta.integrations.registry import registry
 
 
@@ -103,6 +103,78 @@ def test_connector_instance_settings_mask_secrets():
         assert settings["consumer_secret"]["configured"] is True
 
 
+def test_connector_creation_populates_source_and_telemetry():
+    with _client() as client:
+        created = client.post(
+            "/api/v2/integrations/connectors",
+            json={"connector_type": "nextcloud", "id": "nc-main", "name": "Price sheet"},
+        )
+        assert created.status_code == 201
+
+        sources = client.get("/api/v2/sources")
+        assert sources.status_code == 200
+        source_items = sources.json()["items"]
+        assert len(source_items) == 1
+        assert source_items[0]["connector_id"] == "nc-main"
+        assert source_items[0]["type"] == "nextcloud"
+
+        telemetry = client.get("/api/v2/integrations/telemetry")
+        assert telemetry.status_code == 200
+        assert telemetry.json()["items"][0]["event_name"] == "connector_created"
+
+
+def test_products_are_read_from_integration_data_layer_only():
+    with _client() as client:
+        response = client.get("/api/v2/products")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["items"] == []
+        assert data["runtime_write_blocked"] is True
+
+
+def test_workspace_summary_is_read_only():
+    with _client() as client:
+        client.post(
+            "/api/v2/integrations/connectors",
+            json={"connector_type": "woocommerce", "id": "wc-main", "name": "Main store"},
+        )
+        response = client.get("/api/v2/workspace")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["connector_count"] == 1
+    assert data["runtime_write_blocked"] is True
+    assert data["apply_available"] is False
+    assert data["scheduler_available"] is False
+    assert data["pricing_automation_available"] is False
+
+
+def test_diagnostics_do_not_perform_external_calls():
+    with _client() as client:
+        response = client.post("/api/v2/diagnostics/run", json={"target": "woocommerce"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["summary"].endswith("without direct external connector calls.")
+    assert all(check["details"]["external_call_performed"] is False for check in data["checks"])
+
+
+def test_settings_are_read_only_and_secret_safe():
+    with _client() as client:
+        client.post(
+            "/api/v2/integrations/connectors",
+            json={"connector_type": "woocommerce", "id": "wc-main", "name": "Main store"},
+        )
+        client.patch(
+            "/api/v2/integrations/connectors/wc-main/settings",
+            json={"settings": [{"key": "consumer_secret", "value": "cs_secret", "secret": True}]},
+        )
+        listed = client.get("/api/v2/config")
+        blocked = client.put("/api/v2/config/connector.wc-main.consumer_secret", json={"value": "new"})
+    assert listed.status_code == 200
+    assert listed.json()[0]["current_value"] == "configured"
+    assert "cs_secret" not in str(listed.json())
+    assert blocked.status_code == 403
+
+
 def test_no_write_execution_routes_are_exposed():
     paths = [route.path.lower() for route in app.routes if hasattr(route, "path")]
     integration_paths = [p for p in paths if "/api/v2/integrations" in p]
@@ -110,3 +182,21 @@ def test_no_write_execution_routes_are_exposed():
     assert "apply" not in joined
     assert "execute" not in joined
     assert "scheduler" not in joined
+
+
+def test_beta_v2_routers_do_not_import_direct_external_clients():
+    root = Path("app/beta/api/v2")
+    forbidden = (
+        "app.services.woocommerce",
+        "app.services.nextcloud",
+        "httpx",
+        "download_xlsx",
+        "fetch_all_products",
+    )
+    offenders: list[str] = []
+    for path in root.glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            if token in text:
+                offenders.append(f"{path}:{token}")
+    assert offenders == []

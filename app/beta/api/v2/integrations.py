@@ -18,6 +18,7 @@ from app.beta.integrations.contracts import (
     ConnectorRegistryResponse,
     ConnectorSettingValue,
     ConnectorSettingsUpdateRequest,
+    ConnectorTelemetryResponse,
 )
 from app.beta.integrations.service import IntegrationService
 
@@ -89,3 +90,12 @@ async def update_connector_settings(
     service: IntegrationService = Depends(_service),
 ) -> ConnectorInstanceShape:
     return service.update_settings(connector_id, body.settings)
+
+
+@router.get("/telemetry", response_model=ConnectorTelemetryResponse)
+async def list_connector_telemetry(
+    connector_id: str | None = None,
+    limit: int = 100,
+    service: IntegrationService = Depends(_service),
+) -> ConnectorTelemetryResponse:
+    return service.telemetry(connector_id=connector_id, limit=limit)

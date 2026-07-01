@@ -1,18 +1,17 @@
-"""WooPrice Beta — /api/v2/config router (CP1.3 contract stubs).
+"""WooPrice Beta /api/v2/config router.
 
-Runtime configuration read and update endpoints.
-Admin permission required for write operations.
-
-Contract shape defined in CP1.3.  Live implementation in B8 (UI) when the
-RuntimeConfigService is wired into the FastAPI application lifecycle.
-
-Authentication note: All endpoints require a valid JWT.
-Auth middleware implemented in B7.
+Read-only settings surface for Integration Platform connector settings. Writes
+remain disabled in this wiring increment.
 """
 
-from fastapi import APIRouter
-from pydantic import BaseModel
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.beta.database import get_db
+from app.beta.integrations.service import IntegrationService
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -38,31 +37,35 @@ class ConfigSetResponse(BaseModel):
 
 
 @router.get("", response_model=list[ConfigRecordShape])
-async def list_editable_config() -> list[ConfigRecordShape]:
-    """Return all editable runtime configuration fields.
-
-    JWT authentication required (enforced in B7).
-    Live implementation in B8.
-    """
-    raise NotImplementedError("Config list endpoint implemented in B8.")
+async def list_editable_config(db: Session = Depends(get_db)) -> list[ConfigRecordShape]:
+    records: list[ConfigRecordShape] = []
+    for connector in IntegrationService(db).settings_summary():
+        for setting in connector.settings:
+            records.append(
+                ConfigRecordShape(
+                    field_name=f"connector.{connector.connector_id}.{setting.key}",
+                    current_value="configured" if setting.secret and setting.configured else str(setting.value or ""),
+                    is_editable=False,
+                    is_secret=setting.secret,
+                    is_installer_only=False,
+                    description=f"{connector.name} connector setting",
+                )
+            )
+    return records
 
 
 @router.get("/{field_name}", response_model=ConfigRecordShape)
-async def get_config_field(field_name: str) -> ConfigRecordShape:
-    """Return a single configuration field value.
-
-    JWT authentication required (enforced in B7).
-    Live implementation in B8.
-    """
-    raise NotImplementedError("Config get endpoint implemented in B8.")
+async def get_config_field(field_name: str, db: Session = Depends(get_db)) -> ConfigRecordShape:
+    records = await list_editable_config(db)
+    for record in records:
+        if record.field_name == field_name:
+            return record
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Configuration field not found.")
 
 
 @router.put("/{field_name}", response_model=ConfigSetResponse)
 async def set_config_field(field_name: str, body: ConfigSetRequest) -> ConfigSetResponse:
-    """Update an editable runtime configuration field.
-
-    Admin permission required (enforced in B7).
-    Validates before writing. Rejects secrets and installer-only fields.
-    Live implementation in B8.
-    """
-    raise NotImplementedError("Config set endpoint implemented in B8.")
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        "Runtime connector settings writes are disabled in FlowHub Beta.",
+    )

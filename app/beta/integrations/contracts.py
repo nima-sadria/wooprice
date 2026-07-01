@@ -84,6 +84,74 @@ class ConnectorInstanceShape(BaseModel):
     updated_at: str | None = None
 
 
+class ConnectorProductShape(BaseModel):
+    id: str
+    connector_id: str
+    external_id: str
+    name: str
+    sku: str | None = None
+    current_price: float | None = None
+    inventory_quantity: int | None = None
+    category_names: list[str] = Field(default_factory=list)
+    updated_at: str | None = None
+
+
+class ConnectorProductListResponse(BaseModel):
+    items: list[ConnectorProductShape]
+    total: int
+    page: int
+    page_size: int
+    runtime_write_blocked: bool = True
+
+
+class ConnectorSourceShape(BaseModel):
+    id: str
+    connector_id: str
+    name: str
+    type: str
+    status: ConnectorHealthStatus
+    last_synced_at: str | None = None
+    product_count: int = 0
+
+
+class ConnectorSourceListResponse(BaseModel):
+    items: list[ConnectorSourceShape]
+    runtime_write_blocked: bool = True
+
+
+class WorkspaceIntegrationSummary(BaseModel):
+    source_count: int
+    product_count: int
+    connector_count: int
+    runtime_write_blocked: bool = True
+    apply_available: bool = False
+    scheduler_available: bool = False
+    pricing_automation_available: bool = False
+
+
+class IntegrationSettingsSummary(BaseModel):
+    connector_id: str
+    connector_type: str
+    name: str
+    settings: list[ConnectorSettingValue]
+    runtime_write_blocked: bool = True
+
+
+class ConnectorTelemetryShape(BaseModel):
+    id: int
+    connector_id: str
+    event_name: str
+    severity: str
+    message: str
+    created_at: str
+    metadata: dict = Field(default_factory=dict)
+
+
+class ConnectorTelemetryResponse(BaseModel):
+    items: list[ConnectorTelemetryShape]
+    total: int
+
+
 class DiagnosticCheckContract(BaseModel):
     name: str
     category: str
